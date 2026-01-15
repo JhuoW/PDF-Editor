@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useAnnotationStore } from '../../store/annotationStore';
+import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
 import {
   createInkAnnotation,
   createRectangleAnnotation,
@@ -38,16 +39,22 @@ export function DrawingAnnotationLayer({
   const [startPoint, setStartPoint] = useState<Point | null>(null);
   const [currentPath, setCurrentPath] = useState<Point[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const {
     currentTool,
     toolSettings,
     getAnnotationsForPage,
     addAnnotation,
+    updateAnnotation,
     selectedAnnotationId,
     selectAnnotation,
     deleteAnnotation,
   } = useAnnotationStore();
+
+  const { recordAdd, recordUpdate, recordDelete } = useAnnotationHistoryStore();
 
   const annotations = getAnnotationsForPage(pageNumber);
 
@@ -698,7 +705,7 @@ export function DrawingAnnotationLayer({
         break;
       }
       case 'stamp': {
-        const selectedStamp = (window as any).__selectedStamp || {
+        const selectedStamp = (window as unknown as { __selectedStamp?: { type: 'predefined' | 'custom'; name: string; imageData?: string } }).__selectedStamp || {
           type: 'predefined',
           name: 'Approved',
         };
@@ -717,6 +724,7 @@ export function DrawingAnnotationLayer({
 
     if (annotation) {
       addAnnotation(annotation);
+      recordAdd(annotation);
     }
 
     setIsDrawing(false);
@@ -724,9 +732,50 @@ export function DrawingAnnotationLayer({
     setCurrentPath([]);
   };
 
+  // Handle double-click to edit text box
+  const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (currentTool !== 'select') return;
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Check if double-click is on a freetext annotation
+    for (const annotation of annotations) {
+      if (annotation.type === 'freetext' && isPointInAnnotation(x, y, annotation)) {
+        setEditingAnnotationId(annotation.id);
+        setEditingContent(annotation.content || '');
+        selectAnnotation(annotation.id);
+        // Focus textarea after state update
+        setTimeout(() => textareaRef.current?.focus(), 0);
+        return;
+      }
+    }
+  };
+
+  // Finish editing text box
+  const finishEditing = () => {
+    if (!editingAnnotationId) return;
+
+    const annotation = annotations.find((a) => a.id === editingAnnotationId);
+    if (annotation && annotation.type === 'freetext') {
+      const previousState = { ...annotation };
+      updateAnnotation(editingAnnotationId, { content: editingContent });
+      recordUpdate({ ...annotation, content: editingContent }, previousState);
+    }
+
+    setEditingAnnotationId(null);
+    setEditingContent('');
+  };
+
   // Handle click for selection
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (currentTool !== 'select') return;
+
+    // Don't handle click if we're editing
+    if (editingAnnotationId) return;
 
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -826,14 +875,42 @@ export function DrawingAnnotationLayer({
   // Handle keyboard for delete
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't delete while editing text
+      if (editingAnnotationId) return;
+
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
-        deleteAnnotation(selectedAnnotationId);
+        const annotation = annotations.find((a) => a.id === selectedAnnotationId);
+        if (annotation) {
+          recordDelete(annotation);
+          deleteAnnotation(selectedAnnotationId);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, deleteAnnotation]);
+  }, [selectedAnnotationId, deleteAnnotation, editingAnnotationId, annotations, recordDelete]);
+
+  // Get the position and size of the editing annotation for textarea overlay
+  const getEditingAnnotationRect = () => {
+    if (!editingAnnotationId) return null;
+    const annotation = annotations.find((a) => a.id === editingAnnotationId);
+    if (!annotation || annotation.type !== 'freetext') return null;
+
+    const { rect, fontSize } = annotation;
+    const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
+    const bottomRight = pdfToScreenCoords(rect[0] + rect[2], rect[1]);
+
+    return {
+      left: topLeft.x,
+      top: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y,
+      fontSize: fontSize * scale,
+    };
+  };
+
+  const editingRect = getEditingAnnotationRect();
 
   return (
     <div
@@ -844,8 +921,44 @@ export function DrawingAnnotationLayer({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
     >
       <canvas ref={canvasRef} className="annotation-canvas" />
+      {editingAnnotationId && editingRect && (
+        <textarea
+          ref={textareaRef}
+          className="freetext-editor"
+          style={{
+            position: 'absolute',
+            left: editingRect.left,
+            top: editingRect.top,
+            width: editingRect.width,
+            height: editingRect.height,
+            fontSize: editingRect.fontSize,
+            fontFamily: 'Helvetica, sans-serif',
+            padding: '4px',
+            border: '2px solid #0066FF',
+            borderRadius: '2px',
+            resize: 'none',
+            overflow: 'hidden',
+            background: 'white',
+            outline: 'none',
+            boxSizing: 'border-box',
+          }}
+          value={editingContent}
+          onChange={(e) => setEditingContent(e.target.value)}
+          onBlur={finishEditing}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setEditingAnnotationId(null);
+              setEditingContent('');
+            } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              finishEditing();
+            }
+            e.stopPropagation();
+          }}
+        />
+      )}
     </div>
   );
 }

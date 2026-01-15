@@ -24,6 +24,7 @@ import {
 } from './core/PDFManipulator';
 import { loadCurrentPDF, saveCurrentPDF } from './utils/pdfStorage';
 import { useAnnotationStore } from './store/annotationStore';
+import { useAnnotationHistoryStore } from './store/annotationHistoryStore';
 import { useFormStore } from './store/formStore';
 import { serializeAnnotationsToPDF } from './annotations/AnnotationSerializer';
 import { extractFormFields, updateFormFieldValues } from './forms/FormFieldExtractor';
@@ -71,7 +72,14 @@ function App() {
 
   const { sidebarOpen, searchOpen, toggleSidebar, toggleSearch } = useUIStore();
   const { query: searchQuery, clearSearch, getCurrentResult } = useSearchStore();
-  const { annotations: annotationMap } = useAnnotationStore();
+  const { annotations: annotationMap, addAnnotation, deleteAnnotation, updateAnnotation } = useAnnotationStore();
+  const {
+    undo: annotationUndo,
+    redo: annotationRedo,
+    canUndo: canUndoAnnotation,
+    canRedo: canRedoAnnotation,
+    clear: clearAnnotationHistory,
+  } = useAnnotationHistoryStore();
   const { fields: formFields, setFields: setFormFields, resetToOriginal: resetFormToOriginal, clearForm } = useFormStore();
   const { redactions, markRedactionApplied } = useEditingStore();
   const {
@@ -95,6 +103,7 @@ function App() {
   useEffect(() => {
     if (!document) {
       clearHistory();
+      clearAnnotationHistory();
       isInitialLoad.current = true;
       return;
     }
@@ -226,6 +235,31 @@ function App() {
 
   // Handle undo action
   const handleUndo = useCallback(async () => {
+    // First check if there's an annotation operation to undo
+    if (canUndoAnnotation()) {
+      const entry = annotationUndo();
+      if (entry) {
+        switch (entry.type) {
+          case 'add':
+            // Undo add = delete the annotation
+            deleteAnnotation(entry.annotation.id);
+            break;
+          case 'update':
+            // Undo update = restore previous state
+            if (entry.previousState) {
+              updateAnnotation(entry.annotation.id, entry.previousState);
+            }
+            break;
+          case 'delete':
+            // Undo delete = re-add the annotation
+            addAnnotation(entry.annotation);
+            break;
+        }
+        return;
+      }
+    }
+
+    // Fall back to document history
     const snapshot = historyUndo();
     if (!snapshot) return;
 
@@ -245,10 +279,33 @@ function App() {
       console.error('Failed to undo:', err);
       setUndoRedoInProgress(false);
     }
-  }, [historyUndo, loadFromFile, setUndoRedoInProgress]);
+  }, [historyUndo, loadFromFile, setUndoRedoInProgress, canUndoAnnotation, annotationUndo, deleteAnnotation, updateAnnotation, addAnnotation]);
 
   // Handle redo action
   const handleRedo = useCallback(async () => {
+    // First check if there's an annotation operation to redo
+    if (canRedoAnnotation()) {
+      const entry = annotationRedo();
+      if (entry) {
+        switch (entry.type) {
+          case 'add':
+            // Redo add = re-add the annotation
+            addAnnotation(entry.annotation);
+            break;
+          case 'update':
+            // Redo update = apply the updated state
+            updateAnnotation(entry.annotation.id, entry.annotation);
+            break;
+          case 'delete':
+            // Redo delete = delete the annotation again
+            deleteAnnotation(entry.annotation.id);
+            break;
+        }
+        return;
+      }
+    }
+
+    // Fall back to document history
     const snapshot = historyRedo();
     if (!snapshot) return;
 
@@ -268,7 +325,7 @@ function App() {
       console.error('Failed to redo:', err);
       setUndoRedoInProgress(false);
     }
-  }, [historyRedo, loadFromFile, setUndoRedoInProgress]);
+  }, [historyRedo, loadFromFile, setUndoRedoInProgress, canRedoAnnotation, annotationRedo, addAnnotation, updateAnnotation, deleteAnnotation]);
 
   // Handle page rotation
   const handleRotatePages = useCallback(async (pages: number[], degrees: 90 | -90 | 180) => {
@@ -533,6 +590,7 @@ function App() {
 
       // Clear all history stacks but keep original
       clearHistory();
+      clearAnnotationHistory();
       setOriginalDocument(original.data, original.fileName);
 
       setUndoRedoInProgress(false);
@@ -541,7 +599,7 @@ function App() {
       console.error('Failed to reset to original:', err);
       setUndoRedoInProgress(false);
     }
-  }, [getOriginalDocument, loadFromFile, clearHistory, setOriginalDocument, setUndoRedoInProgress]);
+  }, [getOriginalDocument, loadFromFile, clearHistory, clearAnnotationHistory, setOriginalDocument, setUndoRedoInProgress]);
 
   // Handle close document - clear everything and return to empty state
   const handleCloseDocument = useCallback(async () => {
@@ -552,6 +610,7 @@ function App() {
 
       // Clear all state
       clearHistory();
+      clearAnnotationHistory();
 
       // Reset to initial load state
       isInitialLoad.current = true;
@@ -561,7 +620,7 @@ function App() {
     } catch (err) {
       console.error('Failed to close document:', err);
     }
-  }, [clearHistory]);
+  }, [clearHistory, clearAnnotationHistory]);
 
   // Check if we can reset to original (has original and has made changes)
   const canResetToOriginal = useCallback(() => {
@@ -878,8 +937,8 @@ function App() {
           hasDocument={!!document}
           onUndo={handleUndo}
           onRedo={handleRedo}
-          canUndo={canUndo()}
-          canRedo={canRedo()}
+          canUndo={canUndo() || canUndoAnnotation()}
+          canRedo={canRedo() || canRedoAnnotation()}
           undoActionName={getUndoActionName()}
           redoActionName={getRedoActionName()}
           onResetToOriginal={() => setResetDialogOpen(true)}
