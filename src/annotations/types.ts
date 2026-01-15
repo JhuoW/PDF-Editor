@@ -34,18 +34,65 @@ export interface TextMarkupAnnotation extends BaseAnnotation {
   selectedText?: string;
 }
 
+// Text style for freetext annotations
+export interface TextStyle {
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: 'normal' | 'bold';
+  fontStyle: 'normal' | 'italic';
+  textDecoration: 'none' | 'underline';
+  textAlign: 'left' | 'center' | 'right' | 'justify';
+  color: string;
+  backgroundColor: string; // 'transparent' or hex color
+  borderColor: string;
+  borderWidth: number;
+}
+
 // Free text annotation (text box)
 export interface FreeTextAnnotation extends BaseAnnotation {
   type: 'freetext';
   rect: [number, number, number, number]; // [x, y, width, height] in PDF coordinates
   content: string;
-  fontSize: number;
-  fontFamily: string;
-  textColor: string;
+  style: TextStyle;
+  // Legacy fields for backward compatibility
+  fontSize?: number;
+  fontFamily?: string;
+  textColor?: string;
   backgroundColor?: string;
   borderColor?: string;
-  borderWidth: number;
+  borderWidth?: number;
 }
+
+// Default text style
+export const DEFAULT_TEXT_STYLE: TextStyle = {
+  fontFamily: 'Helvetica',
+  fontSize: 14,
+  fontWeight: 'normal',
+  fontStyle: 'normal',
+  textDecoration: 'none',
+  textAlign: 'left',
+  color: '#000000',
+  backgroundColor: 'transparent',
+  borderColor: '#0066FF',
+  borderWidth: 0, // No border by default for cleaner look
+};
+
+// Available fonts for text boxes
+export const AVAILABLE_FONTS = [
+  'Helvetica',
+  'Times-Roman',
+  'Courier',
+  'Arial',
+  'Georgia',
+  'Verdana',
+  'Tahoma',
+  'Trebuchet MS',
+  'Impact',
+  'Comic Sans MS',
+] as const;
+
+// Font size presets
+export const FONT_SIZE_PRESETS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72] as const;
 
 // Ink annotation (freehand drawing)
 export interface InkAnnotation extends BaseAnnotation {

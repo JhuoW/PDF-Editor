@@ -1,7 +1,7 @@
 /**
  * Annotation Serializer - Saves annotations to PDF using pdf-lib
  */
-import { PDFDocument, PDFPage, rgb } from 'pdf-lib';
+import { PDFDocument, PDFPage, rgb, StandardFonts } from 'pdf-lib';
 import type {
   Annotation,
   TextMarkupAnnotation,
@@ -12,7 +12,9 @@ import type {
   StickyNoteAnnotation,
   StampAnnotation,
   FreeTextAnnotation,
+  TextStyle,
 } from './types';
+import { DEFAULT_TEXT_STYLE } from './types';
 
 // Convert hex color to RGB values (0-1 range)
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -27,6 +29,37 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return { r: 0, g: 0, b: 0 };
 }
 
+// Map font family names to Standard PDF fonts
+function mapFontToStandard(fontFamily: string, fontWeight: string, fontStyle: string): StandardFonts {
+  const isBold = fontWeight === 'bold';
+  const isItalic = fontStyle === 'italic';
+
+  // Normalize font family
+  const normalizedFont = fontFamily.toLowerCase().replace(/[^a-z]/g, '');
+
+  // Times/Times New Roman
+  if (normalizedFont.includes('times') || normalizedFont.includes('roman')) {
+    if (isBold && isItalic) return StandardFonts.TimesRomanBoldItalic;
+    if (isBold) return StandardFonts.TimesRomanBold;
+    if (isItalic) return StandardFonts.TimesRomanItalic;
+    return StandardFonts.TimesRoman;
+  }
+
+  // Courier
+  if (normalizedFont.includes('courier') || normalizedFont.includes('mono')) {
+    if (isBold && isItalic) return StandardFonts.CourierBoldOblique;
+    if (isBold) return StandardFonts.CourierBold;
+    if (isItalic) return StandardFonts.CourierOblique;
+    return StandardFonts.Courier;
+  }
+
+  // Default to Helvetica (covers Arial, Helvetica, sans-serif, etc.)
+  if (isBold && isItalic) return StandardFonts.HelveticaBoldOblique;
+  if (isBold) return StandardFonts.HelveticaBold;
+  if (isItalic) return StandardFonts.HelveticaOblique;
+  return StandardFonts.Helvetica;
+}
+
 /**
  * Serialize annotations to a PDF document
  * Returns a new PDF with annotations embedded
@@ -38,6 +71,9 @@ export async function serializeAnnotationsToPDF(
   const pdfDoc = await PDFDocument.load(pdfData);
   const pages = pdfDoc.getPages();
 
+  // Embed standard fonts that might be used
+  const embeddedFonts = new Map<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>>();
+
   // Process each page's annotations
   for (const [pageNumber, pageAnnotations] of annotations) {
     const pageIndex = pageNumber - 1;
@@ -46,7 +82,7 @@ export async function serializeAnnotationsToPDF(
     const page = pages[pageIndex];
 
     for (const annotation of pageAnnotations) {
-      await addAnnotationToPage(page, annotation);
+      await addAnnotationToPage(pdfDoc, page, annotation, embeddedFonts);
     }
   }
 
@@ -56,7 +92,12 @@ export async function serializeAnnotationsToPDF(
 /**
  * Add a single annotation to a PDF page
  */
-async function addAnnotationToPage(page: PDFPage, annotation: Annotation): Promise<void> {
+async function addAnnotationToPage(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  annotation: Annotation,
+  embeddedFonts: Map<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>>
+): Promise<void> {
   switch (annotation.type) {
     case 'highlight':
     case 'underline':
@@ -83,7 +124,7 @@ async function addAnnotationToPage(page: PDFPage, annotation: Annotation): Promi
       addStampAnnotation(page, annotation);
       break;
     case 'freetext':
-      addFreeTextAnnotation(page, annotation);
+      await addFreeTextAnnotation(pdfDoc, page, annotation, embeddedFonts);
       break;
   }
 }
@@ -302,15 +343,50 @@ function addStampAnnotation(page: PDFPage, annotation: StampAnnotation): void {
 }
 
 /**
- * Add free text annotation
+ * Get style from annotation (handle legacy format)
  */
-function addFreeTextAnnotation(page: PDFPage, annotation: FreeTextAnnotation): void {
-  const { rect, content, fontSize, textColor, backgroundColor, borderColor, borderWidth } = annotation;
-  const text = hexToRgb(textColor);
+function getAnnotationStyle(annotation: FreeTextAnnotation): TextStyle {
+  if (annotation.style) {
+    return annotation.style;
+  }
+  // Legacy format conversion
+  return {
+    ...DEFAULT_TEXT_STYLE,
+    fontSize: annotation.fontSize || DEFAULT_TEXT_STYLE.fontSize,
+    fontFamily: annotation.fontFamily || DEFAULT_TEXT_STYLE.fontFamily,
+    color: annotation.textColor || annotation.color || DEFAULT_TEXT_STYLE.color,
+    backgroundColor: annotation.backgroundColor || 'transparent',
+    borderColor: annotation.borderColor || DEFAULT_TEXT_STYLE.borderColor,
+    borderWidth: annotation.borderWidth || DEFAULT_TEXT_STYLE.borderWidth,
+  };
+}
+
+/**
+ * Add free text annotation with full styling support
+ */
+async function addFreeTextAnnotation(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  annotation: FreeTextAnnotation,
+  embeddedFonts: Map<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>>
+): Promise<void> {
+  const { rect, content } = annotation;
+  const style = getAnnotationStyle(annotation);
+
+  // Get or embed the required font
+  const fontKey = `${style.fontFamily}-${style.fontWeight}-${style.fontStyle}`;
+  let font = embeddedFonts.get(fontKey);
+  if (!font) {
+    const standardFont = mapFontToStandard(style.fontFamily, style.fontWeight, style.fontStyle);
+    font = await pdfDoc.embedFont(standardFont);
+    embeddedFonts.set(fontKey, font);
+  }
+
+  const textColor = hexToRgb(style.color);
 
   // Draw background if set
-  if (backgroundColor) {
-    const bg = hexToRgb(backgroundColor);
+  if (style.backgroundColor && style.backgroundColor !== 'transparent') {
+    const bg = hexToRgb(style.backgroundColor);
     page.drawRectangle({
       x: rect[0],
       y: rect[1],
@@ -321,29 +397,82 @@ function addFreeTextAnnotation(page: PDFPage, annotation: FreeTextAnnotation): v
   }
 
   // Draw border if set
-  if (borderColor && borderWidth > 0) {
-    const border = hexToRgb(borderColor);
+  if (style.borderWidth > 0) {
+    const border = hexToRgb(style.borderColor);
     page.drawRectangle({
       x: rect[0],
       y: rect[1],
       width: rect[2],
       height: rect[3],
       borderColor: rgb(border.r, border.g, border.b),
-      borderWidth: borderWidth,
+      borderWidth: style.borderWidth,
     });
   }
 
-  // Draw text
-  const lines = content.split('\n');
-  let y = rect[1] + rect[3] - fontSize - 4;
-  for (const line of lines) {
+  // Calculate text position based on alignment
+  const fontSize = style.fontSize;
+  const lineHeight = fontSize * 1.2;
+  const padding = 4;
+
+  // Word wrap the text
+  const maxWidth = rect[2] - padding * 2;
+  const wrappedLines: string[] = [];
+
+  const inputLines = content.split('\n');
+  for (const inputLine of inputLines) {
+    const words = inputLine.split(' ');
+    let currentLine = '';
+
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const textWidth = font.widthOfTextAtSize(testLine, fontSize);
+
+      if (textWidth > maxWidth && currentLine) {
+        wrappedLines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) {
+      wrappedLines.push(currentLine);
+    }
+  }
+
+  // Draw text lines
+  let y = rect[1] + rect[3] - fontSize - padding;
+  for (const line of wrappedLines) {
     if (y < rect[1]) break;
+
+    // Calculate x position based on alignment
+    let x = rect[0] + padding;
+    if (style.textAlign === 'center') {
+      const lineWidth = font.widthOfTextAtSize(line, fontSize);
+      x = rect[0] + (rect[2] - lineWidth) / 2;
+    } else if (style.textAlign === 'right') {
+      const lineWidth = font.widthOfTextAtSize(line, fontSize);
+      x = rect[0] + rect[2] - lineWidth - padding;
+    }
+
     page.drawText(line, {
-      x: rect[0] + 4,
+      x: x,
       y: y,
       size: fontSize,
-      color: rgb(text.r, text.g, text.b),
+      font: font,
+      color: rgb(textColor.r, textColor.g, textColor.b),
     });
-    y -= fontSize * 1.2;
+
+    // Draw underline if needed
+    if (style.textDecoration === 'underline') {
+      const lineWidth = font.widthOfTextAtSize(line, fontSize);
+      page.drawLine({
+        start: { x: x, y: y - 2 },
+        end: { x: x + lineWidth, y: y - 2 },
+        color: rgb(textColor.r, textColor.g, textColor.b),
+        thickness: 1,
+      });
+    }
+
+    y -= lineHeight;
   }
 }

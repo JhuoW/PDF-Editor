@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useAnnotationStore } from '../../store/annotationStore';
+import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
 import {
   createHighlightAnnotation,
   createUnderlineAnnotation,
@@ -24,6 +25,7 @@ export function TextSelectionHandler({
   containerRef,
 }: TextSelectionHandlerProps) {
   const { currentTool, toolSettings, addAnnotation } = useAnnotationStore();
+  const { recordAdd } = useAnnotationHistoryStore();
 
   // Check if current tool is a text markup tool
   const isTextMarkupTool =
@@ -122,6 +124,7 @@ export function TextSelectionHandler({
 
     if (annotation) {
       addAnnotation(annotation);
+      recordAdd(annotation); // Record for undo/redo
     }
 
     // Clear selection
@@ -136,6 +139,7 @@ export function TextSelectionHandler({
     rotation,
     containerRef,
     addAnnotation,
+    recordAdd,
   ]);
 
   // Listen for mouseup events

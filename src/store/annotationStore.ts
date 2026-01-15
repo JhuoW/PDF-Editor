@@ -10,8 +10,9 @@ import type {
   StickyNoteAnnotation,
   StampAnnotation,
   FreeTextAnnotation,
+  TextStyle,
 } from '../annotations/types';
-import { DEFAULT_COLORS } from '../annotations/types';
+import { DEFAULT_COLORS, DEFAULT_TEXT_STYLE } from '../annotations/types';
 
 interface AnnotationState {
   // All annotations indexed by page number
@@ -28,8 +29,7 @@ interface AnnotationState {
     color: string;
     opacity: number;
     strokeWidth: number;
-    fontSize: number;
-    fontFamily: string;
+    textStyle: TextStyle;
   };
 
   // Custom stamps library
@@ -62,8 +62,7 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     color: DEFAULT_COLORS.highlight,
     opacity: 0.5,
     strokeWidth: 2,
-    fontSize: 12,
-    fontFamily: 'Helvetica',
+    textStyle: { ...DEFAULT_TEXT_STYLE },
   },
   customStamps: [],
 
@@ -366,20 +365,20 @@ export function createFreeTextAnnotation(
   pageNumber: number,
   rect: [number, number, number, number],
   content: string = '',
-  fontSize: number = 12,
-  textColor: string = '#000000'
+  styleOverrides: Partial<TextStyle> = {}
 ): FreeTextAnnotation {
+  const style: TextStyle = {
+    ...DEFAULT_TEXT_STYLE,
+    ...styleOverrides,
+  };
   return {
     id: generateId(),
     type: 'freetext',
     pageNumber,
     rect,
     content,
-    fontSize,
-    fontFamily: 'Helvetica',
-    textColor,
-    borderWidth: 1,
-    color: textColor,
+    style,
+    color: style.color,
     opacity: 1,
     createdAt: new Date(),
     modifiedAt: new Date(),

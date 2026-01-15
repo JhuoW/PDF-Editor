@@ -11,8 +11,10 @@ import {
   createStampAnnotation,
   createFreeTextAnnotation,
 } from '../../store/annotationStore';
-import type { Annotation } from '../../annotations/types';
+import type { Annotation, FreeTextAnnotation, TextStyle } from '../../annotations/types';
+import { DEFAULT_TEXT_STYLE } from '../../annotations/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
+import { TextFormatToolbar } from '../Toolbar/TextFormatToolbar';
 import './DrawingAnnotationLayer.css';
 
 interface DrawingAnnotationLayerProps {
@@ -27,6 +29,8 @@ interface Point {
   y: number;
 }
 
+type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null;
+
 export function DrawingAnnotationLayer({
   page,
   pageNumber,
@@ -39,9 +43,28 @@ export function DrawingAnnotationLayer({
   const [startPoint, setStartPoint] = useState<Point | null>(null);
   const [currentPath, setCurrentPath] = useState<Point[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  // Text editing state
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState<Point | null>(null);
+  const [dragAnnotationStart, setDragAnnotationStart] = useState<[number, number] | null>(null);
+
+  // Resize state
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<ResizeHandle>(null);
+  const [resizeStart, setResizeStart] = useState<Point | null>(null);
+  const [resizeAnnotationRect, setResizeAnnotationRect] = useState<[number, number, number, number] | null>(null);
+
+  // Store original annotation state for undo (before drag/resize modifications)
+  const originalAnnotationRef = useRef<Annotation | null>(null);
+
+  // Ref to track if we just finished drag/resize (for click handler)
+  const justFinishedInteraction = useRef(false);
 
   const {
     currentTool,
@@ -57,6 +80,7 @@ export function DrawingAnnotationLayer({
   const { recordAdd, recordUpdate, recordDelete } = useAnnotationHistoryStore();
 
   const annotations = getAnnotationsForPage(pageNumber);
+  const selectedAnnotation = annotations.find(a => a.id === selectedAnnotationId);
 
   // Calculate effective rotation and viewport
   useEffect(() => {
@@ -71,11 +95,8 @@ export function DrawingAnnotationLayer({
     (screenX: number, screenY: number): Point => {
       const effectiveRotation = getEffectiveRotation(page, rotation);
       const viewport = page.getViewport({ scale, rotation: effectiveRotation });
-
-      // Get coordinates relative to the viewport
       const pdfX = screenX / scale;
-      const pdfY = (viewport.height - screenY) / scale; // PDF Y is from bottom
-
+      const pdfY = (viewport.height - screenY) / scale;
       return { x: pdfX, y: pdfY };
     },
     [page, scale, rotation]
@@ -86,42 +107,29 @@ export function DrawingAnnotationLayer({
     (pdfX: number, pdfY: number): Point => {
       const effectiveRotation = getEffectiveRotation(page, rotation);
       const viewport = page.getViewport({ scale, rotation: effectiveRotation });
-
       const screenX = pdfX * scale;
       const screenY = viewport.height - pdfY * scale;
-
       return { x: screenX, y: screenY };
     },
     [page, scale, rotation]
   );
 
-  // Render annotations on canvas
-  // Note: render functions are defined below but hoisted in the closure
-  /* eslint-disable react-hooks/immutability */
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = dimensions.width;
-    canvas.height = dimensions.height;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Render each annotation
-    for (const annotation of annotations) {
-      renderAnnotation(ctx, annotation, selectedAnnotationId === annotation.id);
+  // Get style from annotation (handle legacy format)
+  const getAnnotationStyle = (annotation: FreeTextAnnotation): TextStyle => {
+    if (annotation.style) {
+      return annotation.style;
     }
-
-    // Render current drawing preview
-    if (isDrawing && currentTool !== 'select') {
-      renderDrawingPreview(ctx);
-    }
-  }, [annotations, dimensions, scale, selectedAnnotationId, isDrawing, currentPath, startPoint, currentTool, toolSettings]);
-  /* eslint-enable react-hooks/immutability */
+    // Legacy format conversion
+    return {
+      ...DEFAULT_TEXT_STYLE,
+      fontSize: annotation.fontSize || DEFAULT_TEXT_STYLE.fontSize,
+      fontFamily: annotation.fontFamily || DEFAULT_TEXT_STYLE.fontFamily,
+      color: annotation.textColor || annotation.color || DEFAULT_TEXT_STYLE.color,
+      backgroundColor: annotation.backgroundColor || 'transparent',
+      borderColor: annotation.borderColor || DEFAULT_TEXT_STYLE.borderColor,
+      borderWidth: annotation.borderWidth || DEFAULT_TEXT_STYLE.borderWidth,
+    };
+  };
 
   // Render a single annotation
   const renderAnnotation = (
@@ -164,7 +172,7 @@ export function DrawingAnnotationLayer({
     ctx.restore();
   };
 
-  // Render text markup (highlight, underline, strikeout)
+  // Render text markup
   const renderTextMarkup = (
     ctx: CanvasRenderingContext2D,
     annotation: Annotation & { type: 'highlight' | 'underline' | 'strikeout' }
@@ -172,7 +180,6 @@ export function DrawingAnnotationLayer({
     const { quadPoints, color, opacity, type } = annotation;
 
     for (const quad of quadPoints) {
-      // quad is [x1,y1,x2,y2,x3,y3,x4,y4] - four corners of the quad
       const points = [];
       for (let i = 0; i < quad.length; i += 2) {
         const screen = pdfToScreenCoords(quad[i], quad[i + 1]);
@@ -190,7 +197,6 @@ export function DrawingAnnotationLayer({
         ctx.closePath();
         ctx.fill();
       } else if (type === 'underline') {
-        // Draw line at bottom of quad
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.globalAlpha = opacity;
@@ -199,7 +205,6 @@ export function DrawingAnnotationLayer({
         ctx.lineTo(points[1].x, points[1].y);
         ctx.stroke();
       } else if (type === 'strikeout') {
-        // Draw line through middle of quad
         const midY = (points[0].y + points[2].y) / 2;
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
@@ -320,7 +325,6 @@ export function DrawingAnnotationLayer({
     ctx.lineTo(endScreen.x, endScreen.y);
     ctx.stroke();
 
-    // Draw arrow head if needed
     if (endArrow || annotation.type === 'arrow') {
       const angle = Math.atan2(endScreen.y - startScreen.y, endScreen.x - startScreen.x);
       const arrowLength = 15;
@@ -341,7 +345,6 @@ export function DrawingAnnotationLayer({
     }
 
     if (isSelected) {
-      // Draw selection points at start and end
       ctx.fillStyle = '#0066FF';
       ctx.beginPath();
       ctx.arc(startScreen.x, startScreen.y, 5, 0, Math.PI * 2);
@@ -361,13 +364,11 @@ export function DrawingAnnotationLayer({
     const { position, color } = annotation;
     const screen = pdfToScreenCoords(position.x, position.y);
 
-    // Draw sticky note icon
     const size = 24;
     ctx.fillStyle = color;
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
 
-    // Draw note shape
     ctx.beginPath();
     ctx.moveTo(screen.x, screen.y);
     ctx.lineTo(screen.x + size, screen.y);
@@ -378,7 +379,6 @@ export function DrawingAnnotationLayer({
     ctx.fill();
     ctx.stroke();
 
-    // Draw corner fold
     ctx.beginPath();
     ctx.moveTo(screen.x + size - 6, screen.y + size);
     ctx.lineTo(screen.x + size - 6, screen.y + size - 6);
@@ -406,13 +406,10 @@ export function DrawingAnnotationLayer({
     const height = bottomRight.y - topLeft.y;
 
     if (stampType === 'custom' && customImageData) {
-      // Draw custom image stamp
       const img = new Image();
       img.src = customImageData;
-      // Note: This is async, might need to handle differently for proper rendering
       ctx.drawImage(img, topLeft.x, topLeft.y, width, height);
     } else {
-      // Draw predefined stamp as text
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = 3;
@@ -420,10 +417,7 @@ export function DrawingAnnotationLayer({
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // Draw border
       ctx.strokeRect(topLeft.x + 2, topLeft.y + 2, width - 4, height - 4);
-
-      // Draw text
       ctx.fillText(stampName.toUpperCase(), topLeft.x + width / 2, topLeft.y + height / 2);
     }
 
@@ -432,40 +426,120 @@ export function DrawingAnnotationLayer({
     }
   };
 
-  // Render free text
+  // Render free text with full styling
   const renderFreeText = (
     ctx: CanvasRenderingContext2D,
-    annotation: Annotation & { type: 'freetext' },
+    annotation: FreeTextAnnotation,
     isSelected: boolean
   ) => {
-    const { rect, content, fontSize, textColor, backgroundColor, borderColor, borderWidth } = annotation;
+    const { rect, content } = annotation;
+    const style = getAnnotationStyle(annotation);
+
     const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
     const bottomRight = pdfToScreenCoords(rect[0] + rect[2], rect[1]);
 
     const width = bottomRight.x - topLeft.x;
     const height = bottomRight.y - topLeft.y;
 
-    if (backgroundColor) {
-      ctx.fillStyle = backgroundColor;
+    // Draw background
+    if (style.backgroundColor && style.backgroundColor !== 'transparent') {
+      ctx.fillStyle = style.backgroundColor;
       ctx.fillRect(topLeft.x, topLeft.y, width, height);
     }
 
-    if (borderColor && borderWidth > 0) {
-      ctx.strokeStyle = borderColor;
-      ctx.lineWidth = borderWidth;
+    // Draw border
+    if (style.borderWidth > 0) {
+      ctx.strokeStyle = style.borderColor;
+      ctx.lineWidth = style.borderWidth;
       ctx.strokeRect(topLeft.x, topLeft.y, width, height);
     }
 
-    ctx.fillStyle = textColor;
-    ctx.font = `${fontSize * scale}px Helvetica`;
+    // Draw text
+    const fontSize = style.fontSize * scale;
+    let fontStyle = '';
+    if (style.fontWeight === 'bold') fontStyle += 'bold ';
+    if (style.fontStyle === 'italic') fontStyle += 'italic ';
+
+    ctx.font = `${fontStyle}${fontSize}px ${style.fontFamily}`;
+    ctx.fillStyle = style.color;
     ctx.textBaseline = 'top';
 
-    // Simple text wrapping
+    // Text alignment
+    let textX = topLeft.x + 4;
+    if (style.textAlign === 'center') {
+      ctx.textAlign = 'center';
+      textX = topLeft.x + width / 2;
+    } else if (style.textAlign === 'right') {
+      ctx.textAlign = 'right';
+      textX = topLeft.x + width - 4;
+    } else {
+      ctx.textAlign = 'left';
+    }
+
+    // Render text with word wrapping
     const lines = content.split('\n');
+    const lineHeight = fontSize * 1.2;
     let y = topLeft.y + 4;
+
     for (const line of lines) {
-      ctx.fillText(line, topLeft.x + 4, y);
-      y += fontSize * scale * 1.2;
+      // Word wrap
+      const words = line.split(' ');
+      let currentLine = '';
+
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const metrics = ctx.measureText(testLine);
+
+        if (metrics.width > width - 8 && currentLine) {
+          // Draw underline if needed
+          if (style.textDecoration === 'underline') {
+            const lineMetrics = ctx.measureText(currentLine);
+            const underlineY = y + fontSize;
+            ctx.beginPath();
+            if (style.textAlign === 'center') {
+              ctx.moveTo(textX - lineMetrics.width / 2, underlineY);
+              ctx.lineTo(textX + lineMetrics.width / 2, underlineY);
+            } else if (style.textAlign === 'right') {
+              ctx.moveTo(textX - lineMetrics.width, underlineY);
+              ctx.lineTo(textX, underlineY);
+            } else {
+              ctx.moveTo(textX, underlineY);
+              ctx.lineTo(textX + lineMetrics.width, underlineY);
+            }
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+          ctx.fillText(currentLine, textX, y);
+          currentLine = word;
+          y += lineHeight;
+        } else {
+          currentLine = testLine;
+        }
+      }
+
+      if (currentLine) {
+        if (style.textDecoration === 'underline') {
+          const lineMetrics = ctx.measureText(currentLine);
+          const underlineY = y + fontSize;
+          ctx.beginPath();
+          if (style.textAlign === 'center') {
+            ctx.moveTo(textX - lineMetrics.width / 2, underlineY);
+            ctx.lineTo(textX + lineMetrics.width / 2, underlineY);
+          } else if (style.textAlign === 'right') {
+            ctx.moveTo(textX - lineMetrics.width, underlineY);
+            ctx.lineTo(textX, underlineY);
+          } else {
+            ctx.moveTo(textX, underlineY);
+            ctx.lineTo(textX + lineMetrics.width, underlineY);
+          }
+          ctx.strokeStyle = style.color;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.fillText(currentLine, textX, y);
+        y += lineHeight;
+      }
     }
 
     if (isSelected) {
@@ -486,16 +560,27 @@ export function DrawingAnnotationLayer({
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 1;
 
+    // Draw selection border
+    ctx.strokeStyle = '#0066FF';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(x - 1, y - 1, width + 2, height + 2);
+    ctx.setLineDash([]);
+
     const handles = [
-      { x: x, y: y }, // top-left
-      { x: x + width / 2, y: y }, // top-center
-      { x: x + width, y: y }, // top-right
-      { x: x + width, y: y + height / 2 }, // middle-right
-      { x: x + width, y: y + height }, // bottom-right
-      { x: x + width / 2, y: y + height }, // bottom-center
-      { x: x, y: y + height }, // bottom-left
-      { x: x, y: y + height / 2 }, // middle-left
+      { x: x, y: y, cursor: 'nw' },
+      { x: x + width / 2, y: y, cursor: 'n' },
+      { x: x + width, y: y, cursor: 'ne' },
+      { x: x + width, y: y + height / 2, cursor: 'e' },
+      { x: x + width, y: y + height, cursor: 'se' },
+      { x: x + width / 2, y: y + height, cursor: 's' },
+      { x: x, y: y + height, cursor: 'sw' },
+      { x: x, y: y + height / 2, cursor: 'w' },
     ];
+
+    ctx.fillStyle = '#0066FF';
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1;
 
     for (const handle of handles) {
       ctx.fillRect(
@@ -571,37 +656,244 @@ export function DrawingAnnotationLayer({
         );
         ctx.stroke();
       }
+    } else if (currentTool === 'freetext' && startPoint) {
+      const endX = currentPath[currentPath.length - 1]?.x || startPoint.x;
+      const endY = currentPath[currentPath.length - 1]?.y || startPoint.y;
+      const width = Math.abs(endX - startPoint.x) || 150;
+      const height = Math.abs(endY - startPoint.y) || 40;
+      const x = Math.min(startPoint.x, endX);
+      const y = Math.min(startPoint.y, endY);
+
+      ctx.strokeStyle = '#0066FF';
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(x, y, width, height);
+      ctx.setLineDash([]);
     }
+  };
+
+  // Render annotations on canvas - placed after render functions to avoid "used before defined" errors
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (const annotation of annotations) {
+      // Don't render text box on canvas if it's being edited
+      if (annotation.id === editingAnnotationId && annotation.type === 'freetext') continue;
+      renderAnnotation(ctx, annotation, selectedAnnotationId === annotation.id);
+    }
+
+    if (isDrawing && currentTool !== 'select') {
+      renderDrawingPreview(ctx);
+    }
+  }, [annotations, dimensions, scale, selectedAnnotationId, isDrawing, currentPath, startPoint, currentTool, toolSettings, editingAnnotationId]);
+
+  // Get resize handle at position
+  const getResizeHandleAt = (x: number, y: number, annotation: Annotation): ResizeHandle => {
+    if (!('rect' in annotation)) return null;
+
+    const rect = (annotation as { rect: [number, number, number, number] }).rect;
+    const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
+    const bottomRight = pdfToScreenCoords(rect[0] + rect[2], rect[1]);
+
+    const width = bottomRight.x - topLeft.x;
+    const height = bottomRight.y - topLeft.y;
+    const handleSize = 10;
+
+    const handles: { x: number; y: number; cursor: ResizeHandle }[] = [
+      { x: topLeft.x, y: topLeft.y, cursor: 'nw' },
+      { x: topLeft.x + width / 2, y: topLeft.y, cursor: 'n' },
+      { x: topLeft.x + width, y: topLeft.y, cursor: 'ne' },
+      { x: topLeft.x + width, y: topLeft.y + height / 2, cursor: 'e' },
+      { x: topLeft.x + width, y: topLeft.y + height, cursor: 'se' },
+      { x: topLeft.x + width / 2, y: topLeft.y + height, cursor: 's' },
+      { x: topLeft.x, y: topLeft.y + height, cursor: 'sw' },
+      { x: topLeft.x, y: topLeft.y + height / 2, cursor: 'w' },
+    ];
+
+    for (const handle of handles) {
+      if (Math.abs(x - handle.x) <= handleSize / 2 && Math.abs(y - handle.y) <= handleSize / 2) {
+        return handle.cursor;
+      }
+    }
+
+    return null;
   };
 
   // Mouse event handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (currentTool === 'select') return;
-
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // Check for resize handle on selected annotation (works in any tool mode)
+    if (selectedAnnotation && 'rect' in selectedAnnotation) {
+      const handle = getResizeHandleAt(x, y, selectedAnnotation);
+      if (handle) {
+        // Store original state for undo BEFORE any modifications
+        originalAnnotationRef.current = JSON.parse(JSON.stringify(selectedAnnotation));
+        setIsResizing(true);
+        setResizeHandle(handle);
+        setResizeStart({ x, y });
+        setResizeAnnotationRect([...selectedAnnotation.rect] as [number, number, number, number]);
+        return;
+      }
+    }
+
+    // Check for drag start on selected annotation (works in any tool mode)
+    if (selectedAnnotation && 'rect' in selectedAnnotation) {
+      if (isPointInAnnotation(x, y, selectedAnnotation)) {
+        // Store original state for undo BEFORE any modifications
+        originalAnnotationRef.current = JSON.parse(JSON.stringify(selectedAnnotation));
+        setIsDragging(true);
+        setDragStart({ x, y });
+        const annRect = (selectedAnnotation as { rect: [number, number, number, number] }).rect;
+        setDragAnnotationStart([annRect[0], annRect[1]]);
+        return;
+      }
+    }
+
+    // Check if clicking on any existing annotation - select it instead of drawing
+    for (const annotation of annotations) {
+      if (isPointInAnnotation(x, y, annotation)) {
+        selectAnnotation(annotation.id);
+        // If it has a rect, start drag
+        if ('rect' in annotation) {
+          // Store original state for undo BEFORE any modifications
+          originalAnnotationRef.current = JSON.parse(JSON.stringify(annotation));
+          setIsDragging(true);
+          setDragStart({ x, y });
+          const annRect = (annotation as { rect: [number, number, number, number] }).rect;
+          setDragAnnotationStart([annRect[0], annRect[1]]);
+        }
+        return;
+      }
+    }
+
+    if (currentTool === 'select') return;
+
+    // Deselect any annotation when starting to draw
+    selectAnnotation(null);
     setIsDrawing(true);
     setStartPoint({ x, y });
     setCurrentPath([{ x, y }]);
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawing || currentTool === 'select') return;
-
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // Handle resize
+    if (isResizing && resizeHandle && resizeStart && resizeAnnotationRect && selectedAnnotation) {
+      const deltaX = (x - resizeStart.x) / scale;
+      const deltaY = -(y - resizeStart.y) / scale; // Invert Y for PDF coords
+
+      let newRect = [...resizeAnnotationRect] as [number, number, number, number];
+
+      switch (resizeHandle) {
+        case 'nw':
+          newRect[0] += deltaX;
+          newRect[1] += deltaY;
+          newRect[2] -= deltaX;
+          newRect[3] -= deltaY;
+          break;
+        case 'n':
+          newRect[1] += deltaY;
+          newRect[3] -= deltaY;
+          break;
+        case 'ne':
+          newRect[1] += deltaY;
+          newRect[2] += deltaX;
+          newRect[3] -= deltaY;
+          break;
+        case 'e':
+          newRect[2] += deltaX;
+          break;
+        case 'se':
+          newRect[2] += deltaX;
+          newRect[3] += deltaY;
+          break;
+        case 's':
+          newRect[3] += deltaY;
+          break;
+        case 'sw':
+          newRect[0] += deltaX;
+          newRect[2] -= deltaX;
+          newRect[3] += deltaY;
+          break;
+        case 'w':
+          newRect[0] += deltaX;
+          newRect[2] -= deltaX;
+          break;
+      }
+
+      // Ensure minimum size
+      if (newRect[2] >= 20 && newRect[3] >= 20) {
+        updateAnnotation(selectedAnnotation.id, { rect: newRect });
+      }
+      return;
+    }
+
+    // Handle drag
+    if (isDragging && dragStart && dragAnnotationStart && selectedAnnotation && 'rect' in selectedAnnotation) {
+      const deltaX = (x - dragStart.x) / scale;
+      const deltaY = -(y - dragStart.y) / scale; // Invert Y for PDF coords
+
+      const newX = dragAnnotationStart[0] + deltaX;
+      const newY = dragAnnotationStart[1] + deltaY;
+
+      const currentRect = (selectedAnnotation as { rect: [number, number, number, number] }).rect;
+      updateAnnotation(selectedAnnotation.id, {
+        rect: [newX, newY, currentRect[2], currentRect[3]]
+      });
+      return;
+    }
+
+    // Handle drawing
+    if (!isDrawing || currentTool === 'select') return;
     setCurrentPath((prev) => [...prev, { x, y }]);
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Finish resize
+    if (isResizing && selectedAnnotation && originalAnnotationRef.current) {
+      // Record the update with the ORIGINAL state (before modification)
+      recordUpdate(selectedAnnotation, originalAnnotationRef.current);
+      originalAnnotationRef.current = null;
+      justFinishedInteraction.current = true;
+      setTimeout(() => { justFinishedInteraction.current = false; }, 10);
+      setIsResizing(false);
+      setResizeHandle(null);
+      setResizeStart(null);
+      setResizeAnnotationRect(null);
+      return;
+    }
+
+    // Finish drag
+    if (isDragging && selectedAnnotation && originalAnnotationRef.current) {
+      // Record the update with the ORIGINAL state (before modification)
+      recordUpdate(selectedAnnotation, originalAnnotationRef.current);
+      originalAnnotationRef.current = null;
+      justFinishedInteraction.current = true;
+      setTimeout(() => { justFinishedInteraction.current = false; }, 10);
+      setIsDragging(false);
+      setDragStart(null);
+      setDragAnnotationStart(null);
+      return;
+    }
+
     if (!isDrawing || !startPoint) {
       setIsDrawing(false);
       return;
@@ -613,11 +905,9 @@ export function DrawingAnnotationLayer({
     const endX = e.clientX - rect.left;
     const endY = e.clientY - rect.top;
 
-    // Convert to PDF coordinates
     const startPdf = screenToPdfCoords(startPoint.x, startPoint.y);
     const endPdf = screenToPdfCoords(endX, endY);
 
-    // Create annotation based on tool
     let annotation: Annotation | null = null;
 
     switch (currentTool) {
@@ -693,15 +983,23 @@ export function DrawingAnnotationLayer({
       case 'freetext': {
         const x = Math.min(startPdf.x, endPdf.x);
         const y = Math.min(startPdf.y, endPdf.y);
-        const w = Math.abs(endPdf.x - startPdf.x) || 100;
-        const h = Math.abs(endPdf.y - startPdf.y) || 30;
+        const w = Math.abs(endPdf.x - startPdf.x) || 150;
+        const h = Math.abs(endPdf.y - startPdf.y) || 40;
         annotation = createFreeTextAnnotation(
           pageNumber,
           [x, y, w, h],
-          'Type here...',
-          toolSettings.fontSize,
-          toolSettings.color
+          '',
+          { ...toolSettings.textStyle }
         );
+        // Immediately enter editing mode
+        setTimeout(() => {
+          if (annotation) {
+            setEditingAnnotationId(annotation.id);
+            setEditingContent('');
+            selectAnnotation(annotation.id);
+            setTimeout(() => textareaRef.current?.focus(), 0);
+          }
+        }, 0);
         break;
       }
       case 'stamp': {
@@ -742,13 +1040,11 @@ export function DrawingAnnotationLayer({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Check if double-click is on a freetext annotation
     for (const annotation of annotations) {
       if (annotation.type === 'freetext' && isPointInAnnotation(x, y, annotation)) {
         setEditingAnnotationId(annotation.id);
         setEditingContent(annotation.content || '');
         selectAnnotation(annotation.id);
-        // Focus textarea after state update
         setTimeout(() => textareaRef.current?.focus(), 0);
         return;
       }
@@ -759,11 +1055,25 @@ export function DrawingAnnotationLayer({
   const finishEditing = () => {
     if (!editingAnnotationId) return;
 
-    const annotation = annotations.find((a) => a.id === editingAnnotationId);
+    const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
     if (annotation && annotation.type === 'freetext') {
-      const previousState = { ...annotation };
-      updateAnnotation(editingAnnotationId, { content: editingContent });
-      recordUpdate({ ...annotation, content: editingContent }, previousState);
+      const trimmedContent = editingContent.trim();
+
+      if (trimmedContent === '') {
+        if (!annotation.content || annotation.content.trim() === '') {
+          // Delete empty text box and record deletion for undo
+          recordDelete(annotation);
+          deleteAnnotation(editingAnnotationId);
+        } else {
+          const previousState = { ...annotation };
+          updateAnnotation(editingAnnotationId, { content: '' });
+          recordUpdate({ ...annotation, content: '' }, previousState);
+        }
+      } else {
+        const previousState = { ...annotation };
+        updateAnnotation(editingAnnotationId, { content: trimmedContent });
+        recordUpdate({ ...annotation, content: trimmedContent }, previousState);
+      }
     }
 
     setEditingAnnotationId(null);
@@ -772,10 +1082,10 @@ export function DrawingAnnotationLayer({
 
   // Handle click for selection
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (currentTool !== 'select') return;
-
-    // Don't handle click if we're editing
     if (editingAnnotationId) return;
+
+    // Skip if we just finished dragging or resizing (selection was handled in mousedown)
+    if (justFinishedInteraction.current) return;
 
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -783,17 +1093,16 @@ export function DrawingAnnotationLayer({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Check if click is on any annotation
-    let clicked = false;
+    // Check if clicked on an annotation - select it
     for (const annotation of annotations) {
       if (isPointInAnnotation(x, y, annotation)) {
         selectAnnotation(annotation.id);
-        clicked = true;
-        break;
+        return;
       }
     }
 
-    if (!clicked) {
+    // Only deselect if in select mode and clicked on empty space
+    if (currentTool === 'select') {
       selectAnnotation(null);
     }
   };
@@ -825,7 +1134,6 @@ export function DrawingAnnotationLayer({
         const { start, end } = annotation as { start: [number, number]; end: [number, number] };
         const startScreen = pdfToScreenCoords(start[0], start[1]);
         const endScreen = pdfToScreenCoords(end[0], end[1]);
-        // Check distance from point to line
         const dist = distanceToLine(x, y, startScreen.x, startScreen.y, endScreen.x, endScreen.y);
         return dist < 10;
       }
@@ -872,10 +1180,9 @@ export function DrawingAnnotationLayer({
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  // Handle keyboard for delete
+  // Handle keyboard for delete and formatting shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't delete while editing text
       if (editingAnnotationId) return;
 
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
@@ -891,13 +1198,46 @@ export function DrawingAnnotationLayer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedAnnotationId, deleteAnnotation, editingAnnotationId, annotations, recordDelete]);
 
-  // Get the position and size of the editing annotation for textarea overlay
+  // Handle text formatting shortcuts in edit mode
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
+      if (annotation && annotation.type === 'freetext' && !annotation.content) {
+        // Record deletion for undo before deleting
+        recordDelete(annotation);
+        deleteAnnotation(editingAnnotationId!);
+      }
+      setEditingAnnotationId(null);
+      setEditingContent('');
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      finishEditing();
+    }
+    e.stopPropagation();
+  };
+
+  // Handle style change from format toolbar
+  const handleStyleChange = (styleUpdates: Partial<TextStyle>) => {
+    if (!selectedAnnotationId) return;
+
+    const annotation = annotations.find((a) => a.id === selectedAnnotationId) as FreeTextAnnotation | undefined;
+    if (!annotation || annotation.type !== 'freetext') return;
+
+    const previousState = { ...annotation };
+    const currentStyle = getAnnotationStyle(annotation);
+    const newStyle = { ...currentStyle, ...styleUpdates };
+
+    updateAnnotation(selectedAnnotationId, { style: newStyle });
+    recordUpdate({ ...annotation, style: newStyle }, previousState);
+  };
+
+  // Get editing annotation rect for textarea
   const getEditingAnnotationRect = () => {
     if (!editingAnnotationId) return null;
-    const annotation = annotations.find((a) => a.id === editingAnnotationId);
+    const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
     if (!annotation || annotation.type !== 'freetext') return null;
 
-    const { rect, fontSize } = annotation;
+    const style = getAnnotationStyle(annotation);
+    const { rect } = annotation;
     const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
     const bottomRight = pdfToScreenCoords(rect[0] + rect[2], rect[1]);
 
@@ -906,17 +1246,53 @@ export function DrawingAnnotationLayer({
       top: topLeft.y,
       width: bottomRight.x - topLeft.x,
       height: bottomRight.y - topLeft.y,
-      fontSize: fontSize * scale,
+      style,
+    };
+  };
+
+  // Get selected freetext annotation rect for format toolbar
+  const getSelectedFreetextRect = () => {
+    if (!selectedAnnotationId || editingAnnotationId) return null;
+    const annotation = annotations.find((a) => a.id === selectedAnnotationId) as FreeTextAnnotation | undefined;
+    if (!annotation || annotation.type !== 'freetext') return null;
+
+    const { rect } = annotation;
+    const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
+
+    return {
+      left: topLeft.x,
+      top: topLeft.y - 50, // Position above the text box
+      style: getAnnotationStyle(annotation),
     };
   };
 
   const editingRect = getEditingAnnotationRect();
+  const formatToolbarRect = getSelectedFreetextRect();
+
+  // Determine cursor based on position
+  const getCursor = () => {
+    if (isDragging) return 'move';
+    if (isResizing) {
+      const cursors: Record<string, string> = {
+        nw: 'nw-resize', n: 'n-resize', ne: 'ne-resize',
+        e: 'e-resize', se: 'se-resize', s: 's-resize',
+        sw: 'sw-resize', w: 'w-resize'
+      };
+      return cursors[resizeHandle || ''] || 'default';
+    }
+    if (currentTool !== 'select') return 'crosshair';
+    return 'default';
+  };
 
   return (
     <div
       ref={containerRef}
       className={`drawing-annotation-layer ${currentTool !== 'select' ? 'drawing-mode' : ''}`}
-      style={{ width: dimensions.width, height: dimensions.height }}
+      style={{
+        width: dimensions.width,
+        height: dimensions.height,
+        cursor: getCursor(),
+      }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -924,39 +1300,58 @@ export function DrawingAnnotationLayer({
       onDoubleClick={handleDoubleClick}
     >
       <canvas ref={canvasRef} className="annotation-canvas" />
+
+      {/* Format toolbar for selected freetext */}
+      {formatToolbarRect && (
+        <div
+          className="format-toolbar-container"
+          style={{
+            position: 'absolute',
+            left: Math.max(0, formatToolbarRect.left),
+            top: Math.max(0, formatToolbarRect.top),
+            zIndex: 1001,
+          }}
+        >
+          <TextFormatToolbar
+            style={formatToolbarRect.style}
+            onChange={handleStyleChange}
+          />
+        </div>
+      )}
+
+      {/* Text editing textarea */}
       {editingAnnotationId && editingRect && (
         <textarea
           ref={textareaRef}
           className="freetext-editor"
+          placeholder="Type here..."
           style={{
             position: 'absolute',
             left: editingRect.left,
             top: editingRect.top,
             width: editingRect.width,
             height: editingRect.height,
-            fontSize: editingRect.fontSize,
-            fontFamily: 'Helvetica, sans-serif',
+            fontSize: editingRect.style.fontSize * scale,
+            fontFamily: editingRect.style.fontFamily,
+            fontWeight: editingRect.style.fontWeight,
+            fontStyle: editingRect.style.fontStyle,
+            textDecoration: editingRect.style.textDecoration,
+            textAlign: editingRect.style.textAlign,
+            color: editingRect.style.color,
+            backgroundColor: editingRect.style.backgroundColor === 'transparent' ? 'white' : editingRect.style.backgroundColor,
             padding: '4px',
             border: '2px solid #0066FF',
             borderRadius: '2px',
             resize: 'none',
-            overflow: 'hidden',
-            background: 'white',
+            overflow: 'auto',
             outline: 'none',
             boxSizing: 'border-box',
+            zIndex: 1002,
           }}
           value={editingContent}
           onChange={(e) => setEditingContent(e.target.value)}
           onBlur={finishEditing}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setEditingAnnotationId(null);
-              setEditingContent('');
-            } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              finishEditing();
-            }
-            e.stopPropagation();
-          }}
+          onKeyDown={handleTextareaKeyDown}
         />
       )}
     </div>
