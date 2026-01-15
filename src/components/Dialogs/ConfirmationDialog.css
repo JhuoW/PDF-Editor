@@ -1,0 +1,122 @@
+.confirmation-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.confirmation-dialog {
+  background: var(--gray-2);
+  border: 1px solid var(--gray-6);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  max-width: 420px;
+  width: 90%;
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.confirmation-dialog-header {
+  padding: 20px 24px 0;
+}
+
+.confirmation-dialog-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--gray-12);
+}
+
+.confirmation-dialog-body {
+  padding: 16px 24px 24px;
+}
+
+.confirmation-dialog-message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--gray-11);
+}
+
+.confirmation-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  background: var(--gray-3);
+  border-top: 1px solid var(--gray-6);
+  border-radius: 0 0 12px 12px;
+}
+
+.confirmation-dialog-button {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.confirmation-dialog-button.cancel {
+  background: var(--gray-4);
+  border: 1px solid var(--gray-6);
+  color: var(--gray-12);
+}
+
+.confirmation-dialog-button.cancel:hover {
+  background: var(--gray-5);
+  border-color: var(--gray-7);
+}
+
+.confirmation-dialog-button.confirm {
+  border: none;
+}
+
+.confirmation-dialog-button.confirm.danger {
+  background: #dc2626;
+  color: white;
+}
+
+.confirmation-dialog-button.confirm.danger:hover {
+  background: #b91c1c;
+}
+
+.confirmation-dialog-button.confirm.primary {
+  background: var(--accent-9);
+  color: white;
+}
+
+.confirmation-dialog-button.confirm.primary:hover {
+  background: var(--accent-10);
+}
+
+.confirmation-dialog-button:focus {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 2px;
+}

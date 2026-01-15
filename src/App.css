@@ -1,0 +1,219 @@
+/* Main App Layout */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--gray-1);
+}
+
+.main-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--gray-2);
+  border-right: 1px solid var(--gray-6);
+  flex-shrink: 0;
+}
+
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--gray-6);
+  flex-shrink: 0;
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 0.75rem 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--gray-11);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.sidebar-tab:hover {
+  background-color: var(--gray-4);
+}
+
+.sidebar-tab.active {
+  background-color: var(--gray-3);
+  color: var(--gray-12);
+  border-bottom: 2px solid var(--blue-9);
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar-content > * {
+  height: 100%;
+}
+
+/* Main Content */
+.main-content {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--gray-4);
+}
+
+.main-content.drag-over {
+  background-color: var(--blue-3);
+}
+
+/* Loading State */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  width: 100%;
+  height: 100%;
+  color: var(--gray-11);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--gray-6);
+  border-top-color: var(--blue-9);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error State */
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 100%;
+  color: var(--red-11);
+}
+
+.error-icon {
+  font-size: 2rem;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem 4rem;
+  border: 2px dashed var(--gray-7);
+  border-radius: 12px;
+  color: var(--gray-11);
+  text-align: center;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.main-content.drag-over .drop-zone {
+  border-color: var(--blue-9);
+  background-color: var(--blue-4);
+}
+
+.drop-zone:hover {
+  border-color: var(--gray-9);
+}
+
+.drop-icon {
+  font-size: 3rem;
+  opacity: 0.7;
+}
+
+.drop-zone h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--gray-12);
+}
+
+.drop-zone p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--gray-10);
+}
+
+.drop-zone button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  background-color: var(--blue-9);
+  color: white;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.drop-zone button:hover {
+  background-color: var(--blue-10);
+}
+
+.keyboard-hint {
+  font-size: 0.75rem;
+  color: var(--gray-9);
+  margin-top: 0.5rem;
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  color: var(--gray-11);
+  background: var(--gray-3);
+  border: 1px solid var(--gray-6);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--gray-7);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--gray-3);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-7);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-8);
+}

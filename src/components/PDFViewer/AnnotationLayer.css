@@ -1,0 +1,29 @@
+.annotation-layer-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pdf-link-annotation {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
+  text-decoration: none;
+  transition: background-color 0.15s;
+}
+
+.pdf-link-annotation:hover {
+  background-color: rgba(0, 100, 255, 0.15);
+  border-radius: 2px;
+}
+
+/* Visual indicator for internal links on hover */
+.pdf-link-annotation[href="#"]:hover {
+  background-color: rgba(0, 150, 100, 0.2);
+}

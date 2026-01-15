@@ -1,0 +1,128 @@
+.main-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background-color: var(--gray-2);
+  border-bottom: 1px solid var(--gray-6);
+  flex-shrink: 0;
+  height: 48px;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background-color: var(--gray-6);
+  margin: 0 0.25rem;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--gray-11);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background-color: var(--gray-4);
+  color: var(--gray-12);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toolbar-btn.active {
+  background-color: var(--blue-4);
+  color: var(--blue-11);
+}
+
+.toolbar-btn.icon-only {
+  padding: 0.5rem;
+}
+
+.btn-label {
+  font-weight: 500;
+}
+
+.navigation {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.page-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
+}
+
+.page-input {
+  width: 3rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--gray-7);
+  border-radius: 4px;
+  background-color: var(--gray-3);
+  color: var(--gray-12);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.page-input:focus {
+  outline: none;
+  border-color: var(--blue-8);
+}
+
+.page-input::-webkit-inner-spin-button,
+.page-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.page-separator {
+  color: var(--gray-9);
+}
+
+.page-total {
+  color: var(--gray-11);
+  font-size: 0.875rem;
+}
+
+.zoom-select {
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--gray-7);
+  border-radius: 4px;
+  background-color: var(--gray-3);
+  color: var(--gray-12);
+  font-size: 0.875rem;
+  cursor: pointer;
+  min-width: 70px;
+}
+
+.zoom-select:hover {
+  background-color: var(--gray-4);
+}
+
+.zoom-select:focus {
+  outline: none;
+  border-color: var(--blue-8);
+}

@@ -1,0 +1,121 @@
+/**
+ * Styles for redaction layer
+ */
+
+.redaction-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 30;
+  cursor: crosshair;
+}
+
+.redaction-box {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+
+.redaction-box.pending {
+  border: 2px dashed #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.redaction-box.pending:hover {
+  background: rgba(220, 38, 38, 0.2);
+}
+
+.redaction-box.pending.selected {
+  border: 2px solid #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.3);
+}
+
+.redaction-box.applied {
+  cursor: default;
+}
+
+.redaction-box.drawing {
+  border: 2px dashed #dc2626;
+  background: rgba(220, 38, 38, 0.15);
+  pointer-events: none;
+}
+
+.redaction-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #dc2626;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 2px 6px;
+  border-radius: 2px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.redaction-controls {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  margin-bottom: 4px;
+  z-index: 10;
+}
+
+.redaction-overlay-input {
+  width: 120px;
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  outline: none;
+}
+
+.redaction-overlay-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.redaction-overlay-input::placeholder {
+  color: #9ca3af;
+}
+
+.redaction-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.redaction-delete-btn:hover {
+  background: #fecaca;
+}
+
+.redaction-overlay-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+  word-break: break-word;
+  padding: 4px;
+}

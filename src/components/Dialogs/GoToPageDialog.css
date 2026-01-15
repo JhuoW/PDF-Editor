@@ -1,0 +1,128 @@
+.goto-page-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.goto-page-dialog {
+  background: var(--gray-2);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.goto-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gray-5);
+}
+
+.goto-page-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-12);
+}
+
+.goto-page-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--gray-9);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.goto-page-close:hover {
+  color: var(--gray-12);
+}
+
+.goto-page-content {
+  padding: 16px;
+}
+
+.goto-page-content label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--gray-11);
+  font-size: 14px;
+}
+
+.goto-page-content input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 16px;
+  border: 1px solid var(--gray-6);
+  border-radius: 4px;
+  background: var(--gray-3);
+  color: var(--gray-12);
+  box-sizing: border-box;
+}
+
+.goto-page-content input:focus {
+  outline: none;
+  border-color: var(--blue-8);
+  box-shadow: 0 0 0 2px var(--blue-4);
+}
+
+.goto-page-content input.error {
+  border-color: var(--red-8);
+}
+
+.goto-page-content input.error:focus {
+  box-shadow: 0 0 0 2px var(--red-4);
+}
+
+.goto-page-error {
+  margin-top: 8px;
+  color: var(--red-10);
+  font-size: 13px;
+}
+
+.goto-page-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-5);
+}
+
+.goto-page-cancel,
+.goto-page-submit {
+  padding: 8px 16px;
+  font-size: 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.goto-page-cancel {
+  background: var(--gray-4);
+  border: 1px solid var(--gray-6);
+  color: var(--gray-11);
+}
+
+.goto-page-cancel:hover {
+  background: var(--gray-5);
+}
+
+.goto-page-submit {
+  background: var(--blue-9);
+  border: none;
+  color: white;
+}
+
+.goto-page-submit:hover {
+  background: var(--blue-10);
+}

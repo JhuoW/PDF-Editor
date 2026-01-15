@@ -1,0 +1,214 @@
+.annotation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--color-background);
+  border-bottom: 1px solid var(--gray-6);
+  flex-wrap: wrap;
+}
+
+.annotation-toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.section-label {
+  font-size: 11px;
+  color: var(--gray-11);
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--gray-6);
+  margin: 0 4px;
+}
+
+.tool-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-12);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tool-button:hover {
+  background: var(--gray-4);
+  border-color: var(--gray-6);
+}
+
+.tool-button.active {
+  background: var(--accent-9);
+  color: white;
+  border-color: var(--accent-10);
+}
+
+.tool-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.highlight-icon {
+  background: linear-gradient(to top, #FFFF00 50%, transparent 50%);
+  padding: 0 2px;
+}
+
+.underline-icon {
+  text-decoration: underline;
+  text-decoration-color: #00FF00;
+  text-decoration-thickness: 2px;
+}
+
+.strikeout-icon {
+  text-decoration: line-through;
+  text-decoration-color: #FF0000;
+  text-decoration-thickness: 2px;
+}
+
+/* Stamp dropdown */
+.stamp-dropdown {
+  position: relative;
+}
+
+.stamp-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 150px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--gray-2);
+  border: 1px solid var(--gray-6);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  margin-top: 4px;
+}
+
+.stamp-section {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gray-6);
+}
+
+.stamp-section:last-child {
+  border-bottom: none;
+}
+
+.stamp-section-title {
+  display: block;
+  padding: 4px 12px;
+  font-size: 10px;
+  color: var(--gray-11);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stamp-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--gray-12);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.stamp-option:hover {
+  background: var(--gray-4);
+}
+
+.stamp-add-custom {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--accent-11);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.stamp-add-custom:hover {
+  background: var(--gray-4);
+}
+
+/* Tool settings */
+.tool-settings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 8px;
+}
+
+.setting-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--gray-11);
+}
+
+.color-input {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid var(--gray-6);
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.color-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.color-input::-webkit-color-swatch {
+  border-radius: 2px;
+  border: none;
+}
+
+.opacity-input,
+.stroke-input {
+  width: 60px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--gray-6);
+  border-radius: 2px;
+  outline: none;
+}
+
+.opacity-input::-webkit-slider-thumb,
+.stroke-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--accent-9);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.opacity-input::-moz-range-thumb,
+.stroke-input::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--accent-9);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
