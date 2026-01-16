@@ -10,6 +10,7 @@ lerna-debug.log*
 CLAUDE.md
 BUG_REPORT.md
 TEXTBOX_PROMPT.md
+IMAGE_INSERT_SPEC.md
 node_modules
 dist
 dist-ssr
