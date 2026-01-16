@@ -17,7 +17,6 @@ interface CombinedToolbarProps {
   onInsertFromFile: (position: number) => void;
   onMerge: () => void;
   onSplit: () => void;
-  onExport: () => void;
   hasDocument: boolean;
   // Undo/Redo
   onUndo: () => void;
@@ -49,7 +48,6 @@ export function CombinedToolbar({
   onInsertFromFile,
   onMerge,
   onSplit,
-  onExport,
   hasDocument,
   onUndo,
   onRedo,
@@ -134,6 +132,10 @@ export function CombinedToolbar({
 
   // Annotation tool handlers
   const handleToolClick = (tool: AnnotationTool) => {
+    // Clear editing mode when selecting an annotation tool (mutual exclusivity)
+    if (editingMode !== 'none') {
+      setEditingMode('none');
+    }
     setCurrentTool(currentTool === tool ? 'select' : tool);
   };
 
@@ -226,9 +228,6 @@ export function CombinedToolbar({
               </button>
               <button onClick={() => { onSplit(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
                 Split PDF
-              </button>
-              <button onClick={() => { onExport(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Export / Download
               </button>
               <div className="menu-divider" />
               <button onClick={() => { onResetToOriginal(); setShowDocumentMenu(false); }} disabled={!canResetToOriginal}>

@@ -59,6 +59,21 @@
   padding: 0.5rem;
 }
 
+.toolbar-btn.toolbar-btn-primary {
+  background-color: var(--accent-9);
+  color: white;
+}
+
+.toolbar-btn.toolbar-btn-primary:hover:not(:disabled) {
+  background-color: var(--accent-10);
+  color: white;
+}
+
+.toolbar-btn.toolbar-btn-primary:disabled {
+  background-color: var(--gray-6);
+  color: var(--gray-9);
+}
+
 .btn-label {
   font-weight: 500;
 }

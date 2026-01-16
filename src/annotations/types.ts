@@ -40,12 +40,46 @@ export interface TextStyle {
   fontSize: number;
   fontWeight: 'normal' | 'bold';
   fontStyle: 'normal' | 'italic';
-  textDecoration: 'none' | 'underline';
+  textDecoration: 'none' | 'underline' | 'line-through';
   textAlign: 'left' | 'center' | 'right' | 'justify';
+  verticalAlign: 'top' | 'middle' | 'bottom';
   color: string;
-  backgroundColor: string; // 'transparent' or hex color
+  lineHeight: number;
+  letterSpacing: number;
+  // Legacy - kept for backward compatibility, use BoxStyle instead
+  backgroundColor: string;
   borderColor: string;
   borderWidth: number;
+}
+
+// Box styling for text boxes
+export interface BoxStyle {
+  backgroundColor: string;
+  backgroundOpacity: number;
+  borderColor: string;
+  borderWidth: number;
+  borderStyle: 'solid' | 'dashed' | 'dotted' | 'none';
+  borderRadius: number;
+  padding: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  shadow?: {
+    offsetX: number;
+    offsetY: number;
+    blur: number;
+    color: string;
+  };
+}
+
+// Rich text segment for mixed formatting within one text box
+export interface RichTextSegment {
+  text: string;
+  startIndex: number;
+  endIndex: number;
+  style: Partial<TextStyle>;
 }
 
 // Free text annotation (text box)
@@ -54,6 +88,11 @@ export interface FreeTextAnnotation extends BaseAnnotation {
   rect: [number, number, number, number]; // [x, y, width, height] in PDF coordinates
   content: string;
   style: TextStyle;
+  boxStyle?: BoxStyle;
+  richContent?: RichTextSegment[]; // For mixed formatting within one text box
+  rotation?: number; // Rotation in degrees
+  isLocked?: boolean; // Prevent editing/moving
+  zIndex?: number; // For layering
   // Legacy fields for backward compatibility
   fontSize?: number;
   fontFamily?: string;
@@ -71,10 +110,25 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
   fontStyle: 'normal',
   textDecoration: 'none',
   textAlign: 'left',
+  verticalAlign: 'top',
   color: '#000000',
+  lineHeight: 1.4,
+  letterSpacing: 0,
+  // Legacy fields
   backgroundColor: 'transparent',
   borderColor: '#0066FF',
-  borderWidth: 0, // No border by default for cleaner look
+  borderWidth: 0,
+};
+
+// Default box style
+export const DEFAULT_BOX_STYLE: BoxStyle = {
+  backgroundColor: 'transparent',
+  backgroundOpacity: 1,
+  borderColor: '#000000',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderRadius: 0,
+  padding: { top: 8, right: 8, bottom: 8, left: 8 },
 };
 
 // Available fonts for text boxes

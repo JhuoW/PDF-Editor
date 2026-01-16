@@ -16,11 +16,15 @@ const COLOR_PRESETS = [
   '#6600FF', '#FF00FF', '#FF6699', '#996633', '#006633', '#003366',
 ];
 
+// Line height presets
+const LINE_HEIGHT_PRESETS = [1.0, 1.2, 1.4, 1.5, 1.6, 1.8, 2.0] as const;
+
 export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolbarProps) {
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSizeDropdown, setShowSizeDropdown] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showBgColorPicker, setShowBgColorPicker] = useState(false);
+  const [showLineHeightDropdown, setShowLineHeightDropdown] = useState(false);
   const [customSize, setCustomSize] = useState(style.fontSize.toString());
   const toolbarRef = useRef<HTMLDivElement>(null);
 
@@ -32,6 +36,7 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
         setShowSizeDropdown(false);
         setShowColorPicker(false);
         setShowBgColorPicker(false);
+        setShowLineHeightDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -69,6 +74,10 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
     onChange({ textDecoration: style.textDecoration === 'underline' ? 'none' : 'underline' });
   };
 
+  const toggleStrikethrough = () => {
+    onChange({ textDecoration: style.textDecoration === 'line-through' ? 'none' : 'line-through' });
+  };
+
   const handleAlignChange = (textAlign: TextStyle['textAlign']) => {
     onChange({ textAlign });
   };
@@ -81,6 +90,18 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
   const handleBgColorChange = (backgroundColor: string) => {
     onChange({ backgroundColor });
     setShowBgColorPicker(false);
+  };
+
+  const handleLineHeightChange = (lineHeight: number) => {
+    onChange({ lineHeight });
+    setShowLineHeightDropdown(false);
+  };
+
+  const handleLetterSpacingChange = (value: string) => {
+    const letterSpacing = parseFloat(value);
+    if (!isNaN(letterSpacing) && letterSpacing >= -5 && letterSpacing <= 20) {
+      onChange({ letterSpacing });
+    }
   };
 
   return (
@@ -162,7 +183,7 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
 
       <div className="format-separator" />
 
-      {/* Bold, Italic, Underline */}
+      {/* Bold, Italic, Underline, Strikethrough */}
       <div className="format-group style-buttons">
         <button
           className={`format-btn ${style.fontWeight === 'bold' ? 'active' : ''}`}
@@ -184,6 +205,13 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
           title="Underline (Ctrl+U)"
         >
           <u>U</u>
+        </button>
+        <button
+          className={`format-btn ${style.textDecoration === 'line-through' ? 'active' : ''}`}
+          onClick={toggleStrikethrough}
+          title="Strikethrough (Ctrl+Shift+X)"
+        >
+          <s>S</s>
         </button>
       </div>
 
@@ -212,6 +240,56 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
         >
           &#9782;
         </button>
+      </div>
+
+      <div className="format-separator" />
+
+      {/* Line Height */}
+      <div className="format-group">
+        <button
+          className="format-dropdown-btn spacing-btn"
+          onClick={() => {
+            const newState = !showLineHeightDropdown;
+            setShowFontDropdown(false);
+            setShowSizeDropdown(false);
+            setShowColorPicker(false);
+            setShowBgColorPicker(false);
+            setShowLineHeightDropdown(newState);
+          }}
+          title="Line Height"
+        >
+          <span className="spacing-icon">&#8691;</span>
+          <span className="spacing-value">{style.lineHeight?.toFixed(1) || '1.4'}</span>
+        </button>
+        {showLineHeightDropdown && (
+          <div className="format-dropdown spacing-dropdown">
+            {LINE_HEIGHT_PRESETS.map((lh) => (
+              <button
+                key={lh}
+                className={`dropdown-item ${lh === style.lineHeight ? 'active' : ''}`}
+                onClick={() => handleLineHeightChange(lh)}
+              >
+                {lh.toFixed(1)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Letter Spacing */}
+      <div className="format-group">
+        <div className="spacing-input-group" title="Letter Spacing (px)">
+          <span className="spacing-label">Aa</span>
+          <input
+            type="number"
+            className="spacing-number-input"
+            value={style.letterSpacing || 0}
+            min="-5"
+            max="20"
+            step="0.5"
+            onChange={(e) => handleLetterSpacingChange(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="format-separator" />

@@ -48,7 +48,8 @@ export const PageCanvas = memo(function PageCanvas({
     const canvas = canvasRef.current;
     if (!canvas || !page) return;
 
-    const ctx = canvas.getContext('2d');
+    // Use willReadFrequently for better Firefox compatibility
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
     // Cancel any previous render
@@ -69,10 +70,13 @@ export const PageCanvas = memo(function PageCanvas({
     setIsRendering(true);
 
     const viewport = page.getViewport({ scale, rotation: effectiveRotation });
+
+    // For Firefox compatibility, explicitly pass canvas: null when using canvasContext
+    // Per pdfjs-dist v5 docs: "if the context must absolutely be used, the canvas must be null"
     const renderContext = {
+      canvas: null,
       canvasContext: ctx,
       viewport,
-      canvas,
     };
 
     const renderTask = page.render(renderContext);

@@ -57,6 +57,24 @@
   color: white;
 }
 
+.toolbar-btn.toolbar-btn-primary {
+  background: var(--accent-9);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 12px;
+  gap: 4px;
+}
+
+.toolbar-btn.toolbar-btn-primary:hover:not(:disabled) {
+  background: var(--accent-10);
+}
+
+.toolbar-btn.toolbar-btn-primary:disabled {
+  background: var(--gray-6);
+  color: var(--gray-9);
+}
+
 .dropdown-trigger {
   font-size: 12px;
   padding: 0 8px;

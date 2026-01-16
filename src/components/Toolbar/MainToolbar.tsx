@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import {
   FileUp,
+  Download,
   ChevronLeft,
   ChevronRight,
   ZoomIn,
@@ -25,6 +26,7 @@ interface MainToolbarProps {
   viewMode: 'single' | 'continuous' | 'two-page';
   sidebarOpen: boolean;
   onOpenFile: (file: File) => void;
+  onExport: () => void;
   onPreviousPage: () => void;
   onNextPage: () => void;
   onGoToPage: (page: number) => void;
@@ -50,6 +52,7 @@ export function MainToolbar({
   viewMode,
   sidebarOpen,
   onOpenFile,
+  onExport,
   onPreviousPage,
   onNextPage,
   onGoToPage,
@@ -93,6 +96,15 @@ export function MainToolbar({
           onChange={handleFileChange}
           style={{ display: 'none' }}
         />
+        <button
+          className="toolbar-btn toolbar-btn-primary"
+          onClick={onExport}
+          disabled={!hasDocument}
+          title="Export / Download PDF (Ctrl+S)"
+        >
+          <Download size={18} />
+          <span className="btn-label">Export</span>
+        </button>
       </div>
 
       <div className="toolbar-divider" />

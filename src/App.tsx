@@ -907,6 +907,7 @@ function App() {
           viewMode={navigation.viewMode}
           sidebarOpen={sidebarOpen}
           onOpenFile={loadFromFile}
+          onExport={handleExport}
           onPreviousPage={previousPage}
           onNextPage={nextPage}
           onGoToPage={goToPage}
@@ -933,7 +934,6 @@ function App() {
           onInsertFromFile={handleInsertFromFile}
           onMerge={handleOpenMergeDialog}
           onSplit={() => setSplitDialogOpen(true)}
-          onExport={handleExport}
           hasDocument={!!document}
           onUndo={handleUndo}
           onRedo={handleRedo}

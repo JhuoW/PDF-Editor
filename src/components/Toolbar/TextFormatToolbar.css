@@ -60,6 +60,10 @@
   text-decoration: underline;
 }
 
+.format-btn s {
+  text-decoration: line-through;
+}
+
 .format-dropdown-btn {
   display: flex;
   align-items: center;
@@ -272,4 +276,59 @@
 .close-btn:hover {
   background: var(--red-3);
   color: var(--red-11);
+}
+
+/* Spacing controls (line height, letter spacing) */
+.spacing-btn {
+  min-width: 50px;
+  padding: 4px 6px;
+}
+
+.spacing-icon {
+  font-size: 14px;
+  color: var(--gray-10);
+}
+
+.spacing-value {
+  font-size: 11px;
+  color: var(--gray-11);
+}
+
+.spacing-dropdown {
+  min-width: 60px;
+}
+
+.spacing-input-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--gray-6);
+  border-radius: 4px;
+  background: var(--gray-2);
+}
+
+.spacing-label {
+  font-size: 11px;
+  color: var(--gray-10);
+  font-weight: 500;
+}
+
+.spacing-number-input {
+  width: 40px;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--gray-12);
+  font-size: 11px;
+  text-align: center;
+}
+
+.spacing-number-input:focus {
+  outline: none;
+}
+
+.spacing-number-input::-webkit-inner-spin-button,
+.spacing-number-input::-webkit-outer-spin-button {
+  opacity: 1;
 }
