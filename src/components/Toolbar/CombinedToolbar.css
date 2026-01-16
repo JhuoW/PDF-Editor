@@ -7,6 +7,8 @@
   border-bottom: 1px solid var(--gray-6);
   flex-wrap: wrap;
   min-height: 40px;
+  position: relative;
+  z-index: 100;
 }
 
 .toolbar-group {
@@ -205,6 +207,28 @@
 
 .strikeout-icon {
   text-decoration: line-through;
+}
+
+/* SVG tool icons */
+.tool-icon-svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.toolbar-btn.active .tool-icon-svg {
+  color: white;
+}
+
+/* Select cursor icon - white fill with stroke */
+.select-cursor-icon path {
+  fill: white;
+  stroke: var(--gray-12);
+}
+
+.toolbar-btn.active .select-cursor-icon path {
+  fill: var(--accent-9);
+  stroke: white;
 }
 
 /* Tool settings */

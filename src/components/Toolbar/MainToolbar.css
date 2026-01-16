@@ -7,6 +7,8 @@
   border-bottom: 1px solid var(--gray-6);
   flex-shrink: 0;
   height: 48px;
+  position: relative;
+  z-index: 100;
 }
 
 .toolbar-group {

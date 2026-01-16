@@ -3,10 +3,26 @@ import type { TextStyle } from '../../annotations/types';
 import { AVAILABLE_FONTS, FONT_SIZE_PRESETS } from '../../annotations/types';
 import './TextFormatToolbar.css';
 
+// Mixed state for when selection has multiple different values for a property
+export interface MixedState {
+  fontFamily?: boolean;
+  fontSize?: boolean;
+  fontWeight?: boolean;
+  fontStyle?: boolean;
+  textDecoration?: boolean;
+  color?: boolean;
+  backgroundColor?: boolean;
+  textAlign?: boolean;
+  lineHeight?: boolean;
+  letterSpacing?: boolean;
+}
+
 interface TextFormatToolbarProps {
-  style: TextStyle;
+  style: Partial<TextStyle>;
   onChange: (style: Partial<TextStyle>) => void;
   onClose?: () => void;
+  isMixed?: MixedState;
+  hasSelection?: boolean;
 }
 
 // Color presets for quick selection
@@ -19,14 +35,23 @@ const COLOR_PRESETS = [
 // Line height presets
 const LINE_HEIGHT_PRESETS = [1.0, 1.2, 1.4, 1.5, 1.6, 1.8, 2.0] as const;
 
-export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolbarProps) {
+export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFormatToolbarProps) {
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSizeDropdown, setShowSizeDropdown] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showBgColorPicker, setShowBgColorPicker] = useState(false);
   const [showLineHeightDropdown, setShowLineHeightDropdown] = useState(false);
-  const [customSize, setCustomSize] = useState(style.fontSize.toString());
+  const [customSize, setCustomSize] = useState(style.fontSize?.toString() || '12');
   const toolbarRef = useRef<HTMLDivElement>(null);
+
+  // Update customSize when style changes
+  useEffect(() => {
+    if (style.fontSize !== undefined && !isMixed?.fontSize) {
+      setCustomSize(style.fontSize.toString());
+    } else if (isMixed?.fontSize) {
+      setCustomSize('—');
+    }
+  }, [style.fontSize, isMixed?.fontSize]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -109,7 +134,7 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
       {/* Font Family */}
       <div className="format-group">
         <button
-          className="format-dropdown-btn"
+          className={`format-dropdown-btn ${isMixed?.fontFamily ? 'mixed' : ''}`}
           onClick={() => {
             setShowFontDropdown(!showFontDropdown);
             setShowSizeDropdown(false);
@@ -118,8 +143,8 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
           }}
           title="Font Family"
         >
-          <span className="dropdown-label" style={{ fontFamily: style.fontFamily }}>
-            {style.fontFamily}
+          <span className="dropdown-label" style={{ fontFamily: isMixed?.fontFamily ? 'inherit' : style.fontFamily }}>
+            {isMixed?.fontFamily ? 'Multiple' : (style.fontFamily || 'Arial')}
           </span>
           <span className="dropdown-arrow">▼</span>
         </button>
@@ -128,7 +153,7 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
             {AVAILABLE_FONTS.map((font) => (
               <button
                 key={font}
-                className={`dropdown-item ${font === style.fontFamily ? 'active' : ''}`}
+                className={`dropdown-item ${!isMixed?.fontFamily && font === style.fontFamily ? 'active' : ''}`}
                 style={{ fontFamily: font }}
                 onClick={() => handleFontChange(font)}
               >
@@ -142,7 +167,7 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
       {/* Font Size */}
       <div className="format-group">
         <button
-          className="format-dropdown-btn size-btn"
+          className={`format-dropdown-btn size-btn ${isMixed?.fontSize ? 'mixed' : ''}`}
           onClick={() => {
             setShowSizeDropdown(!showSizeDropdown);
             setShowFontDropdown(false);
@@ -171,7 +196,7 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
             {FONT_SIZE_PRESETS.map((size) => (
               <button
                 key={size}
-                className={`dropdown-item ${size === style.fontSize ? 'active' : ''}`}
+                className={`dropdown-item ${!isMixed?.fontSize && size === style.fontSize ? 'active' : ''}`}
                 onClick={() => handleSizeChange(size)}
               >
                 {size}
@@ -186,28 +211,28 @@ export function TextFormatToolbar({ style, onChange, onClose }: TextFormatToolba
       {/* Bold, Italic, Underline, Strikethrough */}
       <div className="format-group style-buttons">
         <button
-          className={`format-btn ${style.fontWeight === 'bold' ? 'active' : ''}`}
+          className={`format-btn ${style.fontWeight === 'bold' ? 'active' : ''} ${isMixed?.fontWeight ? 'partial' : ''}`}
           onClick={toggleBold}
           title="Bold (Ctrl+B)"
         >
           <strong>B</strong>
         </button>
         <button
-          className={`format-btn ${style.fontStyle === 'italic' ? 'active' : ''}`}
+          className={`format-btn ${style.fontStyle === 'italic' ? 'active' : ''} ${isMixed?.fontStyle ? 'partial' : ''}`}
           onClick={toggleItalic}
           title="Italic (Ctrl+I)"
         >
           <em>I</em>
         </button>
         <button
-          className={`format-btn ${style.textDecoration === 'underline' ? 'active' : ''}`}
+          className={`format-btn ${style.textDecoration === 'underline' ? 'active' : ''} ${isMixed?.textDecoration ? 'partial' : ''}`}
           onClick={toggleUnderline}
           title="Underline (Ctrl+U)"
         >
           <u>U</u>
         </button>
         <button
-          className={`format-btn ${style.textDecoration === 'line-through' ? 'active' : ''}`}
+          className={`format-btn ${style.textDecoration === 'line-through' ? 'active' : ''} ${isMixed?.textDecoration ? 'partial' : ''}`}
           onClick={toggleStrikethrough}
           title="Strikethrough (Ctrl+Shift+X)"
         >

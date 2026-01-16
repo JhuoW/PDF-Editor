@@ -57,13 +57,28 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
   return (
     <div className="annotation-toolbar">
       <div className="annotation-toolbar-section">
-        <span className="section-label">Select</span>
+        <span className="section-label">Navigation</span>
         <button
           className={`tool-button ${currentTool === 'select' ? 'active' : ''}`}
           onClick={() => handleToolClick('select')}
           title="Select (V)"
         >
-          <span className="tool-icon">↖</span>
+          <svg className="tool-icon-svg select-cursor-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 4L10 22L13 13L22 10L4 4Z" fill="white" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button
+          className={`tool-button ${currentTool === 'pan' ? 'active' : ''}`}
+          onClick={() => handleToolClick('pan')}
+          title="Pan (H)"
+        >
+          <svg className="tool-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 11V6C18 5.45 17.55 5 17 5C16.45 5 16 5.45 16 6V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M14 11V4C14 3.45 13.55 3 13 3C12.45 3 12 3.45 12 4V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M10 11V6C10 5.45 9.55 5 9 5C8.45 5 8 5.45 8 6V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M20 11V17C20 19.21 18.21 21 16 21H12C9.79 21 8 19.21 8 17V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M6 11V9C6 8.45 5.55 8 5 8C4.45 8 4 8.45 4 9V15C4 18.31 6.69 21 10 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </button>
       </div>
 

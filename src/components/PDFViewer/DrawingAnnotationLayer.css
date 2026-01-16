@@ -51,3 +51,26 @@
 .drawing-annotation-layer[data-tool="freetext"] {
   cursor: text;
 }
+
+/* Pan mode - allow events to pass through for scrolling */
+.drawing-annotation-layer.pan-mode {
+  pointer-events: none;
+  cursor: grab;
+}
+
+.drawing-annotation-layer.pan-mode:active {
+  cursor: grabbing;
+}
+
+/* Properties panel overlay */
+.properties-panel-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2000;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+}

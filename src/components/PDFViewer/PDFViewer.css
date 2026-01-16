@@ -3,16 +3,9 @@
   overflow: auto;
   background-color: var(--gray-4);
   display: flex;
-  justify-content: center;
-}
-
-.pdf-viewer-container.view-mode-continuous {
+  /* Use flex-start to prevent content from being pushed outside scrollable area */
+  justify-content: flex-start;
   align-items: flex-start;
-}
-
-.pdf-viewer-container.view-mode-single,
-.pdf-viewer-container.view-mode-two-page {
-  align-items: center;
 }
 
 .pdf-pages-wrapper {
@@ -21,6 +14,11 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
+  /* Use margin auto for centering - works correctly with overflow */
+  margin: auto;
+  /* Ensure content can shrink and doesn't get cut off */
+  min-width: min-content;
+  min-height: min-content;
 }
 
 .view-mode-two-page .pdf-pages-wrapper {

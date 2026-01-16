@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { ZoomMode } from '../../store/documentStore';
+import type { AnnotationTool } from '../../annotations/types';
 import { PageCanvas } from './PageCanvas';
 import './PDFViewer.css';
 
@@ -25,6 +26,7 @@ interface PDFViewerProps {
   onLinkClick?: (dest: unknown) => void;
   onCalculatedZoomChange?: (zoom: number) => void;
   highlightDestination?: LinkDestination | null;
+  currentTool?: AnnotationTool;
 }
 
 export function PDFViewer({
@@ -42,12 +44,18 @@ export function PDFViewer({
   onLinkClick,
   onCalculatedZoomChange,
   highlightDestination,
+  currentTool = 'select',
 }: PDFViewerProps) {
   const [pages, setPages] = useState<PDFPageProxy[]>([]);
   const [loading, setLoading] = useState(true);
   const [calculatedScale, setCalculatedScale] = useState(scale);
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  // Pan state
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const [isSpacePanning, setIsSpacePanning] = useState(false);
 
   // Padding around the page in fit modes
   const FIT_PADDING = 40;
@@ -274,6 +282,73 @@ export function PDFViewer({
     return () => container.removeEventListener('scroll', onScroll);
   }, [viewMode, handleScroll]);
 
+  // Pan handlers
+  const handlePanStart = useCallback((e: React.MouseEvent) => {
+    if (currentTool !== 'pan' && !isSpacePanning) return;
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+
+    setIsPanning(true);
+    setPanStart({
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: container.scrollLeft,
+      scrollTop: container.scrollTop,
+    });
+  }, [currentTool, isSpacePanning]);
+
+  const handlePanMove = useCallback((e: React.MouseEvent) => {
+    if (!isPanning || !panStart) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const dx = e.clientX - panStart.x;
+    const dy = e.clientY - panStart.y;
+    container.scrollLeft = panStart.scrollLeft - dx;
+    container.scrollTop = panStart.scrollTop - dy;
+  }, [isPanning, panStart]);
+
+  const handlePanEnd = useCallback(() => {
+    setIsPanning(false);
+    setPanStart(null);
+  }, []);
+
+  // Space key for temporary pan mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault();
+        setIsSpacePanning(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePanning(false);
+        setIsPanning(false);
+        setPanStart(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  // Determine cursor style for panning
+  const getPanCursor = () => {
+    if (isPanning) return 'grabbing';
+    if (currentTool === 'pan' || isSpacePanning) return 'grab';
+    return undefined;
+  };
+
   if (loading && pages.length === 0) {
     return (
       <div className="pdf-viewer-container">
@@ -288,7 +363,12 @@ export function PDFViewer({
   return (
     <div
       ref={containerRef}
-      className={`pdf-viewer-container view-mode-${viewMode}`}
+      className={`pdf-viewer-container view-mode-${viewMode}${currentTool === 'pan' || isSpacePanning ? ' pan-mode' : ''}`}
+      style={{ cursor: getPanCursor() }}
+      onMouseDown={handlePanStart}
+      onMouseMove={handlePanMove}
+      onMouseUp={handlePanEnd}
+      onMouseLeave={handlePanEnd}
     >
       <div className="pdf-pages-wrapper">
         {pages.map((page) => (

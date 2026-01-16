@@ -2,6 +2,13 @@ import { create } from 'zustand';
 import type { TextStyle, BoxStyle, RichTextSegment } from '../annotations/types';
 import { DEFAULT_TEXT_STYLE, DEFAULT_BOX_STYLE } from '../annotations/types';
 
+// Selection state for rich text editing
+export interface SelectionState {
+  start: number;
+  end: number;
+  direction: 'forward' | 'backward' | 'none';
+}
+
 // Cursor state for text editing
 export interface CursorState {
   position: number; // Character index in content
@@ -9,6 +16,9 @@ export interface CursorState {
   selectionEnd: number | null;
   isBlinking: boolean;
 }
+
+// Pending format for next typed characters (Word-like behavior)
+export type PendingFormat = Partial<TextStyle>;
 
 // Creation state for click/drag to create
 export interface TextBoxCreationState {
@@ -47,6 +57,9 @@ interface TextBoxState {
   // Format painter
   formatPainter: FormatPainterState;
 
+  // Pending format for next typed characters (Word-like behavior)
+  pendingFormat: PendingFormat | null;
+
   // Default styles for new text boxes
   defaultTextStyle: TextStyle;
   defaultBoxStyle: BoxStyle;
@@ -78,6 +91,12 @@ interface TextBoxState {
   setDefaultTextStyle: (style: Partial<TextStyle>) => void;
   setDefaultBoxStyle: (style: Partial<BoxStyle>) => void;
 
+  // Pending format for Word-like behavior
+  setPendingFormat: (format: PendingFormat) => void;
+  mergePendingFormat: (format: PendingFormat) => void;
+  clearPendingFormat: () => void;
+  getPendingFormat: () => PendingFormat | null;
+
   // Edit batching for undo
   startEditBatch: () => string;
   shouldContinueBatch: () => boolean;
@@ -86,7 +105,7 @@ interface TextBoxState {
 
 // Generate unique batch ID
 function generateBatchId(): string {
-  return `batch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `batch-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 // Minimum size for text boxes (in PDF coordinates)
@@ -119,6 +138,8 @@ export const useTextBoxStore = create<TextBoxState>((set, get) => ({
     style: null,
   },
 
+  pendingFormat: null,
+
   defaultTextStyle: { ...DEFAULT_TEXT_STYLE },
   defaultBoxStyle: { ...DEFAULT_BOX_STYLE },
 
@@ -150,6 +171,7 @@ export const useTextBoxStore = create<TextBoxState>((set, get) => ({
         selectionEnd: null,
         isBlinking: true,
       },
+      pendingFormat: null, // Clear pending format when exiting edit mode
     });
   },
 
@@ -300,6 +322,26 @@ export const useTextBoxStore = create<TextBoxState>((set, get) => ({
     }));
   },
 
+  setPendingFormat: (format) => {
+    set({ pendingFormat: format });
+  },
+
+  mergePendingFormat: (format) => {
+    set((state) => ({
+      pendingFormat: state.pendingFormat
+        ? { ...state.pendingFormat, ...format }
+        : format,
+    }));
+  },
+
+  clearPendingFormat: () => {
+    set({ pendingFormat: null });
+  },
+
+  getPendingFormat: () => {
+    return get().pendingFormat;
+  },
+
   startEditBatch: () => {
     const batchId = generateBatchId();
     set({ editBatchId: batchId, lastEditTime: Date.now() });
@@ -326,3 +368,9 @@ export const useEditingTextBoxId = () => useTextBoxStore((state) => state.editin
 export const useCursor = () => useTextBoxStore((state) => state.cursor);
 export const useCreation = () => useTextBoxStore((state) => state.creation);
 export const useFormatPainter = () => useTextBoxStore((state) => state.formatPainter);
+export const usePendingFormat = () => useTextBoxStore((state) => state.pendingFormat);
+export const useHasSelection = () => useTextBoxStore((state) =>
+  state.cursor.selectionStart !== null &&
+  state.cursor.selectionEnd !== null &&
+  state.cursor.selectionStart !== state.cursor.selectionEnd
+);

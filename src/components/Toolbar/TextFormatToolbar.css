@@ -48,6 +48,25 @@
   color: var(--blue-11);
 }
 
+/* Partial active state (mixed selection has some but not all matching) */
+.format-btn.partial {
+  background: var(--gray-4);
+  border-color: var(--gray-7);
+  position: relative;
+}
+
+.format-btn.partial::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: var(--blue-9);
+  border-radius: 50%;
+}
+
 .format-btn strong {
   font-weight: 700;
 }
@@ -81,6 +100,17 @@
 .format-dropdown-btn:hover {
   background: var(--gray-3);
   border-color: var(--gray-7);
+}
+
+/* Mixed state for dropdowns (selection has multiple different values) */
+.format-dropdown-btn.mixed {
+  border-style: dashed;
+  border-color: var(--gray-7);
+}
+
+.format-dropdown-btn.mixed .dropdown-label {
+  font-style: italic;
+  color: var(--gray-10);
 }
 
 .format-dropdown-btn.size-btn {

@@ -77,8 +77,8 @@ export interface BoxStyle {
 // Rich text segment for mixed formatting within one text box
 export interface RichTextSegment {
   text: string;
-  startIndex: number;
-  endIndex: number;
+  startIndex?: number;  // Optional - computed dynamically when needed
+  endIndex?: number;    // Optional - computed dynamically when needed
   style: Partial<TextStyle>;
 }
 
@@ -236,6 +236,7 @@ export type PredefinedStampName = typeof PREDEFINED_STAMPS[number];
 // Tool modes for the annotation toolbar
 export type AnnotationTool =
   | 'select'
+  | 'pan'
   | 'highlight'
   | 'underline'
   | 'strikeout'

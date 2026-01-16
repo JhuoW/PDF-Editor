@@ -59,6 +59,27 @@
   line-height: 1;
 }
 
+.tool-icon-svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.tool-button.active .tool-icon-svg {
+  color: white;
+}
+
+/* Select cursor icon - white fill with black stroke */
+.select-cursor-icon path {
+  fill: white;
+  stroke: black;
+}
+
+.tool-button.active .select-cursor-icon path {
+  fill: var(--accent-9);
+  stroke: white;
+}
+
 .highlight-icon {
   background: linear-gradient(to top, #FFFF00 50%, transparent 50%);
   padding: 0 2px;

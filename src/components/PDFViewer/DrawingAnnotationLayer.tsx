@@ -11,11 +11,19 @@ import {
   createStampAnnotation,
   createFreeTextAnnotation,
 } from '../../store/annotationStore';
-import type { Annotation, FreeTextAnnotation, TextStyle } from '../../annotations/types';
+import type { Annotation, FreeTextAnnotation, TextStyle, RichTextSegment } from '../../annotations/types';
 import { DEFAULT_TEXT_STYLE } from '../../annotations/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { TextFormatToolbar } from '../Toolbar/TextFormatToolbar';
-import { TextBoxContextMenu } from '../TextBox/TextBoxContextMenu';
+import { TextBoxContextMenu, RichTextEditor, BoxPropertiesPanel, TextPropertiesPanel } from '../TextBox';
+import { useTextBoxStore } from '../../store/textBoxStore';
+import {
+  textToSegments,
+  getPlainText,
+  applyStyleToRange,
+  normalizeSegments,
+  getSelectionStyle,
+} from '../../utils/richText';
 import './DrawingAnnotationLayer.css';
 
 interface DrawingAnnotationLayerProps {
@@ -48,6 +56,8 @@ export function DrawingAnnotationLayer({
   // Text editing state
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [editingSegments, setEditingSegments] = useState<RichTextSegment[]>([]);
+  const useRichTextEditor = true; // Enable rich text editing by default
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Drag state
@@ -72,6 +82,10 @@ export function DrawingAnnotationLayer({
     annotation: FreeTextAnnotation;
     position: { x: number; y: number };
   } | null>(null);
+
+  // Properties panel state
+  const [showTextPropertiesPanel, setShowTextPropertiesPanel] = useState(false);
+  const [showBoxPropertiesPanel, setShowBoxPropertiesPanel] = useState(false);
 
   // Store original annotation state for undo (before drag/resize modifications)
   const originalAnnotationRef = useRef<Annotation | null>(null);
@@ -1308,8 +1322,12 @@ export function DrawingAnnotationLayer({
           if (annotation) {
             setEditingAnnotationId(annotation.id);
             setEditingContent('');
+            // Initialize empty segments with default style
+            setEditingSegments(textToSegments('', toolSettings.textStyle));
             selectAnnotation(annotation.id);
-            setTimeout(() => textareaRef.current?.focus(), 0);
+            if (!useRichTextEditor) {
+              setTimeout(() => textareaRef.current?.focus(), 0);
+            }
           }
         }, 0);
         break;
@@ -1335,6 +1353,10 @@ export function DrawingAnnotationLayer({
     if (annotation) {
       addAnnotation(annotation);
       recordAdd(annotation);
+      // Select the newly created annotation (except freetext which handles selection separately)
+      if (currentTool !== 'freetext') {
+        selectAnnotation(annotation.id);
+      }
     }
 
     setIsDrawing(false);
@@ -1354,10 +1376,24 @@ export function DrawingAnnotationLayer({
 
     for (const annotation of annotations) {
       if (annotation.type === 'freetext' && isPointInAnnotation(x, y, annotation)) {
+        const ftAnnotation = annotation as FreeTextAnnotation;
         setEditingAnnotationId(annotation.id);
-        setEditingContent(annotation.content || '');
+        setEditingContent(ftAnnotation.content || '');
+
+        // Initialize segments for rich text editing
+        if (ftAnnotation.richContent && ftAnnotation.richContent.length > 0) {
+          setEditingSegments(ftAnnotation.richContent);
+        } else {
+          // Convert plain text to segments with the annotation's style
+          const style = getAnnotationStyle(ftAnnotation);
+          setEditingSegments(textToSegments(ftAnnotation.content || '', style));
+        }
+
         selectAnnotation(annotation.id);
-        setTimeout(() => textareaRef.current?.focus(), 0);
+        // Focus is handled by RichTextEditor's autoFocus
+        if (!useRichTextEditor) {
+          setTimeout(() => textareaRef.current?.focus(), 0);
+        }
         return;
       }
     }
@@ -1369,27 +1405,57 @@ export function DrawingAnnotationLayer({
 
     const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
     if (annotation && annotation.type === 'freetext') {
-      const trimmedContent = editingContent.trim();
+      if (useRichTextEditor) {
+        // Save rich text segments
+        const plainContent = getPlainText(editingSegments);
+        const trimmedContent = plainContent.trim();
 
-      if (trimmedContent === '') {
-        if (!annotation.content || annotation.content.trim() === '') {
-          // Delete empty text box and record deletion for undo
-          recordDelete(annotation);
-          deleteAnnotation(editingAnnotationId);
+        if (trimmedContent === '') {
+          if (!annotation.content || annotation.content.trim() === '') {
+            // Delete empty text box and record deletion for undo
+            recordDelete(annotation);
+            deleteAnnotation(editingAnnotationId);
+          } else {
+            const previousState = { ...annotation };
+            updateAnnotation(editingAnnotationId, { content: '', richContent: [] });
+            recordUpdate({ ...annotation, content: '', richContent: [] }, previousState);
+          }
         } else {
           const previousState = { ...annotation };
-          updateAnnotation(editingAnnotationId, { content: '' });
-          recordUpdate({ ...annotation, content: '' }, previousState);
+          const normalizedSegments = normalizeSegments(editingSegments);
+          updateAnnotation(editingAnnotationId, {
+            content: trimmedContent,
+            richContent: normalizedSegments,
+          });
+          recordUpdate({ ...annotation, content: trimmedContent, richContent: normalizedSegments }, previousState);
         }
       } else {
-        const previousState = { ...annotation };
-        updateAnnotation(editingAnnotationId, { content: trimmedContent });
-        recordUpdate({ ...annotation, content: trimmedContent }, previousState);
+        // Legacy plain text editing
+        const trimmedContent = editingContent.trim();
+
+        if (trimmedContent === '') {
+          if (!annotation.content || annotation.content.trim() === '') {
+            // Delete empty text box and record deletion for undo
+            recordDelete(annotation);
+            deleteAnnotation(editingAnnotationId);
+          } else {
+            const previousState = { ...annotation };
+            updateAnnotation(editingAnnotationId, { content: '' });
+            recordUpdate({ ...annotation, content: '' }, previousState);
+          }
+        } else {
+          const previousState = { ...annotation };
+          updateAnnotation(editingAnnotationId, { content: trimmedContent });
+          recordUpdate({ ...annotation, content: trimmedContent }, previousState);
+        }
       }
     }
 
     setEditingAnnotationId(null);
     setEditingContent('');
+    setEditingSegments([]);
+    // Clear textbox store state
+    useTextBoxStore.getState().stopEditing();
   };
 
   // Handle click for selection
@@ -1585,12 +1651,160 @@ export function DrawingAnnotationLayer({
       // Skip other shortcuts if in editing mode or in an input
       if (editingAnnotationId || isInput) return;
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
-        const annotation = annotations.find((a) => a.id === selectedAnnotationId);
-        if (annotation) {
-          recordDelete(annotation);
-          deleteAnnotation(selectedAnnotationId);
+      // Get selected annotation
+      const selectedAnnotation = selectedAnnotationId
+        ? annotations.find((a) => a.id === selectedAnnotationId)
+        : null;
+
+      // Delete/Backspace to delete annotation
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotation) {
+        e.preventDefault();
+        recordDelete(selectedAnnotation);
+        deleteAnnotation(selectedAnnotation.id);
+        return;
+      }
+
+      // Enter to enter editing mode for freetext
+      if (e.key === 'Enter' && selectedAnnotation?.type === 'freetext') {
+        e.preventDefault();
+        const ftAnnotation = selectedAnnotation as FreeTextAnnotation;
+        setEditingAnnotationId(ftAnnotation.id);
+        setEditingContent(ftAnnotation.content || '');
+        if (ftAnnotation.richContent && ftAnnotation.richContent.length > 0) {
+          setEditingSegments(ftAnnotation.richContent);
+        } else {
+          const style = getAnnotationStyle(ftAnnotation);
+          setEditingSegments(textToSegments(ftAnnotation.content || '', style));
         }
+        return;
+      }
+
+      // Arrow keys to nudge position (1px, or 10px with Shift)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedAnnotation) {
+        e.preventDefault();
+        const nudgeAmount = isShift ? 10 : 1;
+        const previousState = { ...selectedAnnotation };
+
+        if ('rect' in selectedAnnotation) {
+          const rect = [...(selectedAnnotation as { rect: [number, number, number, number] }).rect] as [number, number, number, number];
+          switch (e.key) {
+            case 'ArrowUp': rect[1] += nudgeAmount; break;
+            case 'ArrowDown': rect[1] -= nudgeAmount; break;
+            case 'ArrowLeft': rect[0] -= nudgeAmount; break;
+            case 'ArrowRight': rect[0] += nudgeAmount; break;
+          }
+          updateAnnotation(selectedAnnotation.id, { rect });
+          recordUpdate({ ...selectedAnnotation, rect }, previousState);
+        } else if (selectedAnnotation.type === 'sticky-note') {
+          const pos = { ...(selectedAnnotation as { position: { x: number; y: number } }).position };
+          switch (e.key) {
+            case 'ArrowUp': pos.y += nudgeAmount; break;
+            case 'ArrowDown': pos.y -= nudgeAmount; break;
+            case 'ArrowLeft': pos.x -= nudgeAmount; break;
+            case 'ArrowRight': pos.x += nudgeAmount; break;
+          }
+          updateAnnotation(selectedAnnotation.id, { position: pos });
+          recordUpdate({ ...selectedAnnotation, position: pos }, previousState);
+        } else if (selectedAnnotation.type === 'line' || selectedAnnotation.type === 'arrow') {
+          const ann = selectedAnnotation as { start: [number, number]; end: [number, number] };
+          const start = [...ann.start] as [number, number];
+          const end = [...ann.end] as [number, number];
+          switch (e.key) {
+            case 'ArrowUp': start[1] += nudgeAmount; end[1] += nudgeAmount; break;
+            case 'ArrowDown': start[1] -= nudgeAmount; end[1] -= nudgeAmount; break;
+            case 'ArrowLeft': start[0] -= nudgeAmount; end[0] -= nudgeAmount; break;
+            case 'ArrowRight': start[0] += nudgeAmount; end[0] += nudgeAmount; break;
+          }
+          updateAnnotation(selectedAnnotation.id, { start, end });
+          recordUpdate({ ...selectedAnnotation, start, end }, previousState);
+        }
+        return;
+      }
+
+      // Ctrl+D to duplicate
+      if (isCtrl && e.key.toLowerCase() === 'd' && selectedAnnotation) {
+        e.preventDefault();
+        const duplicated = JSON.parse(JSON.stringify(selectedAnnotation));
+        duplicated.id = `ann-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        duplicated.createdAt = new Date();
+        duplicated.modifiedAt = new Date();
+
+        // Offset the duplicate
+        if ('rect' in duplicated) {
+          duplicated.rect[0] += 20;
+          duplicated.rect[1] -= 20;
+        } else if (duplicated.type === 'sticky-note') {
+          duplicated.position.x += 20;
+          duplicated.position.y -= 20;
+        } else if (duplicated.type === 'line' || duplicated.type === 'arrow') {
+          duplicated.start[0] += 20;
+          duplicated.start[1] -= 20;
+          duplicated.end[0] += 20;
+          duplicated.end[1] -= 20;
+        }
+
+        addAnnotation(duplicated);
+        recordAdd(duplicated);
+        selectAnnotation(duplicated.id);
+        return;
+      }
+
+      // Ctrl+C to copy annotation to clipboard
+      if (isCtrl && e.key.toLowerCase() === 'c' && selectedAnnotation) {
+        e.preventDefault();
+        // Store in a global clipboard for annotations
+        (window as unknown as { __annotationClipboard?: Annotation }).__annotationClipboard = JSON.parse(JSON.stringify(selectedAnnotation));
+        // Also copy text content to system clipboard if it's a text annotation
+        if (selectedAnnotation.type === 'freetext') {
+          navigator.clipboard.writeText((selectedAnnotation as FreeTextAnnotation).content || '');
+        }
+        return;
+      }
+
+      // Ctrl+X to cut annotation
+      if (isCtrl && e.key.toLowerCase() === 'x' && selectedAnnotation) {
+        e.preventDefault();
+        // Store in clipboard
+        (window as unknown as { __annotationClipboard?: Annotation }).__annotationClipboard = JSON.parse(JSON.stringify(selectedAnnotation));
+        // Copy text to system clipboard
+        if (selectedAnnotation.type === 'freetext') {
+          navigator.clipboard.writeText((selectedAnnotation as FreeTextAnnotation).content || '');
+        }
+        // Delete the original
+        recordDelete(selectedAnnotation);
+        deleteAnnotation(selectedAnnotation.id);
+        return;
+      }
+
+      // Ctrl+V to paste annotation
+      if (isCtrl && e.key.toLowerCase() === 'v' && !selectedAnnotation) {
+        const clipboard = (window as unknown as { __annotationClipboard?: Annotation }).__annotationClipboard;
+        if (clipboard && clipboard.pageNumber === pageNumber) {
+          e.preventDefault();
+          const pasted = JSON.parse(JSON.stringify(clipboard));
+          pasted.id = `ann-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+          pasted.createdAt = new Date();
+          pasted.modifiedAt = new Date();
+
+          // Offset the paste
+          if ('rect' in pasted) {
+            pasted.rect[0] += 20;
+            pasted.rect[1] -= 20;
+          } else if (pasted.type === 'sticky-note') {
+            pasted.position.x += 20;
+            pasted.position.y -= 20;
+          } else if (pasted.type === 'line' || pasted.type === 'arrow') {
+            pasted.start[0] += 20;
+            pasted.start[1] -= 20;
+            pasted.end[0] += 20;
+            pasted.end[1] -= 20;
+          }
+
+          addAnnotation(pasted);
+          recordAdd(pasted);
+          selectAnnotation(pasted.id);
+        }
+        return;
       }
     };
 
@@ -1732,6 +1946,27 @@ export function DrawingAnnotationLayer({
     const annotation = annotations.find((a) => a.id === selectedAnnotationId) as FreeTextAnnotation | undefined;
     if (!annotation || annotation.type !== 'freetext') return;
 
+    // Check if we're in rich text editing mode with a selection
+    if (useRichTextEditor && editingAnnotationId === selectedAnnotationId) {
+      const { cursor, mergePendingFormat } = useTextBoxStore.getState();
+      const hasSelection = cursor.selectionStart !== null &&
+                          cursor.selectionEnd !== null &&
+                          cursor.selectionStart !== cursor.selectionEnd;
+
+      if (hasSelection) {
+        // Apply style to selection
+        const selStart = Math.min(cursor.selectionStart!, cursor.selectionEnd!);
+        const selEnd = Math.max(cursor.selectionStart!, cursor.selectionEnd!);
+        const newSegments = applyStyleToRange(editingSegments, selStart, selEnd, styleUpdates);
+        setEditingSegments(normalizeSegments(newSegments));
+      } else {
+        // Set pending format for next typed character
+        mergePendingFormat(styleUpdates);
+      }
+      return;
+    }
+
+    // Apply to whole text box when not in rich text editing mode
     const previousState = { ...annotation };
     const currentStyle = getAnnotationStyle(annotation);
     const newStyle = { ...currentStyle, ...styleUpdates };
@@ -1760,19 +1995,93 @@ export function DrawingAnnotationLayer({
     };
   };
 
+  // Get current selection style for toolbar (when editing with RichTextEditor)
+  const getEditingSelectionStyle = useCallback(() => {
+    if (!editingAnnotationId || editingSegments.length === 0) return null;
+
+    const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
+    if (!annotation) return null;
+
+    const { cursor, pendingFormat } = useTextBoxStore.getState();
+    const defaultStyle = getAnnotationStyle(annotation);
+
+    // If pending format is set, merge it with current style
+    if (pendingFormat && Object.keys(pendingFormat).length > 0) {
+      return {
+        style: { ...defaultStyle, ...pendingFormat } as Partial<TextStyle>,
+        isMixed: {
+          fontFamily: false,
+          fontSize: false,
+          fontWeight: false,
+          fontStyle: false,
+          textDecoration: false,
+          color: false,
+        },
+      };
+    }
+
+    const hasSelection = cursor.selectionStart !== null &&
+                        cursor.selectionEnd !== null &&
+                        cursor.selectionStart !== cursor.selectionEnd;
+
+    if (hasSelection) {
+      const selStart = Math.min(cursor.selectionStart!, cursor.selectionEnd!);
+      const selEnd = Math.max(cursor.selectionStart!, cursor.selectionEnd!);
+      return getSelectionStyle(editingSegments, selStart, selEnd);
+    }
+
+    // No selection - return style at cursor position
+    return {
+      style: defaultStyle,
+      isMixed: {
+        fontFamily: false,
+        fontSize: false,
+        fontWeight: false,
+        fontStyle: false,
+        textDecoration: false,
+        color: false,
+      },
+    };
+  }, [editingAnnotationId, editingSegments, annotations]);
+
   // Get selected freetext annotation rect for format toolbar
   const getSelectedFreetextRect = () => {
-    if (!selectedAnnotationId || editingAnnotationId) return null;
+    if (!selectedAnnotationId) return null;
     const annotation = annotations.find((a) => a.id === selectedAnnotationId) as FreeTextAnnotation | undefined;
     if (!annotation || annotation.type !== 'freetext') return null;
 
     const { rect } = annotation;
     const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
 
+    // Get the appropriate style based on whether we're editing
+    let style: Partial<TextStyle>;
+    let isMixed = {
+      fontFamily: false,
+      fontSize: false,
+      fontWeight: false,
+      fontStyle: false,
+      textDecoration: false,
+      color: false,
+    };
+
+    if (editingAnnotationId === selectedAnnotationId && useRichTextEditor) {
+      const selectionStyle = getEditingSelectionStyle();
+      if (selectionStyle) {
+        style = selectionStyle.style;
+        isMixed = selectionStyle.isMixed;
+      } else {
+        style = getAnnotationStyle(annotation);
+      }
+    } else {
+      style = getAnnotationStyle(annotation);
+    }
+
     return {
       left: topLeft.x,
       top: topLeft.y - 50, // Position above the text box
-      style: getAnnotationStyle(annotation),
+      style,
+      isMixed,
+      hasSelection: useTextBoxStore.getState().cursor.selectionStart !== null,
     };
   };
 
@@ -1791,6 +2100,7 @@ export function DrawingAnnotationLayer({
       };
       return cursors[resizeHandle || ''] || 'default';
     }
+    if (currentTool === 'pan') return 'grab';
     if (currentTool !== 'select') return 'crosshair';
     return 'default';
   };
@@ -1798,17 +2108,17 @@ export function DrawingAnnotationLayer({
   return (
     <div
       ref={containerRef}
-      className={`drawing-annotation-layer ${currentTool !== 'select' ? 'drawing-mode' : ''}`}
+      className={`drawing-annotation-layer ${currentTool !== 'select' && currentTool !== 'pan' ? 'drawing-mode' : ''} ${currentTool === 'pan' ? 'pan-mode' : ''}`}
       style={{
         width: dimensions.width,
         height: dimensions.height,
         cursor: getCursor(),
       }}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
+      onMouseDown={currentTool === 'pan' ? undefined : handleMouseDown}
+      onMouseMove={currentTool === 'pan' ? undefined : handleMouseMove}
+      onMouseUp={currentTool === 'pan' ? undefined : handleMouseUp}
+      onClick={currentTool === 'pan' ? undefined : handleClick}
+      onDoubleClick={currentTool === 'pan' ? undefined : handleDoubleClick}
       onContextMenu={(e) => {
         e.preventDefault();
         const rect = containerRef.current?.getBoundingClientRect();
@@ -1843,16 +2153,62 @@ export function DrawingAnnotationLayer({
             top: Math.max(0, formatToolbarRect.top),
             zIndex: 1001,
           }}
+          data-format-toolbar="true"
+          // Prevent mousedown from stealing focus from RichTextEditor
+          // This keeps the hidden input focused so blur/finishEditing doesn't fire
+          onMouseDown={(e) => {
+            // Don't prevent default for actual input elements that need focus
+            const target = e.target as HTMLElement;
+            const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+            if (!isInput) {
+              e.preventDefault();
+            }
+          }}
         >
           <TextFormatToolbar
             style={formatToolbarRect.style}
             onChange={handleStyleChange}
+            isMixed={formatToolbarRect.isMixed}
+            hasSelection={formatToolbarRect.hasSelection}
           />
         </div>
       )}
 
-      {/* Text editing textarea */}
-      {editingAnnotationId && editingRect && (
+      {/* Rich text editing with RichTextEditor */}
+      {editingAnnotationId && editingRect && useRichTextEditor && (
+        <div
+          className="freetext-editor-container"
+          style={{
+            position: 'absolute',
+            left: editingRect.left,
+            top: editingRect.top,
+            width: editingRect.width,
+            height: editingRect.height,
+            border: '2px solid #0066FF',
+            borderRadius: '2px',
+            backgroundColor: editingRect.style.backgroundColor === 'transparent' ? 'white' : editingRect.style.backgroundColor,
+            boxSizing: 'border-box',
+            zIndex: 1002,
+            overflow: 'hidden',
+          }}
+        >
+          <RichTextEditor
+            segments={editingSegments}
+            defaultStyle={editingRect.style}
+            width={editingRect.width - 4}
+            height={editingRect.height - 4}
+            scale={1}
+            padding={8}
+            textAlign={editingRect.style.textAlign}
+            onChange={setEditingSegments}
+            onBlur={finishEditing}
+            autoFocus={true}
+          />
+        </div>
+      )}
+
+      {/* Legacy text editing textarea (fallback) */}
+      {editingAnnotationId && editingRect && !useRichTextEditor && (
         <textarea
           ref={textareaRef}
           className="freetext-editor"
@@ -1894,12 +2250,52 @@ export function DrawingAnnotationLayer({
           position={contextMenu.position}
           onClose={() => setContextMenu(null)}
           onEditText={() => {
-            setEditingAnnotationId(contextMenu.annotation.id);
-            setEditingContent(contextMenu.annotation.content || '');
+            const ftAnnotation = contextMenu.annotation;
+            setEditingAnnotationId(ftAnnotation.id);
+            setEditingContent(ftAnnotation.content || '');
+
+            // Initialize segments for rich text editing
+            if (ftAnnotation.richContent && ftAnnotation.richContent.length > 0) {
+              setEditingSegments(ftAnnotation.richContent);
+            } else {
+              const style = getAnnotationStyle(ftAnnotation);
+              setEditingSegments(textToSegments(ftAnnotation.content || '', style));
+            }
+
             setContextMenu(null);
-            setTimeout(() => textareaRef.current?.focus(), 0);
+            if (!useRichTextEditor) {
+              setTimeout(() => textareaRef.current?.focus(), 0);
+            }
+          }}
+          onShowTextProperties={() => {
+            setShowTextPropertiesPanel(true);
+            setShowBoxPropertiesPanel(false);
+          }}
+          onShowBoxProperties={() => {
+            setShowBoxPropertiesPanel(true);
+            setShowTextPropertiesPanel(false);
           }}
         />
+      )}
+
+      {/* Text Properties Panel */}
+      {showTextPropertiesPanel && selectedAnnotation?.type === 'freetext' && (
+        <div className="properties-panel-overlay">
+          <TextPropertiesPanel
+            annotation={selectedAnnotation as FreeTextAnnotation}
+            onClose={() => setShowTextPropertiesPanel(false)}
+          />
+        </div>
+      )}
+
+      {/* Box Properties Panel */}
+      {showBoxPropertiesPanel && selectedAnnotation?.type === 'freetext' && (
+        <div className="properties-panel-overlay">
+          <BoxPropertiesPanel
+            annotation={selectedAnnotation as FreeTextAnnotation}
+            onClose={() => setShowBoxPropertiesPanel(false)}
+          />
+        </div>
       )}
     </div>
   );

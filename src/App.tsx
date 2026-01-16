@@ -72,7 +72,7 @@ function App() {
 
   const { sidebarOpen, searchOpen, toggleSidebar, toggleSearch } = useUIStore();
   const { query: searchQuery, clearSearch, getCurrentResult } = useSearchStore();
-  const { annotations: annotationMap, addAnnotation, deleteAnnotation, updateAnnotation } = useAnnotationStore();
+  const { annotations: annotationMap, addAnnotation, deleteAnnotation, updateAnnotation, currentTool, setCurrentTool } = useAnnotationStore();
   const {
     undo: annotationUndo,
     redo: annotationRedo,
@@ -701,6 +701,12 @@ function App() {
         return;
       }
 
+      // Also check if the target has contenteditable or is within a text editor
+      const target = event.target as HTMLElement;
+      if (target.isContentEditable || target.closest('.rich-text-editor') || target.closest('.freetext-editor-container')) {
+        return;
+      }
+
       const isMod = event.ctrlKey || event.metaKey;
 
       // Global shortcuts
@@ -820,6 +826,35 @@ function App() {
             setZoom(1.0);
           }
           break;
+        // Tool shortcuts (only without modifiers)
+        case 'v':
+        case 'V':
+          if (!isMod) {
+            event.preventDefault();
+            setCurrentTool('select');
+          }
+          break;
+        case 'h':
+        case 'H':
+          if (!isMod) {
+            event.preventDefault();
+            setCurrentTool('pan');
+          }
+          break;
+        case 't':
+        case 'T':
+          if (!isMod) {
+            event.preventDefault();
+            setCurrentTool('freetext');
+          }
+          break;
+        case 'd':
+        case 'D':
+          if (!isMod) {
+            event.preventDefault();
+            setCurrentTool('ink');
+          }
+          break;
       }
     };
 
@@ -846,6 +881,7 @@ function App() {
     setZoom,
     canUndo,
     canRedo,
+    setCurrentTool,
   ]);
 
   // Mouse wheel: zoom (with Ctrl) or page navigation (single/two-page mode)
@@ -1139,6 +1175,7 @@ function App() {
                 onLinkClick={handleLinkClick}
                 onCalculatedZoomChange={(zoom) => setZoom(zoom, navigation.zoomMode)}
                 highlightDestination={highlightDest}
+                currentTool={currentTool}
               />
             )}
           </main>
