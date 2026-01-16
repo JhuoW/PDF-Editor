@@ -1,0 +1,274 @@
+.text-properties-panel {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  width: 280px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.panel-header .close-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.panel-header .close-btn:hover {
+  color: #333;
+}
+
+.panel-content {
+  padding: 12px 16px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.property-group {
+  margin-bottom: 16px;
+}
+
+.property-group:last-child {
+  margin-bottom: 0;
+}
+
+.property-group label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.property-group select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+  cursor: pointer;
+}
+
+.property-group select:focus {
+  outline: none;
+  border-color: #0066FF;
+  box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.15);
+}
+
+/* Size Input Group */
+.size-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.size-input-group .size-select {
+  width: 80px;
+}
+
+.size-input-group .size-input {
+  width: 60px;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  text-align: right;
+}
+
+.size-input-group .size-input:focus {
+  outline: none;
+  border-color: #0066FF;
+}
+
+.size-input-group .unit {
+  color: #999;
+  font-size: 12px;
+}
+
+/* Style Buttons */
+.style-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.style-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.style-btn:hover {
+  background: #f5f5f5;
+}
+
+.style-btn.active {
+  background: #e6f0ff;
+  border-color: #0066FF;
+  color: #0066FF;
+}
+
+/* Color Picker */
+.color-picker-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.color-input {
+  width: 36px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.color-text {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.color-text:focus {
+  outline: none;
+  border-color: #0066FF;
+}
+
+.color-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.color-preset {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #ddd;
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-preset:hover {
+  transform: scale(1.1);
+}
+
+.color-preset.active {
+  border-color: #0066FF;
+  border-width: 2px;
+}
+
+/* Alignment Buttons */
+.align-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.align-btn {
+  width: 36px;
+  height: 32px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.align-btn:hover {
+  background: #f5f5f5;
+}
+
+.align-btn.active {
+  background: #e6f0ff;
+  border-color: #0066FF;
+  color: #0066FF;
+}
+
+/* Slider Group */
+.slider-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  background: #ddd;
+  border-radius: 2px;
+  outline: none;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #0066FF;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #0066FF;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+.slider-value {
+  width: 50px;
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.slider-value:focus {
+  outline: none;
+  border-color: #0066FF;
+}
+
+.slider-group .unit {
+  color: #999;
+  font-size: 11px;
+  min-width: 20px;
+}

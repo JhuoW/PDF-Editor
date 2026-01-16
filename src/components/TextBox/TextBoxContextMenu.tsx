@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import type { FreeTextAnnotation } from '../../annotations/types';
+import type { FreeTextAnnotation, TextStyle } from '../../annotations/types';
+import { DEFAULT_TEXT_STYLE } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
 import './TextBoxContextMenu.css';
@@ -9,6 +10,8 @@ interface TextBoxContextMenuProps {
   position: { x: number; y: number };
   onClose: () => void;
   onEditText: () => void;
+  onShowTextProperties?: () => void;
+  onShowBoxProperties?: () => void;
 }
 
 export function TextBoxContextMenu({
@@ -16,11 +19,15 @@ export function TextBoxContextMenu({
   position,
   onClose,
   onEditText,
+  onShowTextProperties,
+  onShowBoxProperties,
 }: TextBoxContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [showRotateSubmenu, setShowRotateSubmenu] = useState(false);
+  const [showAlignSubmenu, setShowAlignSubmenu] = useState(false);
+  const [showLayerSubmenu, setShowLayerSubmenu] = useState(false);
 
-  const { updateAnnotation, deleteAnnotation } = useAnnotationStore();
+  const { updateAnnotation, deleteAnnotation, getAnnotationsForPage } = useAnnotationStore();
   const { recordUpdate, recordDelete } = useAnnotationHistoryStore();
 
   // Close menu when clicking outside
@@ -84,7 +91,7 @@ export function TextBoxContextMenu({
 
     const duplicated: FreeTextAnnotation = {
       ...annotation,
-      id: `ann-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       rect: newRect,
       createdAt: new Date(),
       modifiedAt: new Date(),
@@ -115,6 +122,61 @@ export function TextBoxContextMenu({
     const newLocked = !annotation.isLocked;
     updateAnnotation(annotation.id, { isLocked: newLocked });
     recordUpdate({ ...annotation, isLocked: newLocked }, previousState);
+    onClose();
+  };
+
+  // Z-index / Layer operations
+  const handleBringToFront = () => {
+    const pageAnnotations = getAnnotationsForPage(annotation.pageNumber);
+    const maxZIndex = Math.max(
+      ...pageAnnotations.map((a) => (a as FreeTextAnnotation).zIndex || 0),
+      0
+    );
+    const previousState = { ...annotation };
+    updateAnnotation(annotation.id, { zIndex: maxZIndex + 1 });
+    recordUpdate({ ...annotation, zIndex: maxZIndex + 1 }, previousState);
+    onClose();
+  };
+
+  const handleSendToBack = () => {
+    const pageAnnotations = getAnnotationsForPage(annotation.pageNumber);
+    const minZIndex = Math.min(
+      ...pageAnnotations.map((a) => (a as FreeTextAnnotation).zIndex || 0),
+      0
+    );
+    const previousState = { ...annotation };
+    updateAnnotation(annotation.id, { zIndex: minZIndex - 1 });
+    recordUpdate({ ...annotation, zIndex: minZIndex - 1 }, previousState);
+    onClose();
+  };
+
+  const handleBringForward = () => {
+    const previousState = { ...annotation };
+    const currentZ = annotation.zIndex || 0;
+    updateAnnotation(annotation.id, { zIndex: currentZ + 1 });
+    recordUpdate({ ...annotation, zIndex: currentZ + 1 }, previousState);
+    onClose();
+  };
+
+  const handleSendBackward = () => {
+    const previousState = { ...annotation };
+    const currentZ = annotation.zIndex || 0;
+    updateAnnotation(annotation.id, { zIndex: currentZ - 1 });
+    recordUpdate({ ...annotation, zIndex: currentZ - 1 }, previousState);
+    onClose();
+  };
+
+  // Alignment operations
+  const getAnnotationStyle = (ann: FreeTextAnnotation): TextStyle => {
+    return ann.style || DEFAULT_TEXT_STYLE;
+  };
+
+  const handleAlignText = (textAlign: TextStyle['textAlign']) => {
+    const previousState = { ...annotation };
+    const currentStyle = getAnnotationStyle(annotation);
+    const newStyle = { ...currentStyle, textAlign };
+    updateAnnotation(annotation.id, { style: newStyle });
+    recordUpdate({ ...annotation, style: newStyle }, previousState);
     onClose();
   };
 
@@ -169,13 +231,94 @@ export function TextBoxContextMenu({
       <button className="menu-item" onClick={onEditText}>
         <span className="menu-label">Edit Text</span>
       </button>
+      {onShowTextProperties && (
+        <button className="menu-item" onClick={() => { onShowTextProperties(); onClose(); }}>
+          <span className="menu-label">Text Properties...</span>
+        </button>
+      )}
+      {onShowBoxProperties && (
+        <button className="menu-item" onClick={() => { onShowBoxProperties(); onClose(); }}>
+          <span className="menu-label">Box Properties...</span>
+        </button>
+      )}
 
       <div className="menu-separator" />
 
+      {/* Layer / Z-index submenu */}
+      <div
+        className="menu-item has-submenu"
+        onMouseEnter={() => {
+          setShowLayerSubmenu(true);
+          setShowRotateSubmenu(false);
+          setShowAlignSubmenu(false);
+        }}
+        onMouseLeave={() => setShowLayerSubmenu(false)}
+      >
+        <span className="menu-label">Arrange</span>
+        <span className="submenu-arrow">&#9654;</span>
+        {showLayerSubmenu && (
+          <div className="submenu">
+            <button className="menu-item" onClick={handleBringToFront}>
+              <span className="menu-label">Bring to Front</span>
+              <span className="menu-shortcut">Ctrl+Shift+]</span>
+            </button>
+            <button className="menu-item" onClick={handleSendToBack}>
+              <span className="menu-label">Send to Back</span>
+              <span className="menu-shortcut">Ctrl+Shift+[</span>
+            </button>
+            <button className="menu-item" onClick={handleBringForward}>
+              <span className="menu-label">Bring Forward</span>
+              <span className="menu-shortcut">Ctrl+]</span>
+            </button>
+            <button className="menu-item" onClick={handleSendBackward}>
+              <span className="menu-label">Send Backward</span>
+              <span className="menu-shortcut">Ctrl+[</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Alignment submenu */}
+      <div
+        className="menu-item has-submenu"
+        onMouseEnter={() => {
+          setShowAlignSubmenu(true);
+          setShowRotateSubmenu(false);
+          setShowLayerSubmenu(false);
+        }}
+        onMouseLeave={() => setShowAlignSubmenu(false)}
+      >
+        <span className="menu-label">Align Text</span>
+        <span className="submenu-arrow">&#9654;</span>
+        {showAlignSubmenu && (
+          <div className="submenu">
+            <button className="menu-item" onClick={() => handleAlignText('left')}>
+              <span className="menu-label">Align Left</span>
+              <span className="menu-shortcut">Ctrl+L</span>
+            </button>
+            <button className="menu-item" onClick={() => handleAlignText('center')}>
+              <span className="menu-label">Align Center</span>
+              <span className="menu-shortcut">Ctrl+E</span>
+            </button>
+            <button className="menu-item" onClick={() => handleAlignText('right')}>
+              <span className="menu-label">Align Right</span>
+              <span className="menu-shortcut">Ctrl+R</span>
+            </button>
+            <button className="menu-item" onClick={() => handleAlignText('justify')}>
+              <span className="menu-label">Justify</span>
+              <span className="menu-shortcut">Ctrl+J</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Rotate submenu */}
       <div
         className="menu-item has-submenu"
         onMouseEnter={() => {
           setShowRotateSubmenu(true);
+          setShowAlignSubmenu(false);
+          setShowLayerSubmenu(false);
         }}
         onMouseLeave={() => setShowRotateSubmenu(false)}
       >

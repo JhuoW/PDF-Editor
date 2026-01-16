@@ -18,7 +18,7 @@ Say goodbye to expensive monthly subscriptions and intrusive cloud syncing. **PD
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/PDF-Editor.git
+git clone https://github.com/JhuoW/PDF-Editor.git
 cd PDF-Editor
 
 # Install dependencies

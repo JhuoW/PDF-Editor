@@ -439,13 +439,13 @@ export function DrawingAnnotationLayer({
     }
   };
 
-  // Render free text with full styling
+  // Render free text with full styling including boxStyle
   const renderFreeText = (
     ctx: CanvasRenderingContext2D,
     annotation: FreeTextAnnotation,
     isSelected: boolean
   ) => {
-    const { rect, content, rotation = 0 } = annotation;
+    const { rect, content, rotation = 0, boxStyle } = annotation;
     const style = getAnnotationStyle(annotation);
 
     const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
@@ -453,6 +453,16 @@ export function DrawingAnnotationLayer({
 
     const width = bottomRight.x - topLeft.x;
     const height = bottomRight.y - topLeft.y;
+
+    // Get box styling (with defaults)
+    const bgColor = boxStyle?.backgroundColor || style.backgroundColor || 'transparent';
+    const bgOpacity = boxStyle?.backgroundOpacity ?? 1;
+    const borderColor = boxStyle?.borderColor || style.borderColor || '#000000';
+    const borderWidth = boxStyle?.borderWidth ?? style.borderWidth ?? 1;
+    const borderStyle = boxStyle?.borderStyle || 'solid';
+    const borderRadius = (boxStyle?.borderRadius || 0) * scale;
+    const padding = boxStyle?.padding || { top: 8, right: 8, bottom: 8, left: 8 };
+    const shadow = boxStyle?.shadow;
 
     // Calculate center for rotation
     const centerX = topLeft.x + width / 2;
@@ -466,20 +476,86 @@ export function DrawingAnnotationLayer({
       ctx.translate(-centerX, -centerY);
     }
 
-    // Draw background
-    if (style.backgroundColor && style.backgroundColor !== 'transparent') {
-      ctx.fillStyle = style.backgroundColor;
-      ctx.fillRect(topLeft.x, topLeft.y, width, height);
+    // Draw shadow if specified
+    if (shadow && shadow.blur > 0) {
+      ctx.shadowColor = shadow.color;
+      ctx.shadowBlur = shadow.blur * scale;
+      ctx.shadowOffsetX = shadow.offsetX * scale;
+      ctx.shadowOffsetY = shadow.offsetY * scale;
     }
 
-    // Draw border
-    if (style.borderWidth > 0) {
-      ctx.strokeStyle = style.borderColor;
-      ctx.lineWidth = style.borderWidth;
-      ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+    // Draw background with border radius
+    if (bgColor && bgColor !== 'transparent') {
+      ctx.globalAlpha = bgOpacity;
+      ctx.fillStyle = bgColor;
+
+      if (borderRadius > 0) {
+        // Draw rounded rectangle
+        ctx.beginPath();
+        ctx.moveTo(topLeft.x + borderRadius, topLeft.y);
+        ctx.lineTo(topLeft.x + width - borderRadius, topLeft.y);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y, topLeft.x + width, topLeft.y + borderRadius);
+        ctx.lineTo(topLeft.x + width, topLeft.y + height - borderRadius);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y + height, topLeft.x + width - borderRadius, topLeft.y + height);
+        ctx.lineTo(topLeft.x + borderRadius, topLeft.y + height);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y + height, topLeft.x, topLeft.y + height - borderRadius);
+        ctx.lineTo(topLeft.x, topLeft.y + borderRadius);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y, topLeft.x + borderRadius, topLeft.y);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillRect(topLeft.x, topLeft.y, width, height);
+      }
+      ctx.globalAlpha = 1;
     }
 
-    // Draw text
+    // Reset shadow for border
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Draw border with border radius
+    if (borderWidth > 0 && borderStyle !== 'none') {
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = borderWidth;
+
+      // Set dash pattern based on style
+      if (borderStyle === 'dashed') {
+        ctx.setLineDash([6, 3]);
+      } else if (borderStyle === 'dotted') {
+        ctx.setLineDash([2, 2]);
+      } else {
+        ctx.setLineDash([]);
+      }
+
+      if (borderRadius > 0) {
+        // Draw rounded rectangle border
+        ctx.beginPath();
+        ctx.moveTo(topLeft.x + borderRadius, topLeft.y);
+        ctx.lineTo(topLeft.x + width - borderRadius, topLeft.y);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y, topLeft.x + width, topLeft.y + borderRadius);
+        ctx.lineTo(topLeft.x + width, topLeft.y + height - borderRadius);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y + height, topLeft.x + width - borderRadius, topLeft.y + height);
+        ctx.lineTo(topLeft.x + borderRadius, topLeft.y + height);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y + height, topLeft.x, topLeft.y + height - borderRadius);
+        ctx.lineTo(topLeft.x, topLeft.y + borderRadius);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y, topLeft.x + borderRadius, topLeft.y);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+      }
+
+      ctx.setLineDash([]);
+    }
+
+    // Draw text with padding
+    const paddingLeft = padding.left * scale;
+    const paddingRight = padding.right * scale;
+    const paddingTop = padding.top * scale;
+    const paddingBottom = padding.bottom * scale;
+
     const fontSize = style.fontSize * scale;
     let fontStyle = '';
     if (style.fontWeight === 'bold') fontStyle += 'bold ';
@@ -489,25 +565,32 @@ export function DrawingAnnotationLayer({
     ctx.fillStyle = style.color;
     ctx.textBaseline = 'top';
 
+    // Text area dimensions (inside padding)
+    const textAreaWidth = width - paddingLeft - paddingRight;
+    const textAreaX = topLeft.x + paddingLeft;
+
     // Text alignment
-    let textX = topLeft.x + 4;
+    let textX = textAreaX;
     if (style.textAlign === 'center') {
       ctx.textAlign = 'center';
-      textX = topLeft.x + width / 2;
+      textX = textAreaX + textAreaWidth / 2;
     } else if (style.textAlign === 'right') {
       ctx.textAlign = 'right';
-      textX = topLeft.x + width - 4;
+      textX = textAreaX + textAreaWidth;
     } else {
       ctx.textAlign = 'left';
     }
 
     // Render text with word wrapping
     const lines = content.split('\n');
-    const lineHeight = fontSize * 1.2;
-    let y = topLeft.y + 4;
+    const lineHeight = fontSize * (style.lineHeight || 1.2);
+    let y = topLeft.y + paddingTop;
+
+    // Calculate total text height for vertical alignment
+    let totalTextHeight = 0;
+    const wrappedLines: string[] = [];
 
     for (const line of lines) {
-      // Word wrap
       const words = line.split(' ');
       let currentLine = '';
 
@@ -515,56 +598,60 @@ export function DrawingAnnotationLayer({
         const testLine = currentLine ? `${currentLine} ${word}` : word;
         const metrics = ctx.measureText(testLine);
 
-        if (metrics.width > width - 8 && currentLine) {
-          // Draw underline if needed
-          if (style.textDecoration === 'underline') {
-            const lineMetrics = ctx.measureText(currentLine);
-            const underlineY = y + fontSize;
-            ctx.beginPath();
-            if (style.textAlign === 'center') {
-              ctx.moveTo(textX - lineMetrics.width / 2, underlineY);
-              ctx.lineTo(textX + lineMetrics.width / 2, underlineY);
-            } else if (style.textAlign === 'right') {
-              ctx.moveTo(textX - lineMetrics.width, underlineY);
-              ctx.lineTo(textX, underlineY);
-            } else {
-              ctx.moveTo(textX, underlineY);
-              ctx.lineTo(textX + lineMetrics.width, underlineY);
-            }
-            ctx.strokeStyle = style.color;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-          }
-          ctx.fillText(currentLine, textX, y);
+        if (metrics.width > textAreaWidth && currentLine) {
+          wrappedLines.push(currentLine);
+          totalTextHeight += lineHeight;
           currentLine = word;
-          y += lineHeight;
         } else {
           currentLine = testLine;
         }
       }
 
       if (currentLine) {
-        if (style.textDecoration === 'underline') {
-          const lineMetrics = ctx.measureText(currentLine);
-          const underlineY = y + fontSize;
-          ctx.beginPath();
-          if (style.textAlign === 'center') {
-            ctx.moveTo(textX - lineMetrics.width / 2, underlineY);
-            ctx.lineTo(textX + lineMetrics.width / 2, underlineY);
-          } else if (style.textAlign === 'right') {
-            ctx.moveTo(textX - lineMetrics.width, underlineY);
-            ctx.lineTo(textX, underlineY);
-          } else {
-            ctx.moveTo(textX, underlineY);
-            ctx.lineTo(textX + lineMetrics.width, underlineY);
-          }
-          ctx.strokeStyle = style.color;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-        ctx.fillText(currentLine, textX, y);
-        y += lineHeight;
+        wrappedLines.push(currentLine);
+        totalTextHeight += lineHeight;
       }
+    }
+
+    // Apply vertical alignment
+    const textAreaHeight = height - paddingTop - paddingBottom;
+    if (style.verticalAlign === 'middle') {
+      y = topLeft.y + paddingTop + (textAreaHeight - totalTextHeight) / 2;
+    } else if (style.verticalAlign === 'bottom') {
+      y = topLeft.y + height - paddingBottom - totalTextHeight;
+    }
+
+    // Draw wrapped lines
+    for (const line of wrappedLines) {
+      if (y + fontSize > topLeft.y + height - paddingBottom) break;
+
+      // Draw text decoration (underline or strikethrough)
+      if (style.textDecoration === 'underline' || style.textDecoration === 'line-through') {
+        const lineMetrics = ctx.measureText(line);
+        const decoY = style.textDecoration === 'underline' ? y + fontSize + 2 : y + fontSize / 2;
+        let decoX1: number, decoX2: number;
+
+        if (style.textAlign === 'center') {
+          decoX1 = textX - lineMetrics.width / 2;
+          decoX2 = textX + lineMetrics.width / 2;
+        } else if (style.textAlign === 'right') {
+          decoX1 = textX - lineMetrics.width;
+          decoX2 = textX;
+        } else {
+          decoX1 = textX;
+          decoX2 = textX + lineMetrics.width;
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(decoX1, decoY);
+        ctx.lineTo(decoX2, decoY);
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      ctx.fillText(line, textX, y);
+      y += lineHeight;
     }
 
     // Restore context before drawing selection handles (so handles are not rotated)
@@ -749,7 +836,14 @@ export function DrawingAnnotationLayer({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    for (const annotation of annotations) {
+    // Sort annotations by z-index (lower z-index renders first, so higher z-index appears on top)
+    const sortedAnnotations = [...annotations].sort((a, b) => {
+      const zIndexA = (a as FreeTextAnnotation).zIndex || 0;
+      const zIndexB = (b as FreeTextAnnotation).zIndex || 0;
+      return zIndexA - zIndexB;
+    });
+
+    for (const annotation of sortedAnnotations) {
       // Don't render text box on canvas if it's being edited
       if (annotation.id === editingAnnotationId && annotation.type === 'freetext') continue;
       renderAnnotation(ctx, annotation, selectedAnnotationId === annotation.id);
@@ -1411,10 +1505,85 @@ export function DrawingAnnotationLayer({
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  // Handle keyboard for delete and formatting shortcuts
+  // Handle keyboard for delete, undo/redo and formatting shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (editingAnnotationId) return;
+      // Skip if typing in an input (except for undo/redo)
+      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      const isCtrl = e.ctrlKey || e.metaKey;
+      const isShift = e.shiftKey;
+
+      // Handle Undo/Redo globally for annotations (works even in inputs)
+      if (isCtrl && e.key.toLowerCase() === 'z') {
+        // Only handle if we have annotation history
+        const historyState = useAnnotationHistoryStore.getState();
+        if (isShift) {
+          if (historyState.canRedo()) {
+            e.preventDefault();
+            const entry = historyState.redo();
+            if (entry) {
+              switch (entry.type) {
+                case 'add':
+                  addAnnotation(entry.annotation);
+                  break;
+                case 'update':
+                  updateAnnotation(entry.annotation.id, entry.annotation);
+                  break;
+                case 'delete':
+                  deleteAnnotation(entry.annotation.id);
+                  break;
+              }
+            }
+          }
+        } else {
+          if (historyState.canUndo()) {
+            e.preventDefault();
+            const entry = historyState.undo();
+            if (entry) {
+              switch (entry.type) {
+                case 'add':
+                  deleteAnnotation(entry.annotation.id);
+                  break;
+                case 'update':
+                  if (entry.previousState) {
+                    updateAnnotation(entry.annotation.id, entry.previousState);
+                  }
+                  break;
+                case 'delete':
+                  addAnnotation(entry.annotation);
+                  break;
+              }
+            }
+          }
+        }
+        return;
+      }
+
+      // Handle Ctrl+Y for redo
+      if (isCtrl && e.key.toLowerCase() === 'y') {
+        const historyState = useAnnotationHistoryStore.getState();
+        if (historyState.canRedo()) {
+          e.preventDefault();
+          const entry = historyState.redo();
+          if (entry) {
+            switch (entry.type) {
+              case 'add':
+                addAnnotation(entry.annotation);
+                break;
+              case 'update':
+                updateAnnotation(entry.annotation.id, entry.annotation);
+                break;
+              case 'delete':
+                deleteAnnotation(entry.annotation.id);
+                break;
+            }
+          }
+        }
+        return;
+      }
+
+      // Skip other shortcuts if in editing mode or in an input
+      if (editingAnnotationId || isInput) return;
 
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
         const annotation = annotations.find((a) => a.id === selectedAnnotationId);
@@ -1427,11 +1596,78 @@ export function DrawingAnnotationLayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, deleteAnnotation, editingAnnotationId, annotations, recordDelete]);
+  }, [selectedAnnotationId, deleteAnnotation, updateAnnotation, addAnnotation, editingAnnotationId, annotations, recordDelete]);
+
+  // Handle undo for annotations
+  const handleAnnotationUndo = useCallback(() => {
+    const historyState = useAnnotationHistoryStore.getState();
+    if (!historyState.canUndo()) return false;
+
+    const entry = historyState.undo();
+    if (!entry) return false;
+
+    switch (entry.type) {
+      case 'add':
+        deleteAnnotation(entry.annotation.id);
+        break;
+      case 'update':
+        if (entry.previousState) {
+          updateAnnotation(entry.annotation.id, entry.previousState);
+        }
+        break;
+      case 'delete':
+        addAnnotation(entry.annotation);
+        break;
+    }
+    return true;
+  }, [deleteAnnotation, updateAnnotation, addAnnotation]);
+
+  // Handle redo for annotations
+  const handleAnnotationRedo = useCallback(() => {
+    const historyState = useAnnotationHistoryStore.getState();
+    if (!historyState.canRedo()) return false;
+
+    const entry = historyState.redo();
+    if (!entry) return false;
+
+    switch (entry.type) {
+      case 'add':
+        addAnnotation(entry.annotation);
+        break;
+      case 'update':
+        updateAnnotation(entry.annotation.id, entry.annotation);
+        break;
+      case 'delete':
+        deleteAnnotation(entry.annotation.id);
+        break;
+    }
+    return true;
+  }, [addAnnotation, updateAnnotation, deleteAnnotation]);
 
   // Handle text formatting shortcuts in edit mode
   const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isCtrl = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
+
+    // Handle Undo/Redo - these should work even while editing
+    if (isCtrl && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isShift) {
+        handleAnnotationRedo();
+      } else {
+        handleAnnotationUndo();
+      }
+      return;
+    }
+
+    // Handle Ctrl+Y for redo
+    if (isCtrl && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      e.stopPropagation();
+      handleAnnotationRedo();
+      return;
+    }
 
     if (e.key === 'Escape') {
       const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
