@@ -21,21 +21,36 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
   const { updateAnnotation } = useAnnotationStore();
   const { recordUpdate } = useAnnotationHistoryStore();
 
-  const style: TextStyle = annotation.style || DEFAULT_TEXT_STYLE;
+  // Use the annotation's style (default style for the text box)
+  const currentStyle = annotation.style || DEFAULT_TEXT_STYLE;
 
-  // Update style with undo support
-  const handleStyleChange = useCallback(
-    (updates: Partial<TextStyle>) => {
-      const previousState = { ...annotation };
-      const newStyle = { ...style, ...updates };
-      updateAnnotation(annotation.id, { style: newStyle });
-      recordUpdate({ ...annotation, style: newStyle }, previousState);
-    },
-    [annotation, style, updateAnnotation, recordUpdate]
-  );
+  // No mixed state tracking needed since we're editing the default style
+  const isMixed = {
+    fontFamily: false,
+    fontSize: false,
+    fontWeight: false,
+    fontStyle: false,
+    textDecoration: false,
+    color: false,
+  };
+
+  // Handle style updates to the annotation's default style
+  const handleStyleChange = useCallback((updates: Partial<TextStyle>) => {
+    const previousState = { ...annotation };
+    const newStyle = { ...(annotation.style || DEFAULT_TEXT_STYLE), ...updates };
+    updateAnnotation(annotation.id, { style: newStyle });
+    recordUpdate({ ...annotation, style: newStyle }, previousState);
+  }, [annotation, updateAnnotation, recordUpdate]);
+
+  // Helper for button classes
+  const getBtnClass = (isActive: boolean, isMixedState: boolean) => {
+    if (isActive) return 'style-btn active';
+    if (isMixedState) return 'style-btn partial';
+    return 'style-btn';
+  };
 
   return (
-    <div className="text-properties-panel">
+    <div className="text-properties-panel" data-format-toolbar="true">
       <div className="panel-header">
         <h3>Text Properties</h3>
         {onClose && (
@@ -50,9 +65,12 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
         <div className="property-group">
           <label>Font</label>
           <select
-            value={style.fontFamily}
-            onChange={(e) => handleStyleChange({ fontFamily: e.target.value })}
+            value={isMixed.fontFamily ? '' : currentStyle.fontFamily}
+            onChange={(e) => {
+              if (e.target.value) handleStyleChange({ fontFamily: e.target.value });
+            }}
           >
+            {isMixed.fontFamily && <option value="" disabled>(Multiple)</option>}
             {AVAILABLE_FONTS.map((font) => (
               <option key={font} value={font} style={{ fontFamily: font }}>
                 {font}
@@ -66,10 +84,14 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
           <label>Size</label>
           <div className="size-input-group">
             <select
-              value={style.fontSize}
-              onChange={(e) => handleStyleChange({ fontSize: parseInt(e.target.value, 10) })}
+              value={isMixed.fontSize ? '' : currentStyle.fontSize}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) handleStyleChange({ fontSize: val });
+              }}
               className="size-select"
             >
+              {isMixed.fontSize && <option value="" disabled>--</option>}
               {FONT_SIZE_PRESETS.map((size) => (
                 <option key={size} value={size}>
                   {size}
@@ -78,7 +100,8 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
             </select>
             <input
               type="number"
-              value={style.fontSize}
+              value={isMixed.fontSize ? '' : currentStyle.fontSize}
+              placeholder={isMixed.fontSize ? '--' : ''}
               min={1}
               max={200}
               onChange={(e) => {
@@ -98,28 +121,28 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
           <label>Style</label>
           <div className="style-buttons">
             <button
-              className={`style-btn ${style.fontWeight === 'bold' ? 'active' : ''}`}
+              className={getBtnClass(currentStyle.fontWeight === 'bold', isMixed.fontWeight)}
               onClick={() =>
-                handleStyleChange({ fontWeight: style.fontWeight === 'bold' ? 'normal' : 'bold' })
+                handleStyleChange({ fontWeight: currentStyle.fontWeight === 'bold' ? 'normal' : 'bold' })
               }
               title="Bold (Ctrl+B)"
             >
               <strong>B</strong>
             </button>
             <button
-              className={`style-btn ${style.fontStyle === 'italic' ? 'active' : ''}`}
+              className={getBtnClass(currentStyle.fontStyle === 'italic', isMixed.fontStyle)}
               onClick={() =>
-                handleStyleChange({ fontStyle: style.fontStyle === 'italic' ? 'normal' : 'italic' })
+                handleStyleChange({ fontStyle: currentStyle.fontStyle === 'italic' ? 'normal' : 'italic' })
               }
               title="Italic (Ctrl+I)"
             >
               <em>I</em>
             </button>
             <button
-              className={`style-btn ${style.textDecoration === 'underline' ? 'active' : ''}`}
+              className={getBtnClass(currentStyle.textDecoration === 'underline', isMixed.textDecoration)}
               onClick={() =>
                 handleStyleChange({
-                  textDecoration: style.textDecoration === 'underline' ? 'none' : 'underline',
+                  textDecoration: currentStyle.textDecoration === 'underline' ? 'none' : 'underline',
                 })
               }
               title="Underline (Ctrl+U)"
@@ -127,10 +150,10 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               <u>U</u>
             </button>
             <button
-              className={`style-btn ${style.textDecoration === 'line-through' ? 'active' : ''}`}
+              className={getBtnClass(currentStyle.textDecoration === 'line-through', isMixed.textDecoration)}
               onClick={() =>
                 handleStyleChange({
-                  textDecoration: style.textDecoration === 'line-through' ? 'none' : 'line-through',
+                  textDecoration: currentStyle.textDecoration === 'line-through' ? 'none' : 'line-through',
                 })
               }
               title="Strikethrough"
@@ -146,13 +169,13 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
           <div className="color-picker-row">
             <input
               type="color"
-              value={style.color}
+              value={currentStyle.color}
               onChange={(e) => handleStyleChange({ color: e.target.value })}
               className="color-input"
             />
             <input
               type="text"
-              value={style.color}
+              value={isMixed.color ? 'Mixed' : currentStyle.color}
               onChange={(e) => handleStyleChange({ color: e.target.value })}
               className="color-text"
               pattern="^#[0-9A-Fa-f]{6}$"
@@ -162,7 +185,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
             {COLOR_PRESETS.map((color) => (
               <button
                 key={color}
-                className={`color-preset ${color === style.color ? 'active' : ''}`}
+                className={`color-preset ${color === currentStyle.color ? 'active' : ''}`}
                 style={{ backgroundColor: color }}
                 onClick={() => handleStyleChange({ color })}
                 title={color}
@@ -176,28 +199,28 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
           <label>Alignment</label>
           <div className="align-buttons">
             <button
-              className={`align-btn ${style.textAlign === 'left' ? 'active' : ''}`}
+              className={`align-btn ${currentStyle.textAlign === 'left' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'left' })}
               title="Align Left (Ctrl+L)"
             >
               &#9776;
             </button>
             <button
-              className={`align-btn ${style.textAlign === 'center' ? 'active' : ''}`}
+              className={`align-btn ${currentStyle.textAlign === 'center' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'center' })}
               title="Align Center (Ctrl+E)"
             >
               &#9783;
             </button>
             <button
-              className={`align-btn ${style.textAlign === 'right' ? 'active' : ''}`}
+              className={`align-btn ${currentStyle.textAlign === 'right' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'right' })}
               title="Align Right (Ctrl+R)"
             >
               &#9782;
             </button>
             <button
-              className={`align-btn ${style.textAlign === 'justify' ? 'active' : ''}`}
+              className={`align-btn ${currentStyle.textAlign === 'justify' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'justify' })}
               title="Justify (Ctrl+J)"
             >
@@ -210,7 +233,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
         <div className="property-group">
           <label>Vertical Align</label>
           <select
-            value={style.verticalAlign}
+            value={currentStyle.verticalAlign}
             onChange={(e) =>
               handleStyleChange({ verticalAlign: e.target.value as TextStyle['verticalAlign'] })
             }
@@ -230,13 +253,13 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               min="1"
               max="3"
               step="0.1"
-              value={style.lineHeight}
+              value={currentStyle.lineHeight || 1.4}
               onChange={(e) => handleStyleChange({ lineHeight: parseFloat(e.target.value) })}
               className="slider"
             />
             <input
               type="number"
-              value={style.lineHeight?.toFixed(1) || '1.4'}
+              value={currentStyle.lineHeight?.toFixed(1) || '1.4'}
               min={1}
               max={3}
               step={0.1}
@@ -260,13 +283,13 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               min="-5"
               max="20"
               step="0.5"
-              value={style.letterSpacing || 0}
+              value={currentStyle.letterSpacing || 0}
               onChange={(e) => handleStyleChange({ letterSpacing: parseFloat(e.target.value) })}
               className="slider"
             />
             <input
               type="number"
-              value={style.letterSpacing || 0}
+              value={currentStyle.letterSpacing || 0}
               min={-5}
               max={20}
               step={0.5}

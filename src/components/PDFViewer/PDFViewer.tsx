@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { ZoomMode } from '../../store/documentStore';
 import type { AnnotationTool } from '../../annotations/types';
+import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import { PageCanvas } from './PageCanvas';
 import './PDFViewer.css';
 
@@ -27,6 +28,8 @@ interface PDFViewerProps {
   onCalculatedZoomChange?: (zoom: number) => void;
   highlightDestination?: LinkDestination | null;
   currentTool?: AnnotationTool;
+  pendingImages?: PendingImageData[];
+  onImagePlaced?: () => void;
 }
 
 export function PDFViewer({
@@ -45,6 +48,8 @@ export function PDFViewer({
   onCalculatedZoomChange,
   highlightDestination,
   currentTool = 'select',
+  pendingImages,
+  onImagePlaced,
 }: PDFViewerProps) {
   const [pages, setPages] = useState<PDFPageProxy[]>([]);
   const [loading, setLoading] = useState(true);
@@ -394,6 +399,8 @@ export function PDFViewer({
                   ? highlightDestination
                   : undefined
               }
+              pendingImages={pendingImages}
+              onImagePlaced={onImagePlaced}
             />
             {viewMode === 'continuous' && (
               <div className="page-number-label">Page {page.pageNumber}</div>

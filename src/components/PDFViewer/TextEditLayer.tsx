@@ -25,6 +25,7 @@ export function TextEditLayer({
 }: TextEditLayerProps) {
   const {
     mode,
+    setMode,
     textBlocks,
     setTextBlocks,
     selectedBlockId,
@@ -157,11 +158,29 @@ export function TextEditLayer({
     }
   }, [editingBlockId]);
 
+  // Handle click on the layer (outside any text block) - exit edit mode
+  const handleLayerClick = useCallback((e: React.MouseEvent) => {
+    // Only handle direct clicks on the layer, not bubbled events from blocks
+    if (e.target === e.currentTarget) {
+      // Save any pending edit first
+      if (editingBlockId && editText !== '') {
+        const block = pageBlocks.find((b) => b.id === editingBlockId);
+        if (block && editText !== block.text) {
+          updateBlockText(editingBlockId, editText);
+        }
+      }
+      // Exit edit mode
+      setMode('none');
+      setEditingBlockId(null);
+      selectBlock(null);
+    }
+  }, [editingBlockId, editText, pageBlocks, updateBlockText, setMode, selectBlock]);
+
   // Don't render if not in text mode
   if (mode !== 'text') return null;
 
   return (
-    <div className="text-edit-layer">
+    <div className="text-edit-layer" onClick={handleLayerClick}>
       {isLoading && (
         <div className="text-edit-loading">
           <span>Analyzing text...</span>

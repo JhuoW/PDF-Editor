@@ -272,3 +272,21 @@
   font-size: 11px;
   min-width: 20px;
 }
+
+.style-btn.partial {
+  background: #f0f0f0;
+  border-color: #ccc;
+  position: relative;
+}
+
+.style-btn.partial::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: #4f46e5;
+  border-radius: 50%;
+}

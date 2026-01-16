@@ -14,12 +14,22 @@
   },
   "dependencies": {
     "@radix-ui/themes": "^3.2.1",
+    "@tiptap/extension-color": "^3.15.3",
+    "@tiptap/extension-font-family": "^3.15.3",
+    "@tiptap/extension-highlight": "^3.15.3",
+    "@tiptap/extension-text-align": "^3.15.3",
+    "@tiptap/extension-text-style": "^3.15.3",
+    "@tiptap/extension-underline": "^3.15.3",
+    "@tiptap/pm": "^3.15.3",
+    "@tiptap/react": "^3.15.3",
+    "@tiptap/starter-kit": "^3.15.3",
     "fabric": "^7.1.0",
     "lucide-react": "^0.562.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.530",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "tiptap-extension-font-size": "^1.2.0",
     "zustand": "^5.0.10"
   },
   "devDependencies": {

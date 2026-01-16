@@ -14,7 +14,8 @@ export type AnnotationType =
   | 'line'
   | 'arrow'
   | 'sticky-note'
-  | 'stamp';
+  | 'stamp'
+  | 'image';
 
 export interface BaseAnnotation {
   id: string;
@@ -89,7 +90,8 @@ export interface FreeTextAnnotation extends BaseAnnotation {
   content: string;
   style: TextStyle;
   boxStyle?: BoxStyle;
-  richContent?: RichTextSegment[]; // For mixed formatting within one text box
+  richContent?: RichTextSegment[]; // For mixed formatting within one text box (legacy)
+  htmlContent?: string; // TipTap HTML content for rich text
   rotation?: number; // Rotation in degrees
   isLocked?: boolean; // Prevent editing/moving
   zIndex?: number; // For layering
@@ -208,6 +210,45 @@ export interface StampAnnotation extends BaseAnnotation {
   customImageData?: string; // Base64 image data for custom stamps
 }
 
+// Image annotation
+export interface ImageAnnotation extends BaseAnnotation {
+  type: 'image';
+  rect: [number, number, number, number]; // [x, y, width, height] in PDF coordinates
+  imageData: string; // Base64 image data
+  originalWidth: number; // Original image width in pixels
+  originalHeight: number; // Original image height in pixels
+  rotation: number; // Rotation in degrees
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  // Crop bounds as percentages (0-100)
+  cropBounds?: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  // Border properties
+  borderWidth: number;
+  borderColor: string;
+  borderStyle: 'solid' | 'dashed' | 'dotted' | 'none';
+  borderRadius: number;
+  // Shadow (optional)
+  shadow?: {
+    offsetX: number;
+    offsetY: number;
+    blur: number;
+    color: string;
+  };
+  // Metadata
+  originalFilename?: string;
+  originalFileSize?: number;
+  mimeType?: string;
+  // Flags
+  lockAspectRatio: boolean;
+  isLocked: boolean;
+  zIndex: number;
+}
+
 // Union type for all annotations
 export type Annotation =
   | TextMarkupAnnotation
@@ -217,7 +258,8 @@ export type Annotation =
   | EllipseAnnotation
   | LineAnnotation
   | StickyNoteAnnotation
-  | StampAnnotation;
+  | StampAnnotation
+  | ImageAnnotation;
 
 // Predefined stamp types
 export const PREDEFINED_STAMPS = [
@@ -247,7 +289,8 @@ export type AnnotationTool =
   | 'line'
   | 'arrow'
   | 'sticky-note'
-  | 'stamp';
+  | 'stamp'
+  | 'image';
 
 // Default colors for annotations
 export const DEFAULT_COLORS = {
@@ -262,4 +305,17 @@ export const DEFAULT_COLORS = {
   'sticky-note': '#FFFF00',
   freetext: '#000000',
   stamp: '#FF0000',
+  image: '#000000',
 } as const;
+
+// Supported image formats for insertion
+export const SUPPORTED_IMAGE_FORMATS = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+  'image/svg+xml',
+] as const;
+
+export const SUPPORTED_IMAGE_EXTENSIONS = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg';

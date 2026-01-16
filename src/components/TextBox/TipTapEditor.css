@@ -1,0 +1,61 @@
+.tiptap-editor-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  cursor: text;
+}
+
+.tiptap-editor-content {
+  outline: none;
+  min-height: 100%;
+}
+
+/* Basic editor styles */
+.tiptap-editor-content p {
+  margin: 0;
+  padding: 0;
+}
+
+.tiptap-editor-content p + p {
+  margin-top: 0.5em;
+}
+
+/* Placeholder for empty editor */
+.tiptap-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #adb5bd;
+  pointer-events: none;
+  position: absolute;
+}
+
+/* Selection highlight */
+.tiptap-editor-content ::selection {
+  background-color: rgba(50, 151, 253, 0.3);
+}
+
+/* Ensure the editor fills its container */
+.ProseMirror {
+  height: 100%;
+  outline: none;
+}
+
+.ProseMirror:focus {
+  outline: none;
+}
+
+/* Text alignment */
+.ProseMirror p[style*="text-align: left"] {
+  text-align: left;
+}
+
+.ProseMirror p[style*="text-align: center"] {
+  text-align: center;
+}
+
+.ProseMirror p[style*="text-align: right"] {
+  text-align: right;
+}
+
+.ProseMirror p[style*="text-align: justify"] {
+  text-align: justify;
+}

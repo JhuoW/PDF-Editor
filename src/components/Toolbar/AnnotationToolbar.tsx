@@ -61,7 +61,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
         <button
           className={`tool-button ${currentTool === 'select' ? 'active' : ''}`}
           onClick={() => handleToolClick('select')}
-          title="Select (V)"
+          title="Select"
         >
           <svg className="tool-icon-svg select-cursor-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 4L10 22L13 13L22 10L4 4Z" fill="white" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -70,7 +70,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
         <button
           className={`tool-button ${currentTool === 'pan' ? 'active' : ''}`}
           onClick={() => handleToolClick('pan')}
-          title="Pan (H)"
+          title="Pan"
         >
           <svg className="tool-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M18 11V6C18 5.45 17.55 5 17 5C16.45 5 16 5.45 16 6V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -89,21 +89,21 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
         <button
           className={`tool-button ${currentTool === 'highlight' ? 'active' : ''}`}
           onClick={() => handleToolClick('highlight')}
-          title="Highlight (H)"
+          title="Highlight"
         >
           <span className="tool-icon highlight-icon">H</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'underline' ? 'active' : ''}`}
           onClick={() => handleToolClick('underline')}
-          title="Underline (U)"
+          title="Underline"
         >
           <span className="tool-icon underline-icon">U</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'strikeout' ? 'active' : ''}`}
           onClick={() => handleToolClick('strikeout')}
-          title="Strikeout (S)"
+          title="Strikeout"
         >
           <span className="tool-icon strikeout-icon">S</span>
         </button>
@@ -116,35 +116,35 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
         <button
           className={`tool-button ${currentTool === 'ink' ? 'active' : ''}`}
           onClick={() => handleToolClick('ink')}
-          title="Freehand Draw (D)"
+          title="Freehand Draw"
         >
           <span className="tool-icon">✏</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'line' ? 'active' : ''}`}
           onClick={() => handleToolClick('line')}
-          title="Line (L)"
+          title="Line"
         >
           <span className="tool-icon">╱</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'arrow' ? 'active' : ''}`}
           onClick={() => handleToolClick('arrow')}
-          title="Arrow (A)"
+          title="Arrow"
         >
           <span className="tool-icon">→</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'rectangle' ? 'active' : ''}`}
           onClick={() => handleToolClick('rectangle')}
-          title="Rectangle (R)"
+          title="Rectangle"
         >
           <span className="tool-icon">▢</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'ellipse' ? 'active' : ''}`}
           onClick={() => handleToolClick('ellipse')}
-          title="Ellipse (E)"
+          title="Ellipse"
         >
           <span className="tool-icon">○</span>
         </button>
@@ -157,14 +157,14 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
         <button
           className={`tool-button ${currentTool === 'sticky-note' ? 'active' : ''}`}
           onClick={() => handleToolClick('sticky-note')}
-          title="Sticky Note (N)"
+          title="Sticky Note"
         >
           <span className="tool-icon">📝</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'freetext' ? 'active' : ''}`}
           onClick={() => handleToolClick('freetext')}
-          title="Text Box (T)"
+          title="Text Box"
         >
           <span className="tool-icon">T</span>
         </button>

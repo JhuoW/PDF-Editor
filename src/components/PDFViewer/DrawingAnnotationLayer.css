@@ -62,6 +62,58 @@
   cursor: grabbing;
 }
 
+/* Drag-and-drop styles */
+.drawing-annotation-layer.drag-over {
+  pointer-events: auto;
+}
+
+.image-drop-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 102, 255, 0.15);
+  border: 3px dashed #0066ff;
+  border-radius: 8px;
+  z-index: 1000;
+  pointer-events: none;
+  animation: dropZonePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dropZonePulse {
+  0%, 100% {
+    background: rgba(0, 102, 255, 0.15);
+  }
+  50% {
+    background: rgba(0, 102, 255, 0.25);
+  }
+}
+
+.drop-zone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 32px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.drop-zone-content .drop-icon {
+  font-size: 48px;
+}
+
+.drop-zone-content .drop-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #333;
+}
+
 /* Properties panel overlay */
 .properties-panel-overlay {
   position: fixed;

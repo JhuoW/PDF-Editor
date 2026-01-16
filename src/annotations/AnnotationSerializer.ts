@@ -1,7 +1,7 @@
 /**
  * Annotation Serializer - Saves annotations to PDF using pdf-lib
  */
-import { PDFDocument, PDFPage, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFPage, rgb, StandardFonts, degrees } from 'pdf-lib';
 import type {
   Annotation,
   TextMarkupAnnotation,
@@ -12,6 +12,7 @@ import type {
   StickyNoteAnnotation,
   StampAnnotation,
   FreeTextAnnotation,
+  ImageAnnotation,
   TextStyle,
 } from './types';
 import { DEFAULT_TEXT_STYLE } from './types';
@@ -125,6 +126,9 @@ async function addAnnotationToPage(
       break;
     case 'freetext':
       await addFreeTextAnnotation(pdfDoc, page, annotation, embeddedFonts);
+      break;
+    case 'image':
+      await addImageAnnotation(pdfDoc, page, annotation);
       break;
   }
 }
@@ -474,5 +478,129 @@ async function addFreeTextAnnotation(
     }
 
     y -= lineHeight;
+  }
+}
+
+/**
+ * Add image annotation to PDF page
+ */
+async function addImageAnnotation(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  annotation: ImageAnnotation
+): Promise<void> {
+  const {
+    rect,
+    imageData,
+    opacity,
+    rotation = 0,
+    cropBounds,
+    borderWidth,
+    borderColor,
+    borderStyle,
+    mimeType,
+  } = annotation;
+  // Note: flipHorizontal, flipVertical, and borderRadius are stored but
+  // would require pre-processing the image or complex PDF operations to apply
+
+  // Extract base64 data from data URL
+  const base64Match = imageData.match(/^data:([^;]+);base64,(.+)$/);
+  if (!base64Match) {
+    console.warn('Invalid image data format');
+    return;
+  }
+
+  const imageType = base64Match[1];
+  const base64Data = base64Match[2];
+
+  // Convert base64 to Uint8Array
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  // Embed image based on type
+  let embeddedImage;
+  try {
+    if (imageType === 'image/png' || mimeType === 'image/png') {
+      embeddedImage = await pdfDoc.embedPng(bytes);
+    } else if (imageType === 'image/jpeg' || imageType === 'image/jpg' || mimeType === 'image/jpeg') {
+      embeddedImage = await pdfDoc.embedJpg(bytes);
+    } else {
+      // Try PNG first, fall back to JPG
+      try {
+        embeddedImage = await pdfDoc.embedPng(bytes);
+      } catch {
+        embeddedImage = await pdfDoc.embedJpg(bytes);
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to embed image:', error);
+    return;
+  }
+
+  const [x, y, width, height] = rect;
+
+  // Calculate draw position and dimensions
+  const drawX = x;
+  const drawY = y;
+  const drawWidth = width;
+  const drawHeight = height;
+
+  // Handle crop bounds if specified
+  // Crop bounds are percentages (0-100) from each edge
+  if (cropBounds && (cropBounds.top > 0 || cropBounds.right > 0 || cropBounds.bottom > 0 || cropBounds.left > 0)) {
+    // For cropped images, we need to calculate the source portion
+    // pdf-lib doesn't support source rectangles directly, so we'll draw the full image
+    // and use the visible portion based on crop bounds
+    // Note: True clipping would require more complex PDF operations
+    // For now, we save the uncropped image but at the cropped dimensions
+    // This is a limitation - for full crop support, we'd need to pre-process the image
+  }
+
+  // Draw image with optional rotation
+  if (rotation !== 0) {
+    // Draw with rotation
+    page.drawImage(embeddedImage, {
+      x: drawX,
+      y: drawY,
+      width: drawWidth,
+      height: drawHeight,
+      opacity: opacity,
+      rotate: degrees(rotation),
+    });
+  } else {
+    // Draw without rotation
+    page.drawImage(embeddedImage, {
+      x: drawX,
+      y: drawY,
+      width: drawWidth,
+      height: drawHeight,
+      opacity: opacity,
+    });
+  }
+
+  // Draw border if specified
+  if (borderWidth && borderWidth > 0 && borderStyle !== 'none') {
+    const { r, g, b } = hexToRgb(borderColor || '#000000');
+
+    // Set dash pattern based on style
+    let dashArray: number[] | undefined;
+    if (borderStyle === 'dashed') {
+      dashArray = [6, 3];
+    } else if (borderStyle === 'dotted') {
+      dashArray = [2, 2];
+    }
+
+    page.drawRectangle({
+      x: drawX,
+      y: drawY,
+      width: drawWidth,
+      height: drawHeight,
+      borderColor: rgb(r, g, b),
+      borderWidth: borderWidth,
+      borderDashArray: dashArray,
+    });
   }
 }

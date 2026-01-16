@@ -11,6 +11,7 @@ import { TextEditLayer } from './TextEditLayer';
 import { ImageEditLayer } from './ImageEditLayer';
 import { RedactionLayer } from './RedactionLayer';
 import type { LinkDestination } from './PDFViewer';
+import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import './PageCanvas.css';
 
 interface PageCanvasProps {
@@ -24,6 +25,8 @@ interface PageCanvasProps {
   showTextLayer?: boolean;
   onLinkClick?: (dest: unknown) => void;
   highlightDestination?: LinkDestination;
+  pendingImages?: PendingImageData[];
+  onImagePlaced?: () => void;
 }
 
 export const PageCanvas = memo(function PageCanvas({
@@ -37,6 +40,8 @@ export const PageCanvas = memo(function PageCanvas({
   showTextLayer = true,
   onLinkClick,
   highlightDestination,
+  pendingImages,
+  onImagePlaced,
 }: PageCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -134,6 +139,8 @@ export const PageCanvas = memo(function PageCanvas({
           pageNumber={pageNumber}
           scale={scale}
           rotation={rotation}
+          pendingImages={pendingImages}
+          onImagePlaced={onImagePlaced}
         />
       )}
       {dimensions.width > 0 && (

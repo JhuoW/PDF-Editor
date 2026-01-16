@@ -7,6 +7,15 @@ Say goodbye to expensive monthly subscriptions and intrusive cloud syncing. **PD
   <img src="docs/imgs/example2.png" width="96%" style="margin: 0 1.5%; border-radius: 0.5rem;"/>
 </div>
 
+## Features
+
+- **📄 PDF Viewing & Navigation**: Smoothly browse documents with thumbnails, bookmarks, and intuitive page controls.
+- **✏️ Rich Annotations**: Highlight, underline, draw freehand, add shapes, and attach sticky notes to your PDFs.
+- **🔗 Merge & Split**: Combine multiple PDFs into one or extract specific pages with ease.
+- **🖼️ Image Insert**: Add and position images anywhere in your PDF documents.
+- **🔒 100% Private**: All processing happens locally on your device—your files never leave your machine.
+- **💰 Free & Open Source**: No subscriptions, no hidden fees, no cloud dependency—forever free.
+
 ## Quick Start
 
 ### Prerequisites
@@ -41,3 +50,9 @@ The application will open in your browser at `http://localhost:5173`.
 3. **Zoom**: Use the zoom controls or Ctrl + Mouse Wheel to adjust the view
 4. **Annotate**: Select annotation tools from the toolbar to highlight, draw, or add notes
 5. **Save**: Click "Save" to download your edited PDF
+
+## Contributing
+
+We welcome contributions from the community! Whether you're fixing bugs, adding new features, improving documentation, or suggesting ideas, your help makes PDF-Editor better for everyone.
+
+Feel free to open an [issue](https://github.com/JhuoW/PDF-Editor/issues) if you find a bug or have a feature request. All contributions, big or small, are greatly appreciated!

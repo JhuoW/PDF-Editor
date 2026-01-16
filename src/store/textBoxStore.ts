@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { Editor } from '@tiptap/react';
 import type { TextStyle, BoxStyle, RichTextSegment } from '../annotations/types';
 import { DEFAULT_TEXT_STYLE, DEFAULT_BOX_STYLE } from '../annotations/types';
 
@@ -45,6 +46,9 @@ interface TextBoxState {
   // Currently editing text box
   editingTextBoxId: string | null;
 
+  // TipTap editor reference for toolbar
+  tiptapEditor: Editor | null;
+
   // Cursor state
   cursor: CursorState;
 
@@ -59,6 +63,9 @@ interface TextBoxState {
 
   // Pending format for next typed characters (Word-like behavior)
   pendingFormat: PendingFormat | null;
+
+  // Active editing segments
+  segments: RichTextSegment[] | null;
 
   // Default styles for new text boxes
   defaultTextStyle: TextStyle;
@@ -97,6 +104,11 @@ interface TextBoxState {
   clearPendingFormat: () => void;
   getPendingFormat: () => PendingFormat | null;
 
+  setSegments: (segments: RichTextSegment[]) => void;
+
+  // TipTap editor
+  setTiptapEditor: (editor: Editor | null) => void;
+
   // Edit batching for undo
   startEditBatch: () => string;
   shouldContinueBatch: () => boolean;
@@ -116,6 +128,7 @@ const DEFAULT_TEXT_BOX_HEIGHT = 100;
 
 export const useTextBoxStore = create<TextBoxState>((set, get) => ({
   editingTextBoxId: null,
+  tiptapEditor: null,
 
   cursor: {
     position: 0,
@@ -139,6 +152,7 @@ export const useTextBoxStore = create<TextBoxState>((set, get) => ({
   },
 
   pendingFormat: null,
+  segments: null,
 
   defaultTextStyle: { ...DEFAULT_TEXT_STYLE },
   defaultBoxStyle: { ...DEFAULT_BOX_STYLE },
@@ -342,6 +356,14 @@ export const useTextBoxStore = create<TextBoxState>((set, get) => ({
     return get().pendingFormat;
   },
 
+  setSegments: (segments) => {
+    set({ segments });
+  },
+
+  setTiptapEditor: (editor) => {
+    set({ tiptapEditor: editor });
+  },
+
   startEditBatch: () => {
     const batchId = generateBatchId();
     set({ editBatchId: batchId, lastEditTime: Date.now() });
@@ -365,6 +387,7 @@ export const useTextBoxStore = create<TextBoxState>((set, get) => ({
 // Selector hooks for common patterns
 export const useIsEditingTextBox = () => useTextBoxStore((state) => state.editingTextBoxId !== null);
 export const useEditingTextBoxId = () => useTextBoxStore((state) => state.editingTextBoxId);
+export const useTiptapEditor = () => useTextBoxStore((state) => state.tiptapEditor);
 export const useCursor = () => useTextBoxStore((state) => state.cursor);
 export const useCreation = () => useTextBoxStore((state) => state.creation);
 export const useFormatPainter = () => useTextBoxStore((state) => state.formatPainter);

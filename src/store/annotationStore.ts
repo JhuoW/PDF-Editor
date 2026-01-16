@@ -10,6 +10,7 @@ import type {
   StickyNoteAnnotation,
   StampAnnotation,
   FreeTextAnnotation,
+  ImageAnnotation,
   TextStyle,
 } from '../annotations/types';
 import { DEFAULT_COLORS, DEFAULT_TEXT_STYLE } from '../annotations/types';
@@ -35,6 +36,9 @@ interface AnnotationState {
   // Custom stamps library
   customStamps: Array<{ name: string; imageData: string }>;
 
+  // Crop mode - annotation ID being cropped
+  cropModeAnnotationId: string | null;
+
   // Actions
   addAnnotation: (annotation: Annotation) => void;
   updateAnnotation: (id: string, updates: Partial<Annotation>) => void;
@@ -47,6 +51,8 @@ interface AnnotationState {
   clearAnnotations: () => void;
   addCustomStamp: (name: string, imageData: string) => void;
   removeCustomStamp: (name: string) => void;
+  enterCropMode: (annotationId: string) => void;
+  exitCropMode: () => void;
 }
 
 // Generate unique ID
@@ -65,6 +71,7 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     textStyle: { ...DEFAULT_TEXT_STYLE },
   },
   customStamps: [],
+  cropModeAnnotationId: null,
 
   addAnnotation: (annotation) => {
     set((state) => {
@@ -174,6 +181,14 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     set((state) => ({
       customStamps: state.customStamps.filter((s) => s.name !== name),
     }));
+  },
+
+  enterCropMode: (annotationId) => {
+    set({ cropModeAnnotationId: annotationId });
+  },
+
+  exitCropMode: () => {
+    set({ cropModeAnnotationId: null });
   },
 }));
 
@@ -380,6 +395,47 @@ export function createFreeTextAnnotation(
     style,
     color: style.color,
     opacity: 1,
+    createdAt: new Date(),
+    modifiedAt: new Date(),
+  };
+}
+
+export function createImageAnnotation(
+  pageNumber: number,
+  rect: [number, number, number, number],
+  imageData: string,
+  originalWidth: number,
+  originalHeight: number,
+  options: {
+    originalFilename?: string;
+    originalFileSize?: number;
+    mimeType?: string;
+    opacity?: number;
+  } = {}
+): ImageAnnotation {
+  return {
+    id: generateId(),
+    type: 'image',
+    pageNumber,
+    rect,
+    imageData,
+    originalWidth,
+    originalHeight,
+    rotation: 0,
+    flipHorizontal: false,
+    flipVertical: false,
+    borderWidth: 0,
+    borderColor: '#000000',
+    borderStyle: 'none',
+    borderRadius: 0,
+    lockAspectRatio: true,
+    isLocked: false,
+    zIndex: 0,
+    color: DEFAULT_COLORS.image,
+    opacity: options.opacity ?? 1,
+    originalFilename: options.originalFilename,
+    originalFileSize: options.originalFileSize,
+    mimeType: options.mimeType,
     createdAt: new Date(),
     modifiedAt: new Date(),
   };

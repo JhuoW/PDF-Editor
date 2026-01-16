@@ -6,7 +6,7 @@ import { useUIStore } from './store/uiStore';
 import { useSearchStore } from './store/searchStore';
 import { useHistoryStore } from './store/historyStore';
 import { MainToolbar } from './components/Toolbar/MainToolbar';
-import { CombinedToolbar } from './components/Toolbar/CombinedToolbar';
+import { CombinedToolbar, type PendingImageData } from './components/Toolbar/CombinedToolbar';
 import { PDFViewer, type LinkDestination } from './components/PDFViewer/PDFViewer';
 import { ThumbnailPanel } from './components/Sidebar/ThumbnailPanel';
 import { OutlinePanel } from './components/Sidebar/OutlinePanel';
@@ -25,6 +25,10 @@ import {
 import { loadCurrentPDF, saveCurrentPDF } from './utils/pdfStorage';
 import { useAnnotationStore } from './store/annotationStore';
 import { useAnnotationHistoryStore } from './store/annotationHistoryStore';
+import { useTiptapEditor } from './store/textBoxStore';
+import { TipTapToolbar } from './components/Toolbar/TipTapToolbar';
+import { ImageToolbar } from './components/ImageToolbar';
+import type { ImageAnnotation } from './annotations/types';
 import { useFormStore } from './store/formStore';
 import { serializeAnnotationsToPDF } from './annotations/AnnotationSerializer';
 import { extractFormFields, updateFormFieldValues } from './forms/FormFieldExtractor';
@@ -47,6 +51,8 @@ function App() {
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  // Pending images waiting to be placed on the PDF
+  const [pendingImages, setPendingImages] = useState<PendingImageData[]>([]);
   const mainRef = useRef<HTMLElement>(null);
   const isInitialLoad = useRef(true);
 
@@ -72,7 +78,7 @@ function App() {
 
   const { sidebarOpen, searchOpen, toggleSidebar, toggleSearch } = useUIStore();
   const { query: searchQuery, clearSearch, getCurrentResult } = useSearchStore();
-  const { annotations: annotationMap, addAnnotation, deleteAnnotation, updateAnnotation, currentTool, setCurrentTool } = useAnnotationStore();
+  const { annotations: annotationMap, addAnnotation, deleteAnnotation, updateAnnotation, currentTool, setCurrentTool, selectedAnnotationId, selectAnnotation, getAllAnnotations } = useAnnotationStore();
   const {
     undo: annotationUndo,
     redo: annotationRedo,
@@ -98,6 +104,30 @@ function App() {
 
   // Get current active search result
   const currentResult = getCurrentResult();
+
+  // TipTap editor for text box formatting toolbar
+  const tiptapEditor = useTiptapEditor();
+
+  // Get selected image annotation (if any)
+  const selectedImageAnnotation = selectedAnnotationId
+    ? getAllAnnotations().find(a => a.id === selectedAnnotationId && a.type === 'image') as ImageAnnotation | undefined
+    : undefined;
+
+  // Warn user about losing changes when refreshing or leaving the page
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Only show warning if there's a document loaded (potential unsaved changes)
+      if (document) {
+        e.preventDefault();
+        // Modern browsers require returnValue to be set
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [document]);
 
   // Initialize history when a NEW document is loaded (not on undo/redo reloads)
   useEffect(() => {
@@ -573,6 +603,14 @@ function App() {
     }
   }, [redactions, markRedactionApplied, reloadModifiedPDF]);
 
+  // Handle image insertion - set pending images and switch to image tool
+  const handleInsertImage = useCallback((images: PendingImageData[]) => {
+    if (images.length === 0) return;
+    setPendingImages(images);
+    // Switch to image placement mode
+    setCurrentTool('image');
+  }, [setCurrentTool]);
+
   // Handle reset to original - restore original PDF state
   const handleResetToOriginal = useCallback(async () => {
     const original = getOriginalDocument();
@@ -841,20 +879,7 @@ function App() {
             setCurrentTool('pan');
           }
           break;
-        case 't':
-        case 'T':
-          if (!isMod) {
-            event.preventDefault();
-            setCurrentTool('freetext');
-          }
-          break;
-        case 'd':
-        case 'D':
-          if (!isMod) {
-            event.preventDefault();
-            setCurrentTool('ink');
-          }
-          break;
+        // Removed drawing tool shortcuts (t, d) - tools are selected via toolbar only
       }
     };
 
@@ -985,7 +1010,25 @@ function App() {
           onFlattenForm={handleFlattenForm}
           onResetForm={handleResetForm}
           onApplyRedactions={handleApplyRedactions}
+          onInsertImage={handleInsertImage}
         />
+
+        {/* Text Box Formatting Toolbar (shown when editing text box) */}
+        {tiptapEditor && (
+          <div className="textbox-format-toolbar-container">
+            <TipTapToolbar editor={tiptapEditor} />
+          </div>
+        )}
+
+        {/* Image Toolbar (shown when image is selected) */}
+        {selectedImageAnnotation && !tiptapEditor && (
+          <div className="image-format-toolbar-container">
+            <ImageToolbar
+              annotation={selectedImageAnnotation}
+              onDelete={() => selectAnnotation(null)}
+            />
+          </div>
+        )}
 
         {/* Main content area */}
         <div className="main-layout" role="region" aria-label="PDF document viewer">
@@ -1176,6 +1219,15 @@ function App() {
                 onCalculatedZoomChange={(zoom) => setZoom(zoom, navigation.zoomMode)}
                 highlightDestination={highlightDest}
                 currentTool={currentTool}
+                pendingImages={pendingImages}
+                onImagePlaced={() => {
+                  // Remove the first pending image after it's placed
+                  setPendingImages(prev => prev.slice(1));
+                  // If no more images, switch back to select tool
+                  if (pendingImages.length <= 1) {
+                    setCurrentTool('select');
+                  }
+                }}
               />
             )}
           </main>

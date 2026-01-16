@@ -8,6 +8,46 @@
   background-color: var(--gray-1);
 }
 
+/* Text Box Format Toolbar (shown when editing text box) */
+.textbox-format-toolbar-container {
+  background-color: var(--gray-2);
+  border-bottom: 1px solid var(--gray-6);
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 100;
+}
+
+.textbox-format-toolbar-container .text-format-toolbar,
+.textbox-format-toolbar-container .tiptap-toolbar {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* Image Format Toolbar (shown when image is selected) */
+.image-format-toolbar-container {
+  background-color: var(--gray-2);
+  border-bottom: 1px solid var(--gray-6);
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 100;
+}
+
+.image-format-toolbar-container .image-toolbar {
+  margin: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
 .main-layout {
   display: flex;
   flex: 1;

@@ -1,11 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useFormStore } from '../../store/formStore';
 import { useEditingStore } from '../../store/editingStore';
 import type { AnnotationTool } from '../../annotations/types';
-import { PREDEFINED_STAMPS } from '../../annotations/types';
+import { PREDEFINED_STAMPS, SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations/types';
 import type { EditingMode } from '../../editing/types';
 import './CombinedToolbar.css';
+
+// Image data passed when inserting an image
+export interface PendingImageData {
+  imageData: string; // Base64 data URL
+  originalWidth: number;
+  originalHeight: number;
+  filename: string;
+  fileSize: number;
+  mimeType: string;
+}
 
 interface CombinedToolbarProps {
   currentPage: number;
@@ -36,6 +46,8 @@ interface CombinedToolbarProps {
   onResetForm?: () => void;
   // Content editing actions
   onApplyRedactions?: () => void;
+  // Image insertion
+  onInsertImage?: (images: PendingImageData[]) => void;
 }
 
 export function CombinedToolbar({
@@ -63,11 +75,33 @@ export function CombinedToolbar({
   onFlattenForm,
   onResetForm,
   onApplyRedactions,
+  onInsertImage,
 }: CombinedToolbarProps) {
   const [showDocumentMenu, setShowDocumentMenu] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showFormMenu, setShowFormMenu] = useState(false);
   const [showEditMenu, setShowEditMenu] = useState(false);
+
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  // Close menus when clicking outside the toolbar
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
+        setShowDocumentMenu(false);
+        setShowInsertMenu(false);
+        setShowFormMenu(false);
+        setShowEditMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const { isFormPDF, isDirty: formIsDirty } = useFormStore();
   const { mode: editingMode, setMode: setEditingMode, hasChanges, redactions } = useEditingStore();
@@ -130,6 +164,70 @@ export function CombinedToolbar({
     setShowInsertMenu(false);
   };
 
+  // Image insertion handler
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const imagePromises: Promise<PendingImageData>[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        console.warn(`Skipping non-image file: ${file.name}`);
+        continue;
+      }
+
+      // Warn about large files
+      if (file.size > 5 * 1024 * 1024) {
+        console.warn(`Large image file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+      }
+
+      imagePromises.push(
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+              resolve({
+                imageData: reader.result as string,
+                originalWidth: img.naturalWidth,
+                originalHeight: img.naturalHeight,
+                filename: file.name,
+                fileSize: file.size,
+                mimeType: file.type,
+              });
+            };
+            img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
+            img.src = reader.result as string;
+          };
+          reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+          reader.readAsDataURL(file);
+        })
+      );
+    }
+
+    try {
+      const images = await Promise.all(imagePromises);
+      if (images.length > 0 && onInsertImage) {
+        onInsertImage(images);
+      }
+    } catch (error) {
+      console.error('Error loading images:', error);
+      alert('Failed to load one or more images. Please try again.');
+    }
+
+    // Reset input
+    e.target.value = '';
+    setShowInsertMenu(false);
+  };
+
+  const handleInsertImageClick = () => {
+    imageInputRef.current?.click();
+  };
+
   // Annotation tool handlers
   const handleToolClick = (tool: AnnotationTool) => {
     // Clear editing mode when selecting an annotation tool (mutual exclusivity)
@@ -189,7 +287,7 @@ export function CombinedToolbar({
   };
 
   return (
-    <div className="combined-toolbar" onClick={(e) => e.target === e.currentTarget && closeMenus()}>
+    <div ref={toolbarRef} className="combined-toolbar" onClick={(e) => e.target === e.currentTarget && closeMenus()}>
       {/* Undo/Redo */}
       <div className="toolbar-group">
         <button
@@ -382,6 +480,11 @@ export function CombinedToolbar({
           </button>
           {showInsertMenu && (
             <div className="toolbar-menu">
+              <span className="menu-section-label">Content</span>
+              <button onClick={handleInsertImageClick}>
+                🖼 Image
+              </button>
+              <div className="menu-divider" />
               <span className="menu-section-label">Blank Page</span>
               <button onClick={handleInsertBlankBefore}>Before current</button>
               <button onClick={handleInsertBlankAfter}>After current</button>
@@ -393,6 +496,16 @@ export function CombinedToolbar({
             </div>
           )}
         </div>
+
+        {/* Hidden file input for image insertion */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept={SUPPORTED_IMAGE_EXTENSIONS}
+          multiple
+          onChange={handleImageFileChange}
+          style={{ display: 'none' }}
+        />
       </div>
 
       {hasDocument && (

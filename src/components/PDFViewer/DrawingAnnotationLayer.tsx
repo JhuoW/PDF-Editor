@@ -10,20 +10,20 @@ import {
   createStickyNoteAnnotation,
   createStampAnnotation,
   createFreeTextAnnotation,
+  createImageAnnotation,
 } from '../../store/annotationStore';
-import type { Annotation, FreeTextAnnotation, TextStyle, RichTextSegment } from '../../annotations/types';
+import type { Annotation, FreeTextAnnotation, ImageAnnotation, TextStyle } from '../../annotations/types';
+import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import { DEFAULT_TEXT_STYLE } from '../../annotations/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
-import { TextFormatToolbar } from '../Toolbar/TextFormatToolbar';
-import { TextBoxContextMenu, RichTextEditor, BoxPropertiesPanel, TextPropertiesPanel } from '../TextBox';
+import { TextBoxContextMenu, BoxPropertiesPanel, TextPropertiesPanel, TipTapEditor } from '../TextBox';
+import { ImageContextMenu, ImagePropertiesPanel } from '../ImageToolbar';
+import type { TipTapEditorRef } from '../TextBox';
 import { useTextBoxStore } from '../../store/textBoxStore';
 import {
   textToSegments,
-  getPlainText,
-  applyStyleToRange,
-  normalizeSegments,
-  getSelectionStyle,
 } from '../../utils/richText';
+import { parseTipTapHTML, segmentsToTipTapHTML } from '../../utils/tiptapConverter';
 import './DrawingAnnotationLayer.css';
 
 interface DrawingAnnotationLayerProps {
@@ -31,6 +31,8 @@ interface DrawingAnnotationLayerProps {
   pageNumber: number;
   scale: number;
   rotation: number;
+  pendingImages?: PendingImageData[];
+  onImagePlaced?: () => void;
 }
 
 interface Point {
@@ -45,6 +47,8 @@ export function DrawingAnnotationLayer({
   pageNumber,
   scale,
   rotation,
+  pendingImages,
+  onImagePlaced,
 }: DrawingAnnotationLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -56,8 +60,12 @@ export function DrawingAnnotationLayer({
   // Text editing state
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
-  const [editingSegments, setEditingSegments] = useState<RichTextSegment[]>([]);
-  const useRichTextEditor = true; // Enable rich text editing by default
+  const tiptapEditorRef = useRef<TipTapEditorRef>(null);
+  const lastHtmlContentRef = useRef<string>(''); // Store latest HTML for reliable access
+  const { setSegments } = useTextBoxStore();
+  // setEditingSegments is kept for legacy code paths (non-TipTap)
+  const setEditingSegments = setSegments;
+  const useTipTapEditor = true; // Use TipTap editor
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Drag state
@@ -77,21 +85,49 @@ export function DrawingAnnotationLayer({
   const [rotationCenter, setRotationCenter] = useState<Point | null>(null);
   const [initialRotation, setInitialRotation] = useState<number>(0);
 
-  // Context menu state
+  // Context menu state (for freetext)
   const [contextMenu, setContextMenu] = useState<{
     annotation: FreeTextAnnotation;
     position: { x: number; y: number };
   } | null>(null);
 
+  // Image context menu state
+  const [imageContextMenu, setImageContextMenu] = useState<{
+    annotation: ImageAnnotation;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  // Drag-and-drop state for images
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  // Crop mode state
+  const [isCropping, setIsCropping] = useState(false);
+  const [cropBounds, setCropBounds] = useState<{ top: number; right: number; bottom: number; left: number } | null>(null);
+  const [cropHandle, setCropHandle] = useState<'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null>(null);
+  const [cropStart, setCropStart] = useState<Point | null>(null);
+  const [initialCropBounds, setInitialCropBounds] = useState<{ top: number; right: number; bottom: number; left: number } | null>(null);
+
   // Properties panel state
   const [showTextPropertiesPanel, setShowTextPropertiesPanel] = useState(false);
   const [showBoxPropertiesPanel, setShowBoxPropertiesPanel] = useState(false);
+  const [showImagePropertiesPanel, setShowImagePropertiesPanel] = useState(false);
+
+  // Snap guides state
+  const [snapGuides, setSnapGuides] = useState<{
+    vertical: number[];  // X positions of vertical guides (in screen coords)
+    horizontal: number[]; // Y positions of horizontal guides (in screen coords)
+  }>({ vertical: [], horizontal: [] });
+  const SNAP_THRESHOLD = 8; // Pixels threshold for snapping
 
   // Store original annotation state for undo (before drag/resize modifications)
   const originalAnnotationRef = useRef<Annotation | null>(null);
 
   // Ref to track if we just finished drag/resize (for click handler)
   const justFinishedInteraction = useRef(false);
+
+  // Image cache for rendering - stores loaded HTMLImageElement objects
+  const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
 
   const {
     currentTool,
@@ -102,6 +138,8 @@ export function DrawingAnnotationLayer({
     selectedAnnotationId,
     selectAnnotation,
     deleteAnnotation,
+    cropModeAnnotationId,
+    exitCropMode,
   } = useAnnotationStore();
 
   const { recordAdd, recordUpdate, recordDelete } = useAnnotationHistoryStore();
@@ -116,6 +154,22 @@ export function DrawingAnnotationLayer({
     const viewport = page.getViewport({ scale, rotation: effectiveRotation });
     setDimensions({ width: viewport.width, height: viewport.height });
   }, [page, scale, rotation]);
+
+  // Handle entering crop mode from store (triggered by ImageToolbar)
+  useEffect(() => {
+    if (!cropModeAnnotationId) return;
+
+    // Check if the annotation to crop is on this page
+    const annotationToCrop = annotations.find(a => a.id === cropModeAnnotationId);
+    if (!annotationToCrop || annotationToCrop.type !== 'image') return;
+
+    // Enter crop mode
+    const imgAnnotation = annotationToCrop as ImageAnnotation;
+    const existingCrop = imgAnnotation.cropBounds || { top: 0, right: 0, bottom: 0, left: 0 };
+    setCropBounds(existingCrop);
+    setInitialCropBounds(existingCrop);
+    setIsCropping(true);
+  }, [cropModeAnnotationId, annotations]);
 
   // Convert screen coordinates to PDF coordinates
   const screenToPdfCoords = useCallback(
@@ -140,6 +194,121 @@ export function DrawingAnnotationLayer({
     },
     [page, scale, rotation]
   );
+
+  // Calculate snap targets for the current page
+  const calculateSnapTargets = useCallback((excludeAnnotationId?: string) => {
+    const targets = {
+      vertical: [] as { position: number; type: 'center' | 'edge' | 'annotation' }[],
+      horizontal: [] as { position: number; type: 'center' | 'edge' | 'annotation' }[],
+    };
+
+    // Page center and edges (in PDF coords)
+    const pageWidth = dimensions.width / scale;
+    const pageHeight = dimensions.height / scale;
+
+    // Page center
+    targets.vertical.push({ position: pageWidth / 2, type: 'center' });
+    targets.horizontal.push({ position: pageHeight / 2, type: 'center' });
+
+    // Page edges (small margin from edge)
+    const margin = 10;
+    targets.vertical.push({ position: margin, type: 'edge' });
+    targets.vertical.push({ position: pageWidth - margin, type: 'edge' });
+    targets.horizontal.push({ position: margin, type: 'edge' });
+    targets.horizontal.push({ position: pageHeight - margin, type: 'edge' });
+
+    // Other annotations on this page
+    for (const annotation of annotations) {
+      if (annotation.id === excludeAnnotationId) continue;
+
+      let bounds: { left: number; right: number; top: number; bottom: number } | null = null;
+
+      if ('rect' in annotation) {
+        const rect = (annotation as { rect: [number, number, number, number] }).rect;
+        bounds = {
+          left: rect[0],
+          right: rect[0] + rect[2],
+          bottom: rect[1],
+          top: rect[1] + rect[3],
+        };
+      } else if (annotation.type === 'sticky-note') {
+        const pos = (annotation as { position: { x: number; y: number } }).position;
+        // Sticky notes are small, use position as center
+        bounds = { left: pos.x - 12, right: pos.x + 12, bottom: pos.y - 12, top: pos.y + 12 };
+      }
+
+      if (bounds) {
+        // Center of annotation
+        targets.vertical.push({ position: (bounds.left + bounds.right) / 2, type: 'annotation' });
+        targets.horizontal.push({ position: (bounds.bottom + bounds.top) / 2, type: 'annotation' });
+        // Edges
+        targets.vertical.push({ position: bounds.left, type: 'annotation' });
+        targets.vertical.push({ position: bounds.right, type: 'annotation' });
+        targets.horizontal.push({ position: bounds.bottom, type: 'annotation' });
+        targets.horizontal.push({ position: bounds.top, type: 'annotation' });
+      }
+    }
+
+    return targets;
+  }, [annotations, dimensions.width, dimensions.height, scale]);
+
+  // Apply snapping to a position and return snapped position plus active guides
+  const applySnapping = useCallback((
+    annotationBounds: { left: number; right: number; top: number; bottom: number },
+    targets: ReturnType<typeof calculateSnapTargets>
+  ): {
+    deltaX: number;
+    deltaY: number;
+    guides: { vertical: number[]; horizontal: number[] };
+  } => {
+    const threshold = SNAP_THRESHOLD / scale; // Convert pixel threshold to PDF coords
+    let deltaX = 0;
+    let deltaY = 0;
+    const guides = { vertical: [] as number[], horizontal: [] as number[] };
+
+    const annotationCenterX = (annotationBounds.left + annotationBounds.right) / 2;
+    const annotationCenterY = (annotationBounds.bottom + annotationBounds.top) / 2;
+
+    // Check vertical snapping (X positions)
+    for (const target of targets.vertical) {
+      // Check left edge
+      if (Math.abs(annotationBounds.left - target.position) < threshold && deltaX === 0) {
+        deltaX = target.position - annotationBounds.left;
+        guides.vertical.push(target.position);
+      }
+      // Check right edge
+      else if (Math.abs(annotationBounds.right - target.position) < threshold && deltaX === 0) {
+        deltaX = target.position - annotationBounds.right;
+        guides.vertical.push(target.position);
+      }
+      // Check center
+      else if (Math.abs(annotationCenterX - target.position) < threshold && deltaX === 0) {
+        deltaX = target.position - annotationCenterX;
+        guides.vertical.push(target.position);
+      }
+    }
+
+    // Check horizontal snapping (Y positions)
+    for (const target of targets.horizontal) {
+      // Check bottom edge
+      if (Math.abs(annotationBounds.bottom - target.position) < threshold && deltaY === 0) {
+        deltaY = target.position - annotationBounds.bottom;
+        guides.horizontal.push(target.position);
+      }
+      // Check top edge
+      else if (Math.abs(annotationBounds.top - target.position) < threshold && deltaY === 0) {
+        deltaY = target.position - annotationBounds.top;
+        guides.horizontal.push(target.position);
+      }
+      // Check center
+      else if (Math.abs(annotationCenterY - target.position) < threshold && deltaY === 0) {
+        deltaY = target.position - annotationCenterY;
+        guides.horizontal.push(target.position);
+      }
+    }
+
+    return { deltaX, deltaY, guides };
+  }, [scale, SNAP_THRESHOLD]);
 
   // Get style from annotation (handle legacy format)
   const getAnnotationStyle = (annotation: FreeTextAnnotation): TextStyle => {
@@ -193,6 +362,9 @@ export function DrawingAnnotationLayer({
         break;
       case 'freetext':
         renderFreeText(ctx, annotation, isSelected);
+        break;
+      case 'image':
+        renderImage(ctx, annotation as ImageAnnotation, isSelected);
         break;
     }
 
@@ -453,6 +625,139 @@ export function DrawingAnnotationLayer({
     }
   };
 
+  // Render image annotation
+  const renderImage = (
+    ctx: CanvasRenderingContext2D,
+    annotation: ImageAnnotation,
+    isSelected: boolean
+  ) => {
+    const { rect, imageData, opacity, rotation = 0, flipHorizontal, flipVertical, borderWidth, borderColor, borderStyle, borderRadius } = annotation;
+    const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
+    const bottomRight = pdfToScreenCoords(rect[0] + rect[2], rect[1]);
+
+    const width = bottomRight.x - topLeft.x;
+    const height = bottomRight.y - topLeft.y;
+    const centerX = topLeft.x + width / 2;
+    const centerY = topLeft.y + height / 2;
+
+    ctx.save();
+
+    // Apply rotation around center
+    if (rotation !== 0) {
+      ctx.translate(centerX, centerY);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.translate(-centerX, -centerY);
+    }
+
+    // Apply flip transforms
+    if (flipHorizontal || flipVertical) {
+      ctx.translate(centerX, centerY);
+      ctx.scale(flipHorizontal ? -1 : 1, flipVertical ? -1 : 1);
+      ctx.translate(-centerX, -centerY);
+    }
+
+    // Set opacity
+    ctx.globalAlpha = opacity;
+
+    // Get or create cached image
+    let img = imageCache.current.get(annotation.id);
+    if (!img) {
+      img = new Image();
+      img.src = imageData;
+      imageCache.current.set(annotation.id, img);
+      // Force re-render when image loads
+      img.onload = () => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          canvas.dispatchEvent(new Event('imageLoaded'));
+        }
+      };
+    }
+
+    // Draw border if specified
+    if (borderWidth > 0 && borderStyle !== 'none') {
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = borderWidth;
+
+      if (borderStyle === 'dashed') {
+        ctx.setLineDash([6, 3]);
+      } else if (borderStyle === 'dotted') {
+        ctx.setLineDash([2, 2]);
+      } else {
+        ctx.setLineDash([]);
+      }
+
+      const scaledRadius = borderRadius * scale;
+      if (scaledRadius > 0) {
+        // Rounded rectangle border
+        ctx.beginPath();
+        ctx.moveTo(topLeft.x + scaledRadius, topLeft.y);
+        ctx.lineTo(topLeft.x + width - scaledRadius, topLeft.y);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y, topLeft.x + width, topLeft.y + scaledRadius);
+        ctx.lineTo(topLeft.x + width, topLeft.y + height - scaledRadius);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y + height, topLeft.x + width - scaledRadius, topLeft.y + height);
+        ctx.lineTo(topLeft.x + scaledRadius, topLeft.y + height);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y + height, topLeft.x, topLeft.y + height - scaledRadius);
+        ctx.lineTo(topLeft.x, topLeft.y + scaledRadius);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y, topLeft.x + scaledRadius, topLeft.y);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+      }
+      ctx.setLineDash([]);
+    }
+
+    // Draw the image if loaded
+    if (img.complete && img.naturalWidth > 0) {
+      // Clip to border radius if specified
+      const scaledRadius = borderRadius * scale;
+      if (scaledRadius > 0) {
+        ctx.beginPath();
+        ctx.moveTo(topLeft.x + scaledRadius, topLeft.y);
+        ctx.lineTo(topLeft.x + width - scaledRadius, topLeft.y);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y, topLeft.x + width, topLeft.y + scaledRadius);
+        ctx.lineTo(topLeft.x + width, topLeft.y + height - scaledRadius);
+        ctx.quadraticCurveTo(topLeft.x + width, topLeft.y + height, topLeft.x + width - scaledRadius, topLeft.y + height);
+        ctx.lineTo(topLeft.x + scaledRadius, topLeft.y + height);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y + height, topLeft.x, topLeft.y + height - scaledRadius);
+        ctx.lineTo(topLeft.x, topLeft.y + scaledRadius);
+        ctx.quadraticCurveTo(topLeft.x, topLeft.y, topLeft.x + scaledRadius, topLeft.y);
+        ctx.closePath();
+        ctx.clip();
+      }
+
+      // Apply crop bounds if specified (non-destructive crop)
+      const crop = annotation.cropBounds;
+      if (crop && (crop.top > 0 || crop.right > 0 || crop.bottom > 0 || crop.left > 0)) {
+        // Calculate source rectangle from crop percentages
+        const srcX = (crop.left / 100) * img.naturalWidth;
+        const srcY = (crop.top / 100) * img.naturalHeight;
+        const srcWidth = img.naturalWidth * (1 - crop.left / 100 - crop.right / 100);
+        const srcHeight = img.naturalHeight * (1 - crop.top / 100 - crop.bottom / 100);
+        ctx.drawImage(img, srcX, srcY, srcWidth, srcHeight, topLeft.x, topLeft.y, width, height);
+      } else {
+        ctx.drawImage(img, topLeft.x, topLeft.y, width, height);
+      }
+    } else {
+      // Draw placeholder while loading
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(topLeft.x, topLeft.y, width, height);
+      ctx.fillStyle = '#999';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Loading...', centerX, centerY);
+    }
+
+    ctx.restore();
+
+    // Draw selection handles (outside of rotation transform) with rotation handle
+    if (isSelected) {
+      renderSelectionHandles(ctx, topLeft.x, topLeft.y, width, height, true);
+    }
+  };
+
   // Render free text with full styling including boxStyle
   const renderFreeText = (
     ctx: CanvasRenderingContext2D,
@@ -595,6 +900,10 @@ export function DrawingAnnotationLayer({
       ctx.textAlign = 'left';
     }
 
+    // Check if we have rich content to render
+    const richContent = annotation.richContent;
+    const hasRichContent = richContent && richContent.length > 0;
+
     // Render text with word wrapping
     const lines = content.split('\n');
     const lineHeight = fontSize * (style.lineHeight || 1.2);
@@ -602,29 +911,36 @@ export function DrawingAnnotationLayer({
 
     // Calculate total text height for vertical alignment
     let totalTextHeight = 0;
-    const wrappedLines: string[] = [];
+    const wrappedLines: { text: string; startIndex: number }[] = [];
+    let globalCharIndex = 0;
 
     for (const line of lines) {
       const words = line.split(' ');
       let currentLine = '';
+      let lineStartIndex = globalCharIndex;
 
-      for (const word of words) {
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
         const testLine = currentLine ? `${currentLine} ${word}` : word;
+        ctx.font = `${fontStyle}${fontSize}px ${style.fontFamily}`;
         const metrics = ctx.measureText(testLine);
 
         if (metrics.width > textAreaWidth && currentLine) {
-          wrappedLines.push(currentLine);
+          wrappedLines.push({ text: currentLine, startIndex: lineStartIndex });
           totalTextHeight += lineHeight;
           currentLine = word;
+          lineStartIndex = globalCharIndex + (i > 0 ? currentLine.length : 0);
         } else {
           currentLine = testLine;
         }
       }
 
       if (currentLine) {
-        wrappedLines.push(currentLine);
+        wrappedLines.push({ text: currentLine, startIndex: lineStartIndex });
         totalTextHeight += lineHeight;
       }
+
+      globalCharIndex += line.length + 1; // +1 for newline
     }
 
     // Apply vertical alignment
@@ -635,36 +951,147 @@ export function DrawingAnnotationLayer({
       y = topLeft.y + height - paddingBottom - totalTextHeight;
     }
 
+    // Helper function to get style at character index from rich content
+    const getStyleAtIndex = (charIndex: number): Partial<TextStyle> => {
+      if (!hasRichContent) return style;
+
+      let currentIndex = 0;
+      for (const segment of richContent!) {
+        const segmentEnd = currentIndex + segment.text.length;
+        if (charIndex >= currentIndex && charIndex < segmentEnd) {
+          return { ...style, ...segment.style };
+        }
+        currentIndex = segmentEnd;
+      }
+      return style;
+    };
+
     // Draw wrapped lines
-    for (const line of wrappedLines) {
+    let plainTextIndex = 0;
+    for (const wrappedLine of wrappedLines) {
+      const lineText = wrappedLine.text;
       if (y + fontSize > topLeft.y + height - paddingBottom) break;
 
-      // Draw text decoration (underline or strikethrough)
-      if (style.textDecoration === 'underline' || style.textDecoration === 'line-through') {
-        const lineMetrics = ctx.measureText(line);
-        const decoY = style.textDecoration === 'underline' ? y + fontSize + 2 : y + fontSize / 2;
-        let decoX1: number, decoX2: number;
+      if (hasRichContent) {
+        // Render with rich text formatting - character by character grouping
+        let xOffset = 0;
 
-        if (style.textAlign === 'center') {
-          decoX1 = textX - lineMetrics.width / 2;
-          decoX2 = textX + lineMetrics.width / 2;
-        } else if (style.textAlign === 'right') {
-          decoX1 = textX - lineMetrics.width;
-          decoX2 = textX;
-        } else {
-          decoX1 = textX;
-          decoX2 = textX + lineMetrics.width;
+        // Calculate line width for alignment
+        let totalLineWidth = 0;
+        let charIdx = 0;
+        while (charIdx < lineText.length) {
+          const charStyle = getStyleAtIndex(plainTextIndex + charIdx);
+          const charFontSize = (charStyle.fontSize || style.fontSize) * scale;
+          let charFontStyle = '';
+          if (charStyle.fontWeight === 'bold') charFontStyle += 'bold ';
+          if (charStyle.fontStyle === 'italic') charFontStyle += 'italic ';
+          ctx.font = `${charFontStyle}${charFontSize}px ${charStyle.fontFamily || style.fontFamily}`;
+
+          // Find run of characters with same style
+          let runEnd = charIdx + 1;
+          while (runEnd < lineText.length) {
+            const nextStyle = getStyleAtIndex(plainTextIndex + runEnd);
+            if (nextStyle.fontFamily !== charStyle.fontFamily ||
+                nextStyle.fontSize !== charStyle.fontSize ||
+                nextStyle.fontWeight !== charStyle.fontWeight ||
+                nextStyle.fontStyle !== charStyle.fontStyle ||
+                nextStyle.color !== charStyle.color ||
+                nextStyle.textDecoration !== charStyle.textDecoration) {
+              break;
+            }
+            runEnd++;
+          }
+
+          const runText = lineText.slice(charIdx, runEnd);
+          totalLineWidth += ctx.measureText(runText).width;
+          charIdx = runEnd;
         }
 
-        ctx.beginPath();
-        ctx.moveTo(decoX1, decoY);
-        ctx.lineTo(decoX2, decoY);
-        ctx.strokeStyle = style.color;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        // Calculate starting X based on alignment
+        let drawX = textAreaX;
+        if (style.textAlign === 'center') {
+          drawX = textAreaX + (textAreaWidth - totalLineWidth) / 2;
+        } else if (style.textAlign === 'right') {
+          drawX = textAreaX + textAreaWidth - totalLineWidth;
+        }
+
+        // Now render the line
+        charIdx = 0;
+        while (charIdx < lineText.length) {
+          const charStyle = getStyleAtIndex(plainTextIndex + charIdx);
+          const charFontSize = (charStyle.fontSize || style.fontSize) * scale;
+          let charFontStyle = '';
+          if (charStyle.fontWeight === 'bold') charFontStyle += 'bold ';
+          if (charStyle.fontStyle === 'italic') charFontStyle += 'italic ';
+          ctx.font = `${charFontStyle}${charFontSize}px ${charStyle.fontFamily || style.fontFamily}`;
+          ctx.fillStyle = charStyle.color || style.color;
+
+          // Find run of characters with same style
+          let runEnd = charIdx + 1;
+          while (runEnd < lineText.length) {
+            const nextStyle = getStyleAtIndex(plainTextIndex + runEnd);
+            if (nextStyle.fontFamily !== charStyle.fontFamily ||
+                nextStyle.fontSize !== charStyle.fontSize ||
+                nextStyle.fontWeight !== charStyle.fontWeight ||
+                nextStyle.fontStyle !== charStyle.fontStyle ||
+                nextStyle.color !== charStyle.color ||
+                nextStyle.textDecoration !== charStyle.textDecoration) {
+              break;
+            }
+            runEnd++;
+          }
+
+          const runText = lineText.slice(charIdx, runEnd);
+          const runWidth = ctx.measureText(runText).width;
+
+          // Draw text decoration for this run
+          if (charStyle.textDecoration === 'underline' || charStyle.textDecoration === 'line-through') {
+            const decoY = charStyle.textDecoration === 'underline' ? y + charFontSize + 2 : y + charFontSize / 2;
+            ctx.beginPath();
+            ctx.moveTo(drawX + xOffset, decoY);
+            ctx.lineTo(drawX + xOffset + runWidth, decoY);
+            ctx.strokeStyle = charStyle.color || style.color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+
+          ctx.textAlign = 'left';
+          ctx.fillText(runText, drawX + xOffset, y);
+          xOffset += runWidth;
+          charIdx = runEnd;
+        }
+
+        plainTextIndex += lineText.length + 1; // +1 for space/newline
+      } else {
+        // Simple rendering without rich content
+        // Draw text decoration (underline or strikethrough)
+        if (style.textDecoration === 'underline' || style.textDecoration === 'line-through') {
+          const lineMetrics = ctx.measureText(lineText);
+          const decoY = style.textDecoration === 'underline' ? y + fontSize + 2 : y + fontSize / 2;
+          let decoX1: number, decoX2: number;
+
+          if (style.textAlign === 'center') {
+            decoX1 = textX - lineMetrics.width / 2;
+            decoX2 = textX + lineMetrics.width / 2;
+          } else if (style.textAlign === 'right') {
+            decoX1 = textX - lineMetrics.width;
+            decoX2 = textX;
+          } else {
+            decoX1 = textX;
+            decoX2 = textX + lineMetrics.width;
+          }
+
+          ctx.beginPath();
+          ctx.moveTo(decoX1, decoY);
+          ctx.lineTo(decoX2, decoY);
+          ctx.strokeStyle = style.color;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        ctx.fillText(lineText, textX, y);
       }
 
-      ctx.fillText(line, textX, y);
       y += lineHeight;
     }
 
@@ -900,9 +1327,9 @@ export function DrawingAnnotationLayer({
     return null;
   };
 
-  // Check if point is on rotation handle (only for freetext)
+  // Check if point is on rotation handle (for freetext and image)
   const isOnRotationHandle = (x: number, y: number, annotation: Annotation): boolean => {
-    if (annotation.type !== 'freetext' || !('rect' in annotation)) return false;
+    if ((annotation.type !== 'freetext' && annotation.type !== 'image') || !('rect' in annotation)) return false;
 
     const rect = (annotation as { rect: [number, number, number, number] }).rect;
     const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
@@ -939,8 +1366,8 @@ export function DrawingAnnotationLayer({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Check for rotation handle on selected freetext annotation
-    if (selectedAnnotation && selectedAnnotation.type === 'freetext' && isOnRotationHandle(x, y, selectedAnnotation)) {
+    // Check for rotation handle on selected freetext or image annotation (skip if cropping)
+    if (!isCropping && selectedAnnotation && (selectedAnnotation.type === 'freetext' || selectedAnnotation.type === 'image') && isOnRotationHandle(x, y, selectedAnnotation)) {
       // Store original state for undo BEFORE any modifications
       originalAnnotationRef.current = JSON.parse(JSON.stringify(selectedAnnotation));
       const center = getAnnotationCenter(selectedAnnotation);
@@ -948,12 +1375,23 @@ export function DrawingAnnotationLayer({
         setIsRotating(true);
         setRotationStart({ x, y });
         setRotationCenter(center);
-        setInitialRotation((selectedAnnotation as FreeTextAnnotation).rotation || 0);
+        setInitialRotation((selectedAnnotation as FreeTextAnnotation | ImageAnnotation).rotation || 0);
       }
       return;
     }
 
-    // Check for resize handle on selected annotation (works in any tool mode)
+    // Check for crop handle when in crop mode
+    if (isCropping && selectedAnnotation?.type === 'image' && cropBounds) {
+      const handle = getCropHandleAt(x, y, selectedAnnotation as ImageAnnotation, cropBounds);
+      if (handle) {
+        setCropHandle(handle);
+        setCropStart({ x, y });
+        setInitialCropBounds({ ...cropBounds });
+        return;
+      }
+    }
+
+    // Check for resize handle on selected annotation (works in any tool mode, skip if cropping)
     if (selectedAnnotation && 'rect' in selectedAnnotation) {
       const handle = getResizeHandleAt(x, y, selectedAnnotation);
       if (handle) {
@@ -1032,6 +1470,56 @@ export function DrawingAnnotationLayer({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // Handle crop handle dragging
+    if (cropHandle && cropStart && initialCropBounds && selectedAnnotation?.type === 'image') {
+      const imgAnnotation = selectedAnnotation as ImageAnnotation;
+      const topLeft = pdfToScreenCoords(imgAnnotation.rect[0], imgAnnotation.rect[1] + imgAnnotation.rect[3]);
+      const bottomRight = pdfToScreenCoords(imgAnnotation.rect[0] + imgAnnotation.rect[2], imgAnnotation.rect[1]);
+
+      const imgWidth = bottomRight.x - topLeft.x;
+      const imgHeight = bottomRight.y - topLeft.y;
+
+      // Calculate delta in percentage
+      const deltaXPercent = ((x - cropStart.x) / imgWidth) * 100;
+      const deltaYPercent = ((y - cropStart.y) / imgHeight) * 100;
+
+      const newBounds = { ...initialCropBounds };
+
+      switch (cropHandle) {
+        case 'nw':
+          newBounds.left = Math.max(0, Math.min(100 - newBounds.right - 10, initialCropBounds.left + deltaXPercent));
+          newBounds.top = Math.max(0, Math.min(100 - newBounds.bottom - 10, initialCropBounds.top + deltaYPercent));
+          break;
+        case 'n':
+          newBounds.top = Math.max(0, Math.min(100 - newBounds.bottom - 10, initialCropBounds.top + deltaYPercent));
+          break;
+        case 'ne':
+          newBounds.right = Math.max(0, Math.min(100 - newBounds.left - 10, initialCropBounds.right - deltaXPercent));
+          newBounds.top = Math.max(0, Math.min(100 - newBounds.bottom - 10, initialCropBounds.top + deltaYPercent));
+          break;
+        case 'e':
+          newBounds.right = Math.max(0, Math.min(100 - newBounds.left - 10, initialCropBounds.right - deltaXPercent));
+          break;
+        case 'se':
+          newBounds.right = Math.max(0, Math.min(100 - newBounds.left - 10, initialCropBounds.right - deltaXPercent));
+          newBounds.bottom = Math.max(0, Math.min(100 - newBounds.top - 10, initialCropBounds.bottom - deltaYPercent));
+          break;
+        case 's':
+          newBounds.bottom = Math.max(0, Math.min(100 - newBounds.top - 10, initialCropBounds.bottom - deltaYPercent));
+          break;
+        case 'sw':
+          newBounds.left = Math.max(0, Math.min(100 - newBounds.right - 10, initialCropBounds.left + deltaXPercent));
+          newBounds.bottom = Math.max(0, Math.min(100 - newBounds.top - 10, initialCropBounds.bottom - deltaYPercent));
+          break;
+        case 'w':
+          newBounds.left = Math.max(0, Math.min(100 - newBounds.right - 10, initialCropBounds.left + deltaXPercent));
+          break;
+      }
+
+      setCropBounds(newBounds);
+      return;
+    }
+
     // Handle rotation
     if (isRotating && rotationStart && rotationCenter && selectedAnnotation) {
       // Calculate angle from center to current point
@@ -1109,18 +1597,68 @@ export function DrawingAnnotationLayer({
       const deltaX = (x - dragStart.x) / scale;
       const deltaY = -(y - dragStart.y) / scale; // Invert Y for PDF coords
 
+      // Check if Shift is held to disable snapping
+      const enableSnapping = !e.shiftKey;
+
       if ('rect' in selectedAnnotation) {
-        // Rect-based annotations (rectangle, ellipse, stamp, freetext)
-        const newX = dragAnnotationStart[0] + deltaX;
-        const newY = dragAnnotationStart[1] + deltaY;
+        // Rect-based annotations (rectangle, ellipse, stamp, freetext, image)
         const currentRect = (selectedAnnotation as { rect: [number, number, number, number] }).rect;
+        let newX = dragAnnotationStart[0] + deltaX;
+        let newY = dragAnnotationStart[1] + deltaY;
+
+        // Apply snapping if enabled
+        if (enableSnapping) {
+          const bounds = {
+            left: newX,
+            right: newX + currentRect[2],
+            bottom: newY,
+            top: newY + currentRect[3],
+          };
+          const targets = calculateSnapTargets(selectedAnnotation.id);
+          const snapping = applySnapping(bounds, targets);
+          newX += snapping.deltaX;
+          newY += snapping.deltaY;
+
+          // Convert guide positions from PDF coords to screen coords for rendering
+          const screenGuides = {
+            vertical: snapping.guides.vertical.map(pos => pos * scale),
+            horizontal: snapping.guides.horizontal.map(pos => dimensions.height - pos * scale),
+          };
+          setSnapGuides(screenGuides);
+        } else {
+          setSnapGuides({ vertical: [], horizontal: [] });
+        }
+
         updateAnnotation(selectedAnnotation.id, {
           rect: [newX, newY, currentRect[2], currentRect[3]]
         });
       } else if (selectedAnnotation.type === 'sticky-note') {
         // Sticky note - update position
-        const newX = dragAnnotationStart[0] + deltaX;
-        const newY = dragAnnotationStart[1] + deltaY;
+        let newX = dragAnnotationStart[0] + deltaX;
+        let newY = dragAnnotationStart[1] + deltaY;
+
+        // Apply snapping if enabled
+        if (enableSnapping) {
+          const bounds = {
+            left: newX - 12,
+            right: newX + 12,
+            bottom: newY - 12,
+            top: newY + 12,
+          };
+          const targets = calculateSnapTargets(selectedAnnotation.id);
+          const snapping = applySnapping(bounds, targets);
+          newX += snapping.deltaX;
+          newY += snapping.deltaY;
+
+          const screenGuides = {
+            vertical: snapping.guides.vertical.map(pos => pos * scale),
+            horizontal: snapping.guides.horizontal.map(pos => dimensions.height - pos * scale),
+          };
+          setSnapGuides(screenGuides);
+        } else {
+          setSnapGuides({ vertical: [], horizontal: [] });
+        }
+
         updateAnnotation(selectedAnnotation.id, {
           position: { x: newX, y: newY }
         });
@@ -1138,6 +1676,8 @@ export function DrawingAnnotationLayer({
           ];
           updateAnnotation(selectedAnnotation.id, { start: newStart, end: newEnd });
         }
+        // Clear snap guides for lines (no snapping for now)
+        setSnapGuides({ vertical: [], horizontal: [] });
       } else if (selectedAnnotation.type === 'ink') {
         // Ink - update all path points
         const originalAnnotation = originalAnnotationRef.current as { paths: number[][][] } | null;
@@ -1147,6 +1687,8 @@ export function DrawingAnnotationLayer({
           );
           updateAnnotation(selectedAnnotation.id, { paths: newPaths });
         }
+        // Clear snap guides for ink (no snapping for now)
+        setSnapGuides({ vertical: [], horizontal: [] });
       }
       return;
     }
@@ -1157,6 +1699,14 @@ export function DrawingAnnotationLayer({
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Finish crop handle dragging
+    if (cropHandle) {
+      setCropHandle(null);
+      setCropStart(null);
+      setInitialCropBounds(cropBounds);
+      return;
+    }
+
     // Finish rotation
     if (isRotating && selectedAnnotation && originalAnnotationRef.current) {
       // Record the update with the ORIGINAL state (before modification)
@@ -1195,6 +1745,8 @@ export function DrawingAnnotationLayer({
       setIsDragging(false);
       setDragStart(null);
       setDragAnnotationStart(null);
+      // Clear snap guides
+      setSnapGuides({ vertical: [], horizontal: [] });
       return;
     }
 
@@ -1322,10 +1874,11 @@ export function DrawingAnnotationLayer({
           if (annotation) {
             setEditingAnnotationId(annotation.id);
             setEditingContent('');
+            lastHtmlContentRef.current = ''; // Initialize empty
             // Initialize empty segments with default style
             setEditingSegments(textToSegments('', toolSettings.textStyle));
             selectAnnotation(annotation.id);
-            if (!useRichTextEditor) {
+            if (!useTipTapEditor) {
               setTimeout(() => textareaRef.current?.focus(), 0);
             }
           }
@@ -1364,10 +1917,8 @@ export function DrawingAnnotationLayer({
     setCurrentPath([]);
   };
 
-  // Handle double-click to edit text box
+  // Handle double-click to edit text box (works regardless of current tool)
   const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (currentTool !== 'select') return;
-
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -1378,9 +1929,28 @@ export function DrawingAnnotationLayer({
       if (annotation.type === 'freetext' && isPointInAnnotation(x, y, annotation)) {
         const ftAnnotation = annotation as FreeTextAnnotation;
         setEditingAnnotationId(annotation.id);
-        setEditingContent(ftAnnotation.content || '');
 
-        // Initialize segments for rich text editing
+        // For TipTap, use HTML content if available, otherwise convert plain text
+        if (useTipTapEditor) {
+          let initialHtml = '';
+          if (ftAnnotation.htmlContent) {
+            // Use existing HTML content
+            initialHtml = ftAnnotation.htmlContent;
+          } else if (ftAnnotation.richContent && ftAnnotation.richContent.length > 0) {
+            // Convert rich text segments to HTML
+            const style = getAnnotationStyle(ftAnnotation);
+            initialHtml = segmentsToTipTapHTML(ftAnnotation.richContent, style);
+          } else if (ftAnnotation.content) {
+            // Convert plain text to simple HTML paragraph
+            initialHtml = `<p>${ftAnnotation.content.replace(/\n/g, '</p><p>')}</p>`;
+          }
+          setEditingContent(initialHtml);
+          lastHtmlContentRef.current = initialHtml; // Initialize ref
+        } else {
+          setEditingContent(ftAnnotation.content || '');
+        }
+
+        // Initialize segments for rich text editing (legacy)
         if (ftAnnotation.richContent && ftAnnotation.richContent.length > 0) {
           setEditingSegments(ftAnnotation.richContent);
         } else {
@@ -1391,7 +1961,7 @@ export function DrawingAnnotationLayer({
 
         selectAnnotation(annotation.id);
         // Focus is handled by RichTextEditor's autoFocus
-        if (!useRichTextEditor) {
+        if (!useTipTapEditor) {
           setTimeout(() => textareaRef.current?.focus(), 0);
         }
         return;
@@ -1400,34 +1970,42 @@ export function DrawingAnnotationLayer({
   };
 
   // Finish editing text box
-  const finishEditing = () => {
+  const finishEditing = useCallback(() => {
     if (!editingAnnotationId) return;
 
     const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
     if (annotation && annotation.type === 'freetext') {
-      if (useRichTextEditor) {
-        // Save rich text segments
-        const plainContent = getPlainText(editingSegments);
-        const trimmedContent = plainContent.trim();
+      if (useTipTapEditor) {
+        // Get content from TipTap editor or from ref as fallback
+        const htmlContent = tiptapEditorRef.current?.getHTML() || lastHtmlContentRef.current;
+        const plainContent = (tiptapEditorRef.current?.getText() || editingContent).trim();
 
-        if (trimmedContent === '') {
+        if (plainContent === '') {
           if (!annotation.content || annotation.content.trim() === '') {
             // Delete empty text box and record deletion for undo
             recordDelete(annotation);
             deleteAnnotation(editingAnnotationId);
           } else {
             const previousState = { ...annotation };
-            updateAnnotation(editingAnnotationId, { content: '', richContent: [] });
-            recordUpdate({ ...annotation, content: '', richContent: [] }, previousState);
+            updateAnnotation(editingAnnotationId, { content: '', htmlContent: '', richContent: [] } as Partial<FreeTextAnnotation>);
+            recordUpdate({ ...annotation, content: '', htmlContent: '', richContent: [] } as FreeTextAnnotation, previousState);
           }
         } else {
+          // Convert HTML to rich text segments for PDF rendering
+          const style = getAnnotationStyle(annotation);
+          const richContent = parseTipTapHTML(htmlContent, style);
+
+          // Derive plain content from rich content segments to ensure character index alignment
+          // This ensures the content matches the richContent character indices for rendering
+          const derivedPlainContent = richContent.map(s => s.text).join('');
+
           const previousState = { ...annotation };
-          const normalizedSegments = normalizeSegments(editingSegments);
           updateAnnotation(editingAnnotationId, {
-            content: trimmedContent,
-            richContent: normalizedSegments,
-          });
-          recordUpdate({ ...annotation, content: trimmedContent, richContent: normalizedSegments }, previousState);
+            content: derivedPlainContent,
+            htmlContent: htmlContent,
+            richContent: richContent,
+          } as Partial<FreeTextAnnotation>);
+          recordUpdate({ ...annotation, content: derivedPlainContent, htmlContent: htmlContent, richContent: richContent } as FreeTextAnnotation, previousState);
         }
       } else {
         // Legacy plain text editing
@@ -1454,9 +2032,10 @@ export function DrawingAnnotationLayer({
     setEditingAnnotationId(null);
     setEditingContent('');
     setEditingSegments([]);
+    lastHtmlContentRef.current = ''; // Clear HTML ref
     // Clear textbox store state
     useTextBoxStore.getState().stopEditing();
-  };
+  }, [editingAnnotationId, annotations, useTipTapEditor, editingContent, recordDelete, deleteAnnotation, updateAnnotation, recordUpdate, setEditingSegments]);
 
   // Handle click for selection
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1470,6 +2049,50 @@ export function DrawingAnnotationLayer({
 
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    // Handle image placement when in image tool mode with pending images
+    if (currentTool === 'image' && pendingImages && pendingImages.length > 0) {
+      const pendingImage = pendingImages[0];
+      const pdfCoords = screenToPdfCoords(x, y);
+
+      // Calculate image dimensions - fit to max 200px in either dimension while preserving aspect ratio
+      const maxDimension = 200;
+      let imgWidth = pendingImage.originalWidth;
+      let imgHeight = pendingImage.originalHeight;
+
+      if (imgWidth > maxDimension || imgHeight > maxDimension) {
+        const aspectRatio = imgWidth / imgHeight;
+        if (aspectRatio > 1) {
+          imgWidth = maxDimension;
+          imgHeight = maxDimension / aspectRatio;
+        } else {
+          imgHeight = maxDimension;
+          imgWidth = maxDimension * aspectRatio;
+        }
+      }
+
+      // Create image annotation centered on click point
+      const imageAnnotation = createImageAnnotation(
+        pageNumber,
+        [pdfCoords.x - imgWidth / 2, pdfCoords.y - imgHeight / 2, imgWidth, imgHeight],
+        pendingImage.imageData,
+        pendingImage.originalWidth,
+        pendingImage.originalHeight,
+        {
+          originalFilename: pendingImage.filename,
+          originalFileSize: pendingImage.fileSize,
+          mimeType: pendingImage.mimeType,
+        }
+      );
+
+      addAnnotation(imageAnnotation);
+      recordAdd(imageAnnotation);
+      selectAnnotation(imageAnnotation.id);
+
+      // Notify that image has been placed
+      onImagePlaced?.();
+      return;
+    }
 
     // Check if clicked on an annotation - select it
     for (const annotation of annotations) {
@@ -1491,7 +2114,8 @@ export function DrawingAnnotationLayer({
       case 'rectangle':
       case 'ellipse':
       case 'stamp':
-      case 'freetext': {
+      case 'freetext':
+      case 'image': {
         const { rect } = annotation as { rect: [number, number, number, number] };
         const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
         const bottomRight = pdfToScreenCoords(rect[0] + rect[2], rect[1]);
@@ -1806,11 +2430,122 @@ export function DrawingAnnotationLayer({
         }
         return;
       }
+
+      // Escape to deselect annotation
+      if (e.key === 'Escape' && selectedAnnotation) {
+        e.preventDefault();
+        selectAnnotation(null);
+        return;
+      }
+
+      // Layer ordering shortcuts (Ctrl+] / Ctrl+[ and Ctrl+Shift+] / Ctrl+Shift+[)
+      if (isCtrl && (e.key === ']' || e.key === '[') && selectedAnnotation && 'zIndex' in selectedAnnotation) {
+        e.preventDefault();
+        const previousState = { ...selectedAnnotation };
+        const currentZIndex = (selectedAnnotation as { zIndex?: number }).zIndex || 0;
+
+        if (isShift) {
+          // Bring to front or send to back
+          const allAnnotations = annotations.filter(a => 'zIndex' in a);
+          const zIndices = allAnnotations.map(a => (a as { zIndex?: number }).zIndex || 0);
+          if (e.key === ']') {
+            // Bring to front
+            const maxZ = Math.max(...zIndices, 0);
+            if (currentZIndex < maxZ) {
+              updateAnnotation(selectedAnnotation.id, { zIndex: maxZ + 1 });
+              recordUpdate({ ...selectedAnnotation, zIndex: maxZ + 1 }, previousState);
+            }
+          } else {
+            // Send to back
+            const minZ = Math.min(...zIndices, 0);
+            if (currentZIndex > minZ) {
+              updateAnnotation(selectedAnnotation.id, { zIndex: minZ - 1 });
+              recordUpdate({ ...selectedAnnotation, zIndex: minZ - 1 }, previousState);
+            }
+          }
+        } else {
+          // Bring forward or send backward one layer
+          const newZIndex = e.key === ']' ? currentZIndex + 1 : currentZIndex - 1;
+          updateAnnotation(selectedAnnotation.id, { zIndex: newZIndex });
+          recordUpdate({ ...selectedAnnotation, zIndex: newZIndex }, previousState);
+        }
+        return;
+      }
+
+      // Arrow keys to nudge selected annotation
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedAnnotation && !isCtrl) {
+        e.preventDefault();
+        const nudgeAmount = isShift ? 10 : 1; // 10px with Shift, 1px otherwise
+        const previousState = { ...selectedAnnotation };
+
+        if ('rect' in selectedAnnotation) {
+          const rect = [...(selectedAnnotation as { rect: [number, number, number, number] }).rect] as [number, number, number, number];
+          switch (e.key) {
+            case 'ArrowUp':
+              rect[1] += nudgeAmount; // PDF Y is inverted
+              break;
+            case 'ArrowDown':
+              rect[1] -= nudgeAmount;
+              break;
+            case 'ArrowLeft':
+              rect[0] -= nudgeAmount;
+              break;
+            case 'ArrowRight':
+              rect[0] += nudgeAmount;
+              break;
+          }
+          updateAnnotation(selectedAnnotation.id, { rect });
+          recordUpdate({ ...selectedAnnotation, rect }, previousState);
+        } else if (selectedAnnotation.type === 'sticky-note') {
+          const pos = { ...(selectedAnnotation as { position: { x: number; y: number } }).position };
+          switch (e.key) {
+            case 'ArrowUp':
+              pos.y += nudgeAmount;
+              break;
+            case 'ArrowDown':
+              pos.y -= nudgeAmount;
+              break;
+            case 'ArrowLeft':
+              pos.x -= nudgeAmount;
+              break;
+            case 'ArrowRight':
+              pos.x += nudgeAmount;
+              break;
+          }
+          updateAnnotation(selectedAnnotation.id, { position: pos });
+          recordUpdate({ ...selectedAnnotation, position: pos }, previousState);
+        } else if (selectedAnnotation.type === 'line' || selectedAnnotation.type === 'arrow') {
+          const lineAnn = selectedAnnotation as { start: [number, number]; end: [number, number] };
+          const start = [...lineAnn.start] as [number, number];
+          const end = [...lineAnn.end] as [number, number];
+          switch (e.key) {
+            case 'ArrowUp':
+              start[1] += nudgeAmount;
+              end[1] += nudgeAmount;
+              break;
+            case 'ArrowDown':
+              start[1] -= nudgeAmount;
+              end[1] -= nudgeAmount;
+              break;
+            case 'ArrowLeft':
+              start[0] -= nudgeAmount;
+              end[0] -= nudgeAmount;
+              break;
+            case 'ArrowRight':
+              start[0] += nudgeAmount;
+              end[0] += nudgeAmount;
+              break;
+          }
+          updateAnnotation(selectedAnnotation.id, { start, end });
+          recordUpdate({ ...selectedAnnotation, start, end }, previousState);
+        }
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, deleteAnnotation, updateAnnotation, addAnnotation, editingAnnotationId, annotations, recordDelete]);
+  }, [selectedAnnotationId, deleteAnnotation, updateAnnotation, addAnnotation, editingAnnotationId, annotations, recordDelete, recordUpdate, selectAnnotation, recordAdd, pageNumber]);
 
   // Handle undo for annotations
   const handleAnnotationUndo = useCallback(() => {
@@ -1939,42 +2674,6 @@ export function DrawingAnnotationLayer({
     e.stopPropagation();
   };
 
-  // Handle style change from format toolbar
-  const handleStyleChange = (styleUpdates: Partial<TextStyle>) => {
-    if (!selectedAnnotationId) return;
-
-    const annotation = annotations.find((a) => a.id === selectedAnnotationId) as FreeTextAnnotation | undefined;
-    if (!annotation || annotation.type !== 'freetext') return;
-
-    // Check if we're in rich text editing mode with a selection
-    if (useRichTextEditor && editingAnnotationId === selectedAnnotationId) {
-      const { cursor, mergePendingFormat } = useTextBoxStore.getState();
-      const hasSelection = cursor.selectionStart !== null &&
-                          cursor.selectionEnd !== null &&
-                          cursor.selectionStart !== cursor.selectionEnd;
-
-      if (hasSelection) {
-        // Apply style to selection
-        const selStart = Math.min(cursor.selectionStart!, cursor.selectionEnd!);
-        const selEnd = Math.max(cursor.selectionStart!, cursor.selectionEnd!);
-        const newSegments = applyStyleToRange(editingSegments, selStart, selEnd, styleUpdates);
-        setEditingSegments(normalizeSegments(newSegments));
-      } else {
-        // Set pending format for next typed character
-        mergePendingFormat(styleUpdates);
-      }
-      return;
-    }
-
-    // Apply to whole text box when not in rich text editing mode
-    const previousState = { ...annotation };
-    const currentStyle = getAnnotationStyle(annotation);
-    const newStyle = { ...currentStyle, ...styleUpdates };
-
-    updateAnnotation(selectedAnnotationId, { style: newStyle });
-    recordUpdate({ ...annotation, style: newStyle }, previousState);
-  };
-
   // Get editing annotation rect for textarea
   const getEditingAnnotationRect = () => {
     if (!editingAnnotationId) return null;
@@ -1995,111 +2694,340 @@ export function DrawingAnnotationLayer({
     };
   };
 
-  // Get current selection style for toolbar (when editing with RichTextEditor)
-  const getEditingSelectionStyle = useCallback(() => {
-    if (!editingAnnotationId || editingSegments.length === 0) return null;
+  const editingRect = getEditingAnnotationRect();
 
-    const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
-    if (!annotation) return null;
+  // Helper to process image file and create annotation
+  const processImageFile = useCallback(async (file: File, dropX?: number, dropY?: number) => {
+    // Supported image formats
+    const supportedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml'];
 
-    const { cursor, pendingFormat } = useTextBoxStore.getState();
-    const defaultStyle = getAnnotationStyle(annotation);
+    // Check if it's an image
+    if (!file.type.startsWith('image/')) {
+      alert(`"${file.name}" is not an image file.`);
+      return;
+    }
 
-    // If pending format is set, merge it with current style
-    if (pendingFormat && Object.keys(pendingFormat).length > 0) {
-      return {
-        style: { ...defaultStyle, ...pendingFormat } as Partial<TextStyle>,
-        isMixed: {
-          fontFamily: false,
-          fontSize: false,
-          fontWeight: false,
-          fontStyle: false,
-          textDecoration: false,
-          color: false,
-        },
+    // Check for supported format
+    if (!supportedFormats.includes(file.type.toLowerCase())) {
+      alert(`Unsupported image format: ${file.type}\n\nSupported formats: JPG, PNG, GIF, WebP, BMP, SVG`);
+      return;
+    }
+
+    // Warn for large files (> 5MB)
+    const fileSizeMB = file.size / (1024 * 1024);
+    if (fileSizeMB > 5) {
+      const proceed = confirm(
+        `This image is large (${fileSizeMB.toFixed(1)} MB) and may affect performance.\n\n` +
+        `Consider compressing the image before inserting.\n\n` +
+        `Do you want to continue anyway?`
+      );
+      if (!proceed) return;
+    }
+
+    // Very large files (> 20MB) - block with error
+    if (fileSizeMB > 20) {
+      alert(
+        `Image file is too large (${fileSizeMB.toFixed(1)} MB).\n\n` +
+        `Maximum supported size is 20 MB. Please compress the image and try again.`
+      );
+      return;
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onerror = () => {
+        alert(`Failed to read file "${file.name}". The file may be corrupted.`);
+        reject(new Error('File read error'));
       };
+
+      reader.onload = (e) => {
+        const imageData = e.target?.result as string;
+        if (!imageData) {
+          alert(`Failed to read file "${file.name}". The file may be corrupted.`);
+          reject(new Error('Empty file data'));
+          return;
+        }
+
+        const img = new Image();
+
+        img.onerror = () => {
+          alert(
+            `Failed to load image "${file.name}".\n\n` +
+            `The file may be corrupted or in an unsupported format.`
+          );
+          reject(new Error('Image load error'));
+        };
+
+        img.onload = () => {
+          // Validate image dimensions
+          if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+            alert(`Invalid image dimensions for "${file.name}".`);
+            reject(new Error('Invalid image dimensions'));
+            return;
+          }
+
+          // Warn for very high resolution images
+          const megapixels = (img.naturalWidth * img.naturalHeight) / 1000000;
+          if (megapixels > 25) {
+            console.warn(`High resolution image: ${img.naturalWidth}x${img.naturalHeight} (${megapixels.toFixed(1)} MP)`);
+          }
+
+          // Calculate placement position
+          let pdfX: number, pdfY: number;
+          if (dropX !== undefined && dropY !== undefined) {
+            const pdfCoords = screenToPdfCoords(dropX, dropY);
+            pdfX = pdfCoords.x;
+            pdfY = pdfCoords.y;
+          } else {
+            // Center of visible area
+            pdfX = dimensions.width / scale / 2;
+            pdfY = dimensions.height / scale / 2;
+          }
+
+          // Calculate image dimensions - fit to max 200px (or page size for very small pages)
+          const pageWidth = dimensions.width / scale;
+          const pageHeight = dimensions.height / scale;
+          const maxDimension = Math.min(200, pageWidth * 0.8, pageHeight * 0.8);
+          const minDimension = 20; // Minimum size
+
+          let imgWidth = img.naturalWidth;
+          let imgHeight = img.naturalHeight;
+
+          // Scale down large images
+          if (imgWidth > maxDimension || imgHeight > maxDimension) {
+            const aspectRatio = imgWidth / imgHeight;
+            if (aspectRatio > 1) {
+              imgWidth = maxDimension;
+              imgHeight = maxDimension / aspectRatio;
+            } else {
+              imgHeight = maxDimension;
+              imgWidth = maxDimension * aspectRatio;
+            }
+          }
+
+          // Enforce minimum size for very small images
+          if (imgWidth < minDimension || imgHeight < minDimension) {
+            const aspectRatio = imgWidth / imgHeight;
+            if (aspectRatio > 1) {
+              imgHeight = minDimension;
+              imgWidth = minDimension * aspectRatio;
+            } else {
+              imgWidth = minDimension;
+              imgHeight = minDimension / aspectRatio;
+            }
+          }
+
+          // Constrain position to keep image on page
+          const halfWidth = imgWidth / 2;
+          const halfHeight = imgHeight / 2;
+          pdfX = Math.max(halfWidth, Math.min(pageWidth - halfWidth, pdfX));
+          pdfY = Math.max(halfHeight, Math.min(pageHeight - halfHeight, pdfY));
+
+          // Create and add image annotation
+          const imageAnnotation = createImageAnnotation(
+            pageNumber,
+            [pdfX - halfWidth, pdfY - halfHeight, imgWidth, imgHeight],
+            imageData,
+            img.naturalWidth,
+            img.naturalHeight,
+            {
+              originalFilename: file.name,
+              originalFileSize: file.size,
+              mimeType: file.type,
+            }
+          );
+
+          addAnnotation(imageAnnotation);
+          recordAdd(imageAnnotation);
+          selectAnnotation(imageAnnotation.id);
+          resolve();
+        };
+
+        img.src = imageData;
+      };
+
+      reader.readAsDataURL(file);
+    });
+  }, [pageNumber, dimensions, scale, addAnnotation, recordAdd, selectAnnotation, screenToPdfCoords]);
+
+  // Handle drag enter
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true);
     }
+  }, []);
 
-    const hasSelection = cursor.selectionStart !== null &&
-                        cursor.selectionEnd !== null &&
-                        cursor.selectionStart !== cursor.selectionEnd;
-
-    if (hasSelection) {
-      const selStart = Math.min(cursor.selectionStart!, cursor.selectionEnd!);
-      const selEnd = Math.max(cursor.selectionStart!, cursor.selectionEnd!);
-      return getSelectionStyle(editingSegments, selStart, selEnd);
+  // Handle drag leave
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
     }
+  }, []);
 
-    // No selection - return style at cursor position
-    return {
-      style: defaultStyle,
-      isMixed: {
-        fontFamily: false,
-        fontSize: false,
-        fontWeight: false,
-        fontStyle: false,
-        textDecoration: false,
-        color: false,
-      },
+  // Handle drag over
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  // Handle drop
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    dragCounterRef.current = 0;
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const dropX = e.clientX - rect.left;
+    const dropY = e.clientY - rect.top;
+
+    const files = Array.from(e.dataTransfer.files);
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+
+    // Process each image file
+    for (let i = 0; i < imageFiles.length; i++) {
+      const file = imageFiles[i];
+      // Offset each subsequent image
+      const offsetX = dropX + i * 20;
+      const offsetY = dropY + i * 20;
+      await processImageFile(file, offsetX, offsetY);
+    }
+  }, [processImageFile]);
+
+  // Handle clipboard paste for images
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      // Skip if editing text
+      if (editingAnnotationId) return;
+
+      // Skip if in an input field
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      // Check for image data in clipboard
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            // Place at center of visible area
+            await processImageFile(file);
+          }
+          return;
+        }
+      }
     };
-  }, [editingAnnotationId, editingSegments, annotations]);
 
-  // Get selected freetext annotation rect for format toolbar
-  const getSelectedFreetextRect = () => {
-    if (!selectedAnnotationId) return null;
-    const annotation = annotations.find((a) => a.id === selectedAnnotationId) as FreeTextAnnotation | undefined;
-    if (!annotation || annotation.type !== 'freetext') return null;
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [editingAnnotationId, processImageFile]);
 
+  // Cancel crop mode
+  const cancelCropMode = useCallback(() => {
+    setIsCropping(false);
+    setCropBounds(null);
+    setCropHandle(null);
+    setCropStart(null);
+    setInitialCropBounds(null);
+    exitCropMode();
+  }, [exitCropMode]);
+
+  // Apply crop
+  const applyCrop = useCallback(() => {
+    if (!selectedAnnotation || selectedAnnotation.type !== 'image' || !cropBounds) return;
+
+    const previousState = { ...selectedAnnotation };
+    updateAnnotation(selectedAnnotation.id, { cropBounds });
+    recordUpdate({ ...selectedAnnotation, cropBounds }, previousState);
+
+    cancelCropMode();
+  }, [selectedAnnotation, cropBounds, updateAnnotation, recordUpdate, cancelCropMode]);
+
+  // Get crop handle at position
+  const getCropHandleAt = useCallback((x: number, y: number, annotation: ImageAnnotation, bounds: { top: number; right: number; bottom: number; left: number }): typeof cropHandle => {
     const { rect } = annotation;
     const topLeft = pdfToScreenCoords(rect[0], rect[1] + rect[3]);
+    const bottomRight = pdfToScreenCoords(rect[0] + rect[2], rect[1]);
 
-    // Get the appropriate style based on whether we're editing
-    let style: Partial<TextStyle>;
-    let isMixed = {
-      fontFamily: false,
-      fontSize: false,
-      fontWeight: false,
-      fontStyle: false,
-      textDecoration: false,
-      color: false,
-    };
+    const width = bottomRight.x - topLeft.x;
+    const height = bottomRight.y - topLeft.y;
 
-    if (editingAnnotationId === selectedAnnotationId && useRichTextEditor) {
-      const selectionStyle = getEditingSelectionStyle();
-      if (selectionStyle) {
-        style = selectionStyle.style;
-        isMixed = selectionStyle.isMixed;
-      } else {
-        style = getAnnotationStyle(annotation);
+    // Calculate crop area in screen coords
+    const cropLeft = topLeft.x + (bounds.left / 100) * width;
+    const cropRight = topLeft.x + width - (bounds.right / 100) * width;
+    const cropTop = topLeft.y + (bounds.top / 100) * height;
+    const cropBottom = topLeft.y + height - (bounds.bottom / 100) * height;
+
+    const handleSize = 12;
+    const cropWidth = cropRight - cropLeft;
+    const cropHeight = cropBottom - cropTop;
+
+    const handles: { x: number; y: number; cursor: typeof cropHandle }[] = [
+      { x: cropLeft, y: cropTop, cursor: 'nw' },
+      { x: cropLeft + cropWidth / 2, y: cropTop, cursor: 'n' },
+      { x: cropRight, y: cropTop, cursor: 'ne' },
+      { x: cropRight, y: cropTop + cropHeight / 2, cursor: 'e' },
+      { x: cropRight, y: cropBottom, cursor: 'se' },
+      { x: cropLeft + cropWidth / 2, y: cropBottom, cursor: 's' },
+      { x: cropLeft, y: cropBottom, cursor: 'sw' },
+      { x: cropLeft, y: cropTop + cropHeight / 2, cursor: 'w' },
+    ];
+
+    for (const handle of handles) {
+      if (Math.abs(x - handle.x) <= handleSize / 2 && Math.abs(y - handle.y) <= handleSize / 2) {
+        return handle.cursor;
       }
-    } else {
-      style = getAnnotationStyle(annotation);
     }
 
-    return {
-      left: topLeft.x,
-      top: topLeft.y - 50, // Position above the text box
-      style,
-      isMixed,
-      hasSelection: useTextBoxStore.getState().cursor.selectionStart !== null,
-    };
-  };
+    return null;
+  }, [pdfToScreenCoords]);
 
-  const editingRect = getEditingAnnotationRect();
-  const formatToolbarRect = getSelectedFreetextRect();
+  // Handle crop keyboard shortcuts
+  useEffect(() => {
+    if (!isCropping) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyCrop();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelCropMode();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCropping, applyCrop, cancelCropMode]);
 
   // Determine cursor based on position
   const getCursor = () => {
     if (isDragging) return 'move';
     if (isRotating) return 'grabbing';
-    if (isResizing) {
+    if (isResizing || cropHandle) {
       const cursors: Record<string, string> = {
         nw: 'nw-resize', n: 'n-resize', ne: 'ne-resize',
         e: 'e-resize', se: 'se-resize', s: 's-resize',
         sw: 'sw-resize', w: 'w-resize'
       };
-      return cursors[resizeHandle || ''] || 'default';
+      return cursors[resizeHandle || cropHandle || ''] || 'default';
     }
+    if (isCropping) return 'crosshair';
     if (currentTool === 'pan') return 'grab';
     if (currentTool !== 'select') return 'crosshair';
     return 'default';
@@ -2108,7 +3036,7 @@ export function DrawingAnnotationLayer({
   return (
     <div
       ref={containerRef}
-      className={`drawing-annotation-layer ${currentTool !== 'select' && currentTool !== 'pan' ? 'drawing-mode' : ''} ${currentTool === 'pan' ? 'pan-mode' : ''}`}
+      className={`drawing-annotation-layer ${currentTool !== 'select' && currentTool !== 'pan' ? 'drawing-mode' : ''} ${currentTool === 'pan' ? 'pan-mode' : ''} ${isDragOver ? 'drag-over' : ''}`}
       style={{
         width: dimensions.width,
         height: dimensions.height,
@@ -2119,6 +3047,10 @@ export function DrawingAnnotationLayer({
       onMouseUp={currentTool === 'pan' ? undefined : handleMouseUp}
       onClick={currentTool === 'pan' ? undefined : handleClick}
       onDoubleClick={currentTool === 'pan' ? undefined : handleDoubleClick}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       onContextMenu={(e) => {
         e.preventDefault();
         const rect = containerRef.current?.getBoundingClientRect();
@@ -2127,55 +3059,219 @@ export function DrawingAnnotationLayer({
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        // Check if right-clicking on a freetext annotation
+        // Check if right-clicking on an annotation
         for (const annotation of annotations) {
-          if (annotation.type === 'freetext' && isPointInAnnotation(x, y, annotation)) {
+          if (isPointInAnnotation(x, y, annotation)) {
             selectAnnotation(annotation.id);
-            setContextMenu({
-              annotation: annotation as FreeTextAnnotation,
-              position: { x: e.clientX, y: e.clientY },
-            });
+            if (annotation.type === 'freetext') {
+              setImageContextMenu(null);
+              setContextMenu({
+                annotation: annotation as FreeTextAnnotation,
+                position: { x: e.clientX, y: e.clientY },
+              });
+            } else if (annotation.type === 'image') {
+              setContextMenu(null);
+              setImageContextMenu({
+                annotation: annotation as ImageAnnotation,
+                position: { x: e.clientX, y: e.clientY },
+              });
+            }
             return;
           }
         }
         setContextMenu(null);
+        setImageContextMenu(null);
       }}
     >
       <canvas ref={canvasRef} className="annotation-canvas" />
 
-      {/* Format toolbar for selected freetext */}
-      {formatToolbarRect && (
-        <div
-          className="format-toolbar-container"
+      {/* Snap guide lines */}
+      {(snapGuides.vertical.length > 0 || snapGuides.horizontal.length > 0) && (
+        <svg
           style={{
             position: 'absolute',
-            left: Math.max(0, formatToolbarRect.left),
-            top: Math.max(0, formatToolbarRect.top),
-            zIndex: 1001,
-          }}
-          data-format-toolbar="true"
-          // Prevent mousedown from stealing focus from RichTextEditor
-          // This keeps the hidden input focused so blur/finishEditing doesn't fire
-          onMouseDown={(e) => {
-            // Don't prevent default for actual input elements that need focus
-            const target = e.target as HTMLElement;
-            const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
-            if (!isInput) {
-              e.preventDefault();
-            }
+            top: 0,
+            left: 0,
+            width: dimensions.width,
+            height: dimensions.height,
+            pointerEvents: 'none',
+            zIndex: 50,
           }}
         >
-          <TextFormatToolbar
-            style={formatToolbarRect.style}
-            onChange={handleStyleChange}
-            isMixed={formatToolbarRect.isMixed}
-            hasSelection={formatToolbarRect.hasSelection}
-          />
+          {/* Vertical guides (X positions) */}
+          {snapGuides.vertical.map((x, i) => (
+            <line
+              key={`v-${i}`}
+              x1={x}
+              y1={0}
+              x2={x}
+              y2={dimensions.height}
+              stroke="#ff6b00"
+              strokeWidth={1}
+              strokeDasharray="4,4"
+            />
+          ))}
+          {/* Horizontal guides (Y positions) */}
+          {snapGuides.horizontal.map((y, i) => (
+            <line
+              key={`h-${i}`}
+              x1={0}
+              y1={y}
+              x2={dimensions.width}
+              y2={y}
+              stroke="#ff6b00"
+              strokeWidth={1}
+              strokeDasharray="4,4"
+            />
+          ))}
+        </svg>
+      )}
+
+      {/* Drop zone overlay for drag-and-drop images */}
+      {isDragOver && (
+        <div className="image-drop-zone">
+          <div className="drop-zone-content">
+            <span className="drop-icon">🖼️</span>
+            <span className="drop-text">Drop image here</span>
+          </div>
         </div>
       )}
 
-      {/* Rich text editing with RichTextEditor */}
-      {editingAnnotationId && editingRect && useRichTextEditor && (
+      {/* Crop mode overlay */}
+      {isCropping && selectedAnnotation?.type === 'image' && cropBounds && (() => {
+        const imgAnnotation = selectedAnnotation as ImageAnnotation;
+        const topLeft = pdfToScreenCoords(imgAnnotation.rect[0], imgAnnotation.rect[1] + imgAnnotation.rect[3]);
+        const bottomRight = pdfToScreenCoords(imgAnnotation.rect[0] + imgAnnotation.rect[2], imgAnnotation.rect[1]);
+        const imgWidth = bottomRight.x - topLeft.x;
+        const imgHeight = bottomRight.y - topLeft.y;
+
+        // Calculate crop area in screen coords
+        const cropLeft = topLeft.x + (cropBounds.left / 100) * imgWidth;
+        const cropRight = topLeft.x + imgWidth - (cropBounds.right / 100) * imgWidth;
+        const cropTop = topLeft.y + (cropBounds.top / 100) * imgHeight;
+        const cropBottom = topLeft.y + imgHeight - (cropBounds.bottom / 100) * imgHeight;
+        const cropWidth = cropRight - cropLeft;
+        const cropHeight = cropBottom - cropTop;
+
+        return (
+          <>
+            {/* Dimmed overlay outside crop area */}
+            <svg
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: dimensions.width,
+                height: dimensions.height,
+                pointerEvents: 'none',
+                zIndex: 100,
+              }}
+            >
+              <defs>
+                <mask id="crop-mask">
+                  <rect x="0" y="0" width="100%" height="100%" fill="white" />
+                  <rect x={cropLeft} y={cropTop} width={cropWidth} height={cropHeight} fill="black" />
+                </mask>
+              </defs>
+              <rect
+                x={topLeft.x}
+                y={topLeft.y}
+                width={imgWidth}
+                height={imgHeight}
+                fill="rgba(0, 0, 0, 0.5)"
+                mask="url(#crop-mask)"
+              />
+              {/* Crop area border */}
+              <rect
+                x={cropLeft}
+                y={cropTop}
+                width={cropWidth}
+                height={cropHeight}
+                fill="none"
+                stroke="#0066ff"
+                strokeWidth="2"
+                strokeDasharray="5,5"
+              />
+            </svg>
+
+            {/* Crop handles */}
+            {[
+              { x: cropLeft, y: cropTop, cursor: 'nw-resize' },
+              { x: cropLeft + cropWidth / 2, y: cropTop, cursor: 'n-resize' },
+              { x: cropRight, y: cropTop, cursor: 'ne-resize' },
+              { x: cropRight, y: cropTop + cropHeight / 2, cursor: 'e-resize' },
+              { x: cropRight, y: cropBottom, cursor: 'se-resize' },
+              { x: cropLeft + cropWidth / 2, y: cropBottom, cursor: 's-resize' },
+              { x: cropLeft, y: cropBottom, cursor: 'sw-resize' },
+              { x: cropLeft, y: cropTop + cropHeight / 2, cursor: 'w-resize' },
+            ].map((handle, i) => (
+              <div
+                key={i}
+                style={{
+                  position: 'absolute',
+                  left: handle.x - 6,
+                  top: handle.y - 6,
+                  width: 12,
+                  height: 12,
+                  backgroundColor: 'white',
+                  border: '2px solid #0066ff',
+                  borderRadius: '2px',
+                  cursor: handle.cursor,
+                  zIndex: 101,
+                  pointerEvents: 'auto',
+                }}
+              />
+            ))}
+
+            {/* Crop controls */}
+            <div
+              style={{
+                position: 'absolute',
+                left: cropLeft + cropWidth / 2 - 70,
+                top: cropBottom + 10,
+                display: 'flex',
+                gap: '8px',
+                zIndex: 102,
+                pointerEvents: 'auto',
+              }}
+            >
+              <button
+                onClick={applyCrop}
+                style={{
+                  padding: '6px 16px',
+                  backgroundColor: '#0066ff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                }}
+              >
+                Apply
+              </button>
+              <button
+                onClick={cancelCropMode}
+                style={{
+                  padding: '6px 16px',
+                  backgroundColor: '#555',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* TipTap text editing */}
+      {editingAnnotationId && editingRect && useTipTapEditor && (
         <div
           className="freetext-editor-container"
           style={{
@@ -2192,15 +3288,18 @@ export function DrawingAnnotationLayer({
             overflow: 'hidden',
           }}
         >
-          <RichTextEditor
-            segments={editingSegments}
+          <TipTapEditor
+            ref={tiptapEditorRef}
+            initialContent={editingContent}
             defaultStyle={editingRect.style}
             width={editingRect.width - 4}
             height={editingRect.height - 4}
-            scale={1}
             padding={8}
-            textAlign={editingRect.style.textAlign}
-            onChange={setEditingSegments}
+            onContentChange={(html, text) => {
+              setEditingContent(text);
+              // Store HTML content in ref for reliable access during finishEditing
+              lastHtmlContentRef.current = html;
+            }}
             onBlur={finishEditing}
             autoFocus={true}
           />
@@ -2208,7 +3307,7 @@ export function DrawingAnnotationLayer({
       )}
 
       {/* Legacy text editing textarea (fallback) */}
-      {editingAnnotationId && editingRect && !useRichTextEditor && (
+      {editingAnnotationId && editingRect && !useTipTapEditor && (
         <textarea
           ref={textareaRef}
           className="freetext-editor"
@@ -2252,9 +3351,25 @@ export function DrawingAnnotationLayer({
           onEditText={() => {
             const ftAnnotation = contextMenu.annotation;
             setEditingAnnotationId(ftAnnotation.id);
-            setEditingContent(ftAnnotation.content || '');
 
-            // Initialize segments for rich text editing
+            // For TipTap, use HTML content if available
+            if (useTipTapEditor) {
+              let initialHtml = '';
+              if (ftAnnotation.htmlContent) {
+                initialHtml = ftAnnotation.htmlContent;
+              } else if (ftAnnotation.richContent && ftAnnotation.richContent.length > 0) {
+                const style = getAnnotationStyle(ftAnnotation);
+                initialHtml = segmentsToTipTapHTML(ftAnnotation.richContent, style);
+              } else if (ftAnnotation.content) {
+                initialHtml = `<p>${ftAnnotation.content.replace(/\n/g, '</p><p>')}</p>`;
+              }
+              setEditingContent(initialHtml);
+              lastHtmlContentRef.current = initialHtml; // Initialize ref
+            } else {
+              setEditingContent(ftAnnotation.content || '');
+            }
+
+            // Initialize segments for rich text editing (legacy)
             if (ftAnnotation.richContent && ftAnnotation.richContent.length > 0) {
               setEditingSegments(ftAnnotation.richContent);
             } else {
@@ -2263,7 +3378,7 @@ export function DrawingAnnotationLayer({
             }
 
             setContextMenu(null);
-            if (!useRichTextEditor) {
+            if (!useTipTapEditor) {
               setTimeout(() => textareaRef.current?.focus(), 0);
             }
           }}
@@ -2275,6 +3390,16 @@ export function DrawingAnnotationLayer({
             setShowBoxPropertiesPanel(true);
             setShowTextPropertiesPanel(false);
           }}
+        />
+      )}
+
+      {/* Context menu for images */}
+      {imageContextMenu && (
+        <ImageContextMenu
+          annotation={imageContextMenu.annotation}
+          position={imageContextMenu.position}
+          onClose={() => setImageContextMenu(null)}
+          onShowProperties={() => setShowImagePropertiesPanel(true)}
         />
       )}
 
@@ -2296,6 +3421,14 @@ export function DrawingAnnotationLayer({
             onClose={() => setShowBoxPropertiesPanel(false)}
           />
         </div>
+      )}
+
+      {/* Image Properties Panel */}
+      {showImagePropertiesPanel && selectedAnnotation?.type === 'image' && (
+        <ImagePropertiesPanel
+          annotation={selectedAnnotation as ImageAnnotation}
+          onClose={() => setShowImagePropertiesPanel(false)}
+        />
       )}
     </div>
   );

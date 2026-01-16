@@ -9,6 +9,7 @@ lerna-debug.log*
 
 CLAUDE.md
 BUG_REPORT.md
+TEXTBOX_PROMPT.md
 node_modules
 dist
 dist-ssr
