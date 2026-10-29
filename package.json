@@ -10,26 +10,32 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "audit:dependencies": "npm audit --audit-level=high",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@radix-ui/themes": "^3.2.1",
-    "@tiptap/extension-color": "^3.15.3",
-    "@tiptap/extension-font-family": "^3.15.3",
-    "@tiptap/extension-highlight": "^3.15.3",
-    "@tiptap/extension-text-align": "^3.15.3",
-    "@tiptap/extension-text-style": "^3.15.3",
-    "@tiptap/extension-underline": "^3.15.3",
-    "@tiptap/pm": "^3.15.3",
-    "@tiptap/react": "^3.15.3",
-    "@tiptap/starter-kit": "^3.15.3",
-    "fabric": "^7.1.0",
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tiptap/core": "3.32.0",
+    "@tiptap/extension-color": "3.32.0",
+    "@tiptap/extension-font-family": "3.32.0",
+    "@tiptap/extension-highlight": "3.32.0",
+    "@tiptap/extension-text-align": "3.32.0",
+    "@tiptap/extension-text-style": "3.32.0",
+    "@tiptap/extension-underline": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/react": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
+    "fflate": "0.8.3",
     "lucide-react": "^0.562.0",
+    "mupdf": "^1.28.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.530",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tiptap-extension-font-size": "^1.2.0",
+    "tesseract.js": "6.0.1",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
@@ -44,12 +50,17 @@
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "fake-indexeddb": "^6.2.6",
     "globals": "^16.5.0",
+    "jsdom": "^26.1.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4",
-    "vitest": "^4.0.17"
+    "vite": "7.3.7",
+    "vitest": "4.1.12"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   }
 }

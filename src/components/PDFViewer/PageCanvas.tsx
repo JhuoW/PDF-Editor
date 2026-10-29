@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useRef, useState, useMemo, memo } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getPageDimensions, getEffectiveRotation } from '../../core/PDFRenderer';
 import { TextLayer } from './TextLayer';
@@ -27,6 +27,7 @@ interface PageCanvasProps {
   highlightDestination?: LinkDestination;
   pendingImages?: PendingImageData[];
   onImagePlaced?: () => void;
+  onTextLayout?: (blockId: string) => void;
 }
 
 export const PageCanvas = memo(function PageCanvas({
@@ -42,11 +43,14 @@ export const PageCanvas = memo(function PageCanvas({
   highlightDestination,
   pendingImages,
   onImagePlaced,
+  onTextLayout,
 }: PageCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isRendering, setIsRendering] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const renderKey = useMemo(() => ({ page, scale, rotation }), [page, scale, rotation]);
+  const [result, setResult] = useState<{ key: typeof renderKey; error?: string } | null>(null);
+  const isRendering = result?.key !== renderKey;
+  const dimensions = useMemo(() => getPageDimensions(page, scale, rotation), [page, scale, rotation]);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
 
   useEffect(() => {
@@ -65,14 +69,9 @@ export const PageCanvas = memo(function PageCanvas({
     // Calculate effective rotation (page's embedded rotation + view rotation)
     const effectiveRotation = getEffectiveRotation(page, rotation);
 
-    const dims = getPageDimensions(page, scale, rotation);
-    setDimensions({ width: dims.width, height: dims.height });
-
     // Set canvas size
-    canvas.width = dims.width;
-    canvas.height = dims.height;
-
-    setIsRendering(true);
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
 
     const viewport = page.getViewport({ scale, rotation: effectiveRotation });
 
@@ -89,24 +88,26 @@ export const PageCanvas = memo(function PageCanvas({
 
     renderTask.promise
       .then(() => {
-        setIsRendering(false);
+        if (renderTaskRef.current !== renderTask) return;
+        setResult({ key: renderKey });
         renderTaskRef.current = null;
       })
       .catch((err) => {
+        if (renderTaskRef.current !== renderTask) return;
         if (err.name !== 'RenderingCancelledException') {
           console.error('Render error:', err);
         }
-        setIsRendering(false);
+        setResult({ key: renderKey, error: err.name !== 'RenderingCancelledException' ? 'Could not render this page.' : undefined });
         renderTaskRef.current = null;
       });
 
     return () => {
-      if (renderTaskRef.current) {
-        renderTaskRef.current.cancel();
+      renderTask.cancel();
+      if (renderTaskRef.current === renderTask) {
         renderTaskRef.current = null;
       }
     };
-  }, [page, scale, rotation]);
+  }, [page, scale, rotation, dimensions, renderKey]);
 
   return (
     <div
@@ -115,6 +116,7 @@ export const PageCanvas = memo(function PageCanvas({
       style={{ width: dimensions.width, height: dimensions.height }}
     >
       <canvas ref={canvasRef} className="page-canvas" />
+      {result?.key === renderKey && result.error && <div role="alert" className="page-loading-overlay">{result.error}</div>}
       {showTextLayer && dimensions.width > 0 && (
         <TextLayer
           page={page}
@@ -154,15 +156,15 @@ export const PageCanvas = memo(function PageCanvas({
       )}
       {dimensions.width > 0 && (
         <FormLayer
+          page={page}
           pageNumber={pageNumber}
           scale={scale}
           rotation={rotation}
-          pageWidth={page.view[2] - page.view[0]}
-          pageHeight={page.view[3] - page.view[1]}
         />
       )}
       {dimensions.width > 0 && (
         <TextEditLayer
+          onTextLayout={onTextLayout}
           page={page}
           pageNumber={pageNumber}
           scale={scale}

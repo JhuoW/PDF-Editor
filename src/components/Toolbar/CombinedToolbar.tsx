@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useFormStore } from '../../store/formStore';
 import { useEditingStore } from '../../store/editingStore';
 import type { AnnotationTool } from '../../annotations/types';
 import { PREDEFINED_STAMPS, SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations/types';
 import type { EditingMode } from '../../editing/types';
+import { useToolbarMenus } from './useToolbarMenus';
 import './CombinedToolbar.css';
 
 // Image data passed when inserting an image
@@ -17,7 +18,76 @@ export interface PendingImageData {
   mimeType: string;
 }
 
+function readInsertImage(file: File, signal: AbortSignal): Promise<PendingImageData> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    let image: HTMLImageElement | null = null, settled = false;
+    const cleanup = () => {
+      signal.removeEventListener('abort', abort);
+      reader.onload = null; reader.onerror = null; reader.onabort = null;
+      if (image) { image.onload = null; image.onerror = null; }
+    };
+    const fail = (cause: Error) => { if (settled) return; settled = true; cleanup(); reject(cause); };
+    const abort = () => {
+      fail(new DOMException('Image loading cancelled.', 'AbortError'));
+      if (reader.readyState === 1) reader.abort();
+      if (image) image.src = '';
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) { abort(); return; }
+    reader.onload = () => {
+      if (settled || signal.aborted) return;
+      const data = reader.result;
+      if (typeof data !== 'string') { fail(new Error(`Could not read image: ${file.name}`)); return; }
+      image = new Image();
+      image.onload = async () => {
+        if (settled || signal.aborted || !image) return;
+        const width = image.naturalWidth, height = image.naturalHeight;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || width * height > 40_000_000) { fail(new Error(`Image ${file.name} must have valid dimensions within 40 million pixels.`)); return; }
+        try {
+          let imageData = data, fileSize = file.size;
+          let mimeType = /^data:([^;,]+)/i.exec(data)?.[1].toLowerCase() ?? file.type;
+          let convert = !['image/png', 'image/jpeg', 'image/jpg'].includes(mimeType);
+          if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+            const { inspectPDFImage } = await import('../../core/ImagePDF');
+            if (settled || signal.aborted) return;
+            const bytes = Uint8Array.from(atob(data.slice(data.indexOf(',') + 1)), char => char.charCodeAt(0));
+            convert = inspectPDFImage({ name: file.name, data: bytes }).orientation !== 1;
+          }
+          if (convert) {
+            // Browsers apply EXIF while drawing an image; raw PDF JPEG embedding
+            // does not. Canonical PNG pixels also make WebP/GIF/BMP/SVG exportable.
+            const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+            try {
+              const context = canvas.getContext('2d'); if (!context) throw new Error('Could not prepare the image for PDF export.');
+              context.drawImage(image, 0, 0, width, height);
+              imageData = canvas.toDataURL('image/png');
+              if (!imageData.startsWith('data:image/png;base64,')) throw new Error('Could not encode the image for PDF export.');
+              const encoded = imageData.slice(imageData.indexOf(',') + 1);
+              fileSize = Math.floor(encoded.length * 3 / 4) - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
+              if (fileSize > 20 * 1024 * 1024) throw new Error(`Prepared image ${file.name} exceeds 20 MB. Choose a smaller image.`);
+              mimeType = 'image/png';
+            } finally { canvas.width = 0; canvas.height = 0; }
+          }
+          if (settled || signal.aborted) return;
+          settled = true; cleanup(); resolve({ imageData, originalWidth: width, originalHeight: height, filename: file.name, fileSize, mimeType });
+        } catch (cause) { fail(cause instanceof Error ? cause : new Error(`Could not prepare image: ${file.name}`)); }
+      };
+      image.onerror = () => fail(new Error(`Could not decode image: ${file.name}`));
+      image.src = data;
+    };
+    reader.onerror = () => fail(new Error(`Could not read image: ${file.name}`));
+    reader.onabort = () => fail(new DOMException('Image loading cancelled.', 'AbortError'));
+    try { reader.readAsDataURL(file); } catch (cause) { fail(cause instanceof Error ? cause : new Error(`Could not read image: ${file.name}`)); }
+  });
+}
+
+interface SelectedStamp { type: 'predefined' | 'custom'; name: string; imageData?: string; width?: number; height?: number }
+
 interface CombinedToolbarProps {
+  isBusy?: boolean;
+  documentKey?: unknown;
+  documentRevision?: number;
   currentPage: number;
   totalPages: number;
   selectedPages: number[];
@@ -38,19 +108,34 @@ interface CombinedToolbarProps {
   // Document actions
   onResetToOriginal: () => void;
   onCloseDocument: () => void;
+  onEncryptExport?: () => void;
+  onDocumentProperties?: () => void;
+  onOCR?: () => void;
+  onPageDecorations?: () => void;
+  onCleanDocument?: () => void;
+  onCompressPDF?: () => void;
+  onManageLinks?: () => void;
+  onManageBookmarks?: () => void;
+  onSignature?: () => void;
   canResetToOriginal: boolean;
   // Form actions
   onExportFormData?: (format: 'json' | 'fdf' | 'xfdf') => void;
   onImportFormData?: () => void;
   onFlattenForm?: () => void;
   onResetForm?: () => void;
+  onDesignForm?: () => void;
   // Content editing actions
   onApplyRedactions?: () => void;
+  onRemoveContent?: () => void;
+  onApplyContent?: () => void;
   // Image insertion
   onInsertImage?: (images: PendingImageData[]) => void;
 }
 
 export function CombinedToolbar({
+  isBusy = false,
+  documentKey,
+  documentRevision,
   currentPage,
   totalPages,
   selectedPages,
@@ -69,20 +154,45 @@ export function CombinedToolbar({
   redoActionName,
   onResetToOriginal,
   onCloseDocument,
+  onEncryptExport,
+  onDocumentProperties,
+  onOCR,
+  onPageDecorations,
+  onCleanDocument,
+  onCompressPDF,
+  onManageLinks,
+  onManageBookmarks,
+  onSignature,
   canResetToOriginal,
   onExportFormData,
   onImportFormData,
   onFlattenForm,
   onResetForm,
+  onDesignForm,
   onApplyRedactions,
+  onRemoveContent,
+  onApplyContent,
   onInsertImage,
 }: CombinedToolbarProps) {
   const [showDocumentMenu, setShowDocumentMenu] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showFormMenu, setShowFormMenu] = useState(false);
   const [showEditMenu, setShowEditMenu] = useState(false);
+  const [showStampMenu, setShowStampMenu] = useState(false);
+  const [selectedStamp, setSelectedStamp] = useState<SelectedStamp>(() => (window as unknown as { __selectedStamp?: SelectedStamp }).__selectedStamp ?? { type: 'predefined', name: 'Approved' });
+  const stampInputRef = useRef<HTMLInputElement>(null);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageIdentity = useMemo(() => ({ documentKey, documentRevision, hasDocument, isBusy }), [documentKey, documentRevision, hasDocument, isBusy]);
+  const currentImageIdentity = useRef(imageIdentity);
+  const imageJob = useRef<{ key: object; controller: AbortController; kind?: 'stamp' } | null>(null);
+  const [imageRead, setImageRead] = useState<{ key: object; status: 'loading' | 'error'; message: string } | null>(null);
+  const shownImageRead = imageRead?.key === imageIdentity && hasDocument && !isBusy ? imageRead : null;
+  useLayoutEffect(() => { currentImageIdentity.current = imageIdentity; });
+  useEffect(() => () => {
+    const job = imageJob.current;
+    if (job?.key === imageIdentity) { imageJob.current = null; job.controller.abort(); }
+  }, [imageIdentity]);
 
   const toolbarRef = useRef<HTMLDivElement>(null);
 
@@ -94,6 +204,7 @@ export function CombinedToolbar({
         setShowInsertMenu(false);
         setShowFormMenu(false);
         setShowEditMenu(false);
+        setShowStampMenu(false);
       }
     };
 
@@ -104,7 +215,8 @@ export function CombinedToolbar({
   }, []);
 
   const { isFormPDF, isDirty: formIsDirty } = useFormStore();
-  const { mode: editingMode, setMode: setEditingMode, hasChanges, redactions } = useEditingStore();
+  const { mode: editingMode, setMode: setEditingMode, hasChanges, redactions, textEdits, imageEdits } = useEditingStore();
+  const hasContentEdits = textEdits.length > 0 || imageEdits.length > 0;
   const pendingRedactions = redactions.filter(r => !r.applied);
 
   const {
@@ -166,70 +278,48 @@ export function CombinedToolbar({
 
   // Image insertion handler
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const imagePromises: Promise<PendingImageData>[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        console.warn(`Skipping non-image file: ${file.name}`);
-        continue;
-      }
-
-      // Warn about large files
-      if (file.size > 5 * 1024 * 1024) {
-        console.warn(`Large image file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
-      }
-
-      imagePromises.push(
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const img = new Image();
-            img.onload = () => {
-              resolve({
-                imageData: reader.result as string,
-                originalWidth: img.naturalWidth,
-                originalHeight: img.naturalHeight,
-                filename: file.name,
-                fileSize: file.size,
-                mimeType: file.type,
-              });
-            };
-            img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
-            img.src = reader.result as string;
-          };
-          reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-          reader.readAsDataURL(file);
-        })
-      );
-    }
-
-    try {
-      const images = await Promise.all(imagePromises);
-      if (images.length > 0 && onInsertImage) {
-        onInsertImage(images);
-      }
-    } catch (error) {
-      console.error('Error loading images:', error);
-      alert('Failed to load one or more images. Please try again.');
-    }
-
-    // Reset input
-    e.target.value = '';
+    // Capture files and reset this input before awaiting, so a new selection is
+    // never cleared by completion of a previous asynchronous read.
+    const files = Array.from(e.currentTarget.files ?? []);
+    e.currentTarget.value = '';
+    if (!files.length || isBusy || !hasDocument || !onInsertImage) return;
+    imageJob.current?.controller.abort();
+    const job = { key: imageIdentity, controller: new AbortController() };
+    imageJob.current = job;
+    const isCurrent = () => imageJob.current === job && currentImageIdentity.current === job.key && !job.controller.signal.aborted;
+    setImageRead({ key: job.key, status: 'loading', message: `Loading ${files.length} image${files.length === 1 ? '' : 's'}…` });
     setShowInsertMenu(false);
+    try {
+      if (files.length > 20) throw new Error('Choose up to 20 images at a time.');
+      if (files.reduce((sum, file) => sum + file.size, 0) > 80 * 1024 * 1024) throw new Error('The image selection exceeds 80 MB.');
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) throw new Error(`Choose an image file: ${file.name}`);
+        if (!file.size || file.size > 20 * 1024 * 1024) throw new Error(`Image ${file.name} must be between 1 byte and 20 MB.`);
+      }
+      const images = await Promise.all(files.map(file => readInsertImage(file, job.controller.signal)));
+      if (!isCurrent()) return;
+      if (images.reduce((sum, image) => sum + image.fileSize, 0) > 80 * 1024 * 1024) throw new Error('The prepared image selection exceeds 80 MB. Choose fewer or smaller images.');
+      if (images.reduce((sum, image) => sum + image.originalWidth * image.originalHeight, 0) > 80_000_000) throw new Error('The image selection exceeds 80 million pixels.');
+      onInsertImage(images);
+      if (isCurrent()) setImageRead(null);
+    } catch (error) {
+      if (isCurrent()) setImageRead({ key: job.key, status: 'error', message: error instanceof Error ? error.message : 'Could not load these images. Please try again.' });
+      job.controller.abort();
+    } finally {
+      if (imageJob.current === job) imageJob.current = null;
+    }
   };
 
   const handleInsertImageClick = () => {
-    imageInputRef.current?.click();
+    if (!isBusy && hasDocument && onInsertImage) imageInputRef.current?.click();
   };
+
+  const cancelImageRead = () => { imageJob.current?.controller.abort(); imageJob.current = null; setImageRead(null); };
 
   // Annotation tool handlers
   const handleToolClick = (tool: AnnotationTool) => {
+    closeMenus();
+    if (imageJob.current?.kind === 'stamp') cancelImageRead();
     // Clear editing mode when selecting an annotation tool (mutual exclusivity)
     if (editingMode !== 'none') {
       setEditingMode('none');
@@ -249,27 +339,64 @@ export function CombinedToolbar({
     setToolSettings({ strokeWidth: parseInt(e.target.value, 10) });
   };
 
-  const handleAddCustomStamp = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
+  const chooseStamp = (stamp: SelectedStamp) => {
+    cancelImageRead();
+    setSelectedStamp(stamp);
+    (window as unknown as { __selectedStamp?: SelectedStamp }).__selectedStamp = stamp;
+    setEditingMode('none');
+    setCurrentTool('stamp');
+    closeMenus();
+  };
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        const imageData = reader.result as string;
-        const name = file.name.replace(/\.[^/.]+$/, '');
-        addCustomStamp(name, imageData);
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
+  const prepareStamp = async (file: File, existingName?: string) => {
+    if (isBusy || !hasDocument) return;
+    imageJob.current?.controller.abort();
+    const job = { key: imageIdentity, controller: new AbortController(), kind: 'stamp' as const };
+    imageJob.current = job;
+    const isCurrent = () => imageJob.current === job && currentImageIdentity.current === job.key && !job.controller.signal.aborted;
+    setImageRead({ key: job.key, status: 'loading', message: `Loading stamp ${existingName ?? file.name}…` });
+    closeMenus(); setEditingMode('none'); setCurrentTool('select');
+    try {
+      if (!file.type.startsWith('image/')) throw new Error('Choose an image file for the custom stamp.');
+      if (!file.size || file.size > 20 * 1024 * 1024) throw new Error('The custom stamp image must be between 1 byte and 20 MB.');
+      const image = await readInsertImage(file, job.controller.signal);
+      if (!isCurrent()) return;
+      // Do not switch back to Stamp after the user chooses a different tool.
+      if (useAnnotationStore.getState().currentTool !== 'select' || useEditingStore.getState().mode !== 'none') { setImageRead(null); return; }
+      const base = file.name.replace(/\.[^/.]+$/, '').replace(/[\p{Cc}\p{Cf}]/gu, '').trim().slice(0, 80) || 'Custom stamp';
+      let name = existingName ?? base, suffix = 2;
+      if (!existingName) {
+        const names = new Set(useAnnotationStore.getState().customStamps.map(stamp => stamp.name));
+        while (names.has(name)) name = `${base} (${suffix++})`;
+        addCustomStamp(name, image.imageData, { width: image.originalWidth, height: image.originalHeight });
+      }
+      chooseStamp({ type: 'custom', name, imageData: image.imageData, width: image.originalWidth, height: image.originalHeight });
+    } catch (error) {
+      if (isCurrent()) setImageRead({ key: job.key, status: 'error', message: error instanceof Error ? error.message : 'Could not load the custom stamp.' });
+      job.controller.abort();
+    } finally { if (imageJob.current === job) imageJob.current = null; }
+  };
+
+  const handleStampFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
+    if (file) void prepareStamp(file);
+  };
+
+  const chooseCustomStamp = (stamp: typeof customStamps[number]) => {
+    if (stamp.width && stamp.height) { chooseStamp({ type: 'custom', ...stamp }); return; }
+    // Legacy library entries contain only name/data. Decode on selection so they
+    // also gain correct dimensions and exportable pixels without losing entries.
+    try {
+      const match = /^data:(image\/[^;,]+);base64,(.+)$/s.exec(stamp.imageData);
+      if (!match) throw new Error('Could not read this custom stamp. Please add its image again.');
+      const bytes = Uint8Array.from(atob(match[2]), char => char.charCodeAt(0));
+      void prepareStamp(new File([bytes], stamp.name, { type: match[1] }), stamp.name);
+    } catch (error) { setImageRead({ key: imageIdentity, status: 'error', message: error instanceof Error ? error.message : 'Could not read this custom stamp.' }); }
   };
 
   // Editing mode handlers
   const handleEditingModeChange = (mode: EditingMode) => {
+    if (imageJob.current?.kind === 'stamp') cancelImageRead();
     setEditingMode(editingMode === mode ? 'none' : mode);
     setShowEditMenu(false);
     // Clear annotation tool when entering editing mode
@@ -284,10 +411,22 @@ export function CombinedToolbar({
     setShowInsertMenu(false);
     setShowFormMenu(false);
     setShowEditMenu(false);
+    setShowStampMenu(false);
+  };
+  const activeMenu = showDocumentMenu ? 'document' : showInsertMenu ? 'insert' : showFormMenu ? 'form' : showEditMenu ? 'edit' : showStampMenu && currentTool === 'stamp' ? 'stamp' : null;
+  const menuEvents = useToolbarMenus(toolbarRef, activeMenu, closeMenus);
+  const toggleMenu = (name: string) => {
+    const wasOpen = activeMenu === name; closeMenus();
+    if (wasOpen) return;
+    if (name === 'document') setShowDocumentMenu(true);
+    if (name === 'insert') setShowInsertMenu(true);
+    if (name === 'form') setShowFormMenu(true);
+    if (name === 'edit') setShowEditMenu(true);
+    if (name === 'stamp') { setEditingMode('none'); setCurrentTool('stamp'); setShowStampMenu(true); }
   };
 
   return (
-    <div ref={toolbarRef} className="combined-toolbar" onClick={(e) => e.target === e.currentTarget && closeMenus()}>
+    <div ref={toolbarRef} {...menuEvents} className="combined-toolbar" inert={isBusy} aria-busy={isBusy} onClick={(e) => e.target === e.currentTarget && closeMenus()}>
       {/* Undo/Redo */}
       <div className="toolbar-group">
         <button
@@ -295,6 +434,7 @@ export function CombinedToolbar({
           onClick={onUndo}
           disabled={!canUndo}
           title={undoActionName ? `Undo ${undoActionName} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+          aria-label={undoActionName ? `Undo ${undoActionName}` : 'Undo'}
         >
           ↶
         </button>
@@ -303,6 +443,7 @@ export function CombinedToolbar({
           onClick={onRedo}
           disabled={!canRedo}
           title={redoActionName ? `Redo ${redoActionName} (Ctrl+Shift+Z)` : 'Redo (Ctrl+Shift+Z)'}
+          aria-label={redoActionName ? `Redo ${redoActionName}` : 'Redo'}
         >
           ↷
         </button>
@@ -315,18 +456,41 @@ export function CombinedToolbar({
         <div className="toolbar-dropdown">
           <button
             className="toolbar-btn dropdown-trigger"
-            onClick={() => setShowDocumentMenu(!showDocumentMenu)}
+            onClick={() => toggleMenu('document')}
+            data-toolbar-menu-trigger="document" aria-expanded={showDocumentMenu} aria-controls="toolbar-document-menu"
           >
             Document ▾
           </button>
           {showDocumentMenu && (
-            <div className="toolbar-menu">
+            <div className="toolbar-menu" id="toolbar-document-menu" data-toolbar-menu="document" role="group" aria-label="Document menu">
               <button onClick={() => { onMerge(); setShowDocumentMenu(false); }}>
                 Merge PDFs
               </button>
               <button onClick={() => { onSplit(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
                 Split PDF
               </button>
+              {onDocumentProperties && <button onClick={() => { onDocumentProperties(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
+                Document Properties &amp; Attachments…
+              </button>}
+              {onOCR && <button onClick={() => { onOCR(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
+                Scan OCR…
+              </button>}
+              {onPageDecorations && <button onClick={() => { onPageDecorations(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
+                Watermarks, Headers &amp; Backgrounds…
+              </button>}
+              {onCleanDocument && <button onClick={() => { onCleanDocument(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
+                Clean Document…
+              </button>}
+              {onManageBookmarks && <button onClick={() => { onManageBookmarks(); setShowDocumentMenu(false); }} disabled={!hasDocument}>Bookmarks…</button>}
+              {onManageLinks && <button onClick={() => { onManageLinks(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
+                Links…
+              </button>}
+              {onCompressPDF && <button onClick={() => { onCompressPDF(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
+                Compress PDF…
+              </button>}
+              {onEncryptExport && <button onClick={() => { onEncryptExport(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
+                Encrypt and Export…
+              </button>}
               <div className="menu-divider" />
               <button onClick={() => { onResetToOriginal(); setShowDocumentMenu(false); }} disabled={!canResetToOriginal}>
                 ⟲ Reset to Original
@@ -343,16 +507,20 @@ export function CombinedToolbar({
         </div>
 
         {/* Form Menu - only show if document has form fields */}
-        {isFormPDF && (
+        {(isFormPDF || hasDocument && onDesignForm) && (
           <div className="toolbar-dropdown">
             <button
               className={`toolbar-btn dropdown-trigger ${formIsDirty ? 'has-changes' : ''}`}
-              onClick={() => setShowFormMenu(!showFormMenu)}
+              onClick={() => toggleMenu('form')}
+            data-toolbar-menu-trigger="form" aria-expanded={showFormMenu} aria-controls="toolbar-form-menu"
             >
               Form {formIsDirty ? '•' : ''} ▾
             </button>
             {showFormMenu && (
-              <div className="toolbar-menu">
+              <div className="toolbar-menu" id="toolbar-form-menu" data-toolbar-menu="form" role="group" aria-label="Form menu">
+                {onDesignForm && <button onClick={() => { onDesignForm(); setShowFormMenu(false); }} disabled={!hasDocument}>Design Form…</button>}
+                {isFormPDF && <>
+                {onDesignForm && <div className="menu-divider" />}
                 <span className="menu-section-label">Export Form Data</span>
                 <button onClick={() => { onExportFormData?.('json'); setShowFormMenu(false); }}>
                   Export as JSON
@@ -374,22 +542,30 @@ export function CombinedToolbar({
                 <button onClick={() => { onFlattenForm?.(); setShowFormMenu(false); }}>
                   Flatten Form (Make Static)
                 </button>
+                </>}
               </div>
             )}
           </div>
         )}
 
+        {hasDocument && hasContentEdits && onApplyContent && (
+          <button className="toolbar-btn" onClick={onApplyContent}
+            title="Update the page with your text and image changes. You can undo this operation.">
+            Apply Content Changes
+          </button>
+        )}
         {/* Content Editing Menu - only show if document is loaded */}
         {hasDocument && (
           <div className="toolbar-dropdown">
             <button
               className={`toolbar-btn dropdown-trigger ${editingMode !== 'none' ? 'active' : ''} ${hasChanges() ? 'has-changes' : ''}`}
-              onClick={() => setShowEditMenu(!showEditMenu)}
+              onClick={() => toggleMenu('edit')}
+            data-toolbar-menu-trigger="edit" aria-expanded={showEditMenu} aria-controls="toolbar-edit-menu"
             >
               Edit {hasChanges() ? '•' : ''} ▾
             </button>
             {showEditMenu && (
-              <div className="toolbar-menu">
+              <div className="toolbar-menu" id="toolbar-edit-menu" data-toolbar-menu="edit" role="group" aria-label="Edit menu">
                 <button
                   className={editingMode === 'text' ? 'active' : ''}
                   onClick={() => handleEditingModeChange('text')}
@@ -407,7 +583,7 @@ export function CombinedToolbar({
                   className={`${editingMode === 'redact' ? 'active' : ''} menu-item-warning`}
                   onClick={() => handleEditingModeChange('redact')}
                 >
-                  ■ Redact Content
+                  ■ Mark Content Areas
                 </button>
                 {pendingRedactions.length > 0 && (
                   <>
@@ -419,7 +595,10 @@ export function CombinedToolbar({
                         setShowEditMenu(false);
                       }}
                     >
-                      ⚠ Apply {pendingRedactions.length} Redaction{pendingRedactions.length !== 1 ? 's' : ''} (Permanent)
+                      Apply {pendingRedactions.length} Visual Cover{pendingRedactions.length !== 1 ? 's' : ''}
+                    </button>
+                    <button className="menu-item-danger" onClick={() => { onRemoveContent?.(); setShowEditMenu(false); }}>
+                      Remove Selected Page Content
                     </button>
                   </>
                 )}
@@ -473,15 +652,17 @@ export function CombinedToolbar({
         <div className="toolbar-dropdown">
           <button
             className="toolbar-btn"
-            onClick={() => setShowInsertMenu(!showInsertMenu)}
+            onClick={() => toggleMenu('insert')}
+            data-toolbar-menu-trigger="insert" aria-expanded={showInsertMenu} aria-controls="toolbar-insert-menu"
             disabled={!hasDocument}
           >
             + Insert ▾
           </button>
           {showInsertMenu && (
-            <div className="toolbar-menu">
+            <div className="toolbar-menu" id="toolbar-insert-menu" data-toolbar-menu="insert" role="group" aria-label="Insert menu">
               <span className="menu-section-label">Content</span>
-              <button onClick={handleInsertImageClick}>
+              {onSignature && <button onClick={() => { onSignature(); setShowInsertMenu(false); }}>Signature…</button>}
+              <button onClick={handleInsertImageClick} disabled={isBusy || !onInsertImage}>
                 🖼 Image
               </button>
               <div className="menu-divider" />
@@ -503,11 +684,18 @@ export function CombinedToolbar({
           type="file"
           accept={SUPPORTED_IMAGE_EXTENSIONS}
           multiple
+          disabled={isBusy || !hasDocument || !onInsertImage}
+          aria-label="Insert images"
           onChange={handleImageFileChange}
           style={{ display: 'none' }}
         />
+        <input ref={stampInputRef} type="file" accept="image/*" aria-label="Custom stamp image"
+          disabled={isBusy || !hasDocument} onChange={handleStampFileChange} style={{ display: 'none' }} />
       </div>
-
+        {shownImageRead && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexBasis: '100%', minWidth: 0, maxWidth: '100%', fontSize: 12 }}>
+          <span role={shownImageRead.status === 'error' ? 'alert' : 'status'} style={{ overflowWrap: 'anywhere' }}>{shownImageRead.message}</span>
+          <button type="button" className="toolbar-btn" onClick={cancelImageRead}>{shownImageRead.status === 'loading' ? 'Cancel image loading' : 'Dismiss image error'}</button>
+        </div>}
       {hasDocument && (
         <>
           <div className="toolbar-divider" />
@@ -543,21 +731,21 @@ export function CombinedToolbar({
             <button
               className={`toolbar-btn ${currentTool === 'highlight' ? 'active' : ''}`}
               onClick={() => handleToolClick('highlight')}
-              title="Highlight (H)"
+              title="Highlight"
             >
               <span className="highlight-icon">H</span>
             </button>
             <button
               className={`toolbar-btn ${currentTool === 'underline' ? 'active' : ''}`}
               onClick={() => handleToolClick('underline')}
-              title="Underline (U)"
+              title="Underline"
             >
               <span className="underline-icon">U</span>
             </button>
             <button
               className={`toolbar-btn ${currentTool === 'strikeout' ? 'active' : ''}`}
               onClick={() => handleToolClick('strikeout')}
-              title="Strikeout (S)"
+              title="Strikeout"
             >
               <span className="strikeout-icon">S</span>
             </button>
@@ -568,35 +756,35 @@ export function CombinedToolbar({
             <button
               className={`toolbar-btn ${currentTool === 'ink' ? 'active' : ''}`}
               onClick={() => handleToolClick('ink')}
-              title="Freehand (D)"
+              title="Freehand"
             >
               ✏
             </button>
             <button
               className={`toolbar-btn ${currentTool === 'line' ? 'active' : ''}`}
               onClick={() => handleToolClick('line')}
-              title="Line (L)"
+              title="Line"
             >
               ╱
             </button>
             <button
               className={`toolbar-btn ${currentTool === 'arrow' ? 'active' : ''}`}
               onClick={() => handleToolClick('arrow')}
-              title="Arrow (A)"
+              title="Arrow"
             >
               →
             </button>
             <button
               className={`toolbar-btn ${currentTool === 'rectangle' ? 'active' : ''}`}
               onClick={() => handleToolClick('rectangle')}
-              title="Rectangle (R)"
+              title="Rectangle"
             >
               ▢
             </button>
             <button
               className={`toolbar-btn ${currentTool === 'ellipse' ? 'active' : ''}`}
               onClick={() => handleToolClick('ellipse')}
-              title="Ellipse (E)"
+              title="Ellipse"
             >
               ○
             </button>
@@ -607,14 +795,14 @@ export function CombinedToolbar({
             <button
               className={`toolbar-btn ${currentTool === 'sticky-note' ? 'active' : ''}`}
               onClick={() => handleToolClick('sticky-note')}
-              title="Sticky Note (N)"
+              title="Sticky Note"
             >
               📝
             </button>
             <button
               className={`toolbar-btn ${currentTool === 'freetext' ? 'active' : ''}`}
               onClick={() => handleToolClick('freetext')}
-              title="Text Box (T)"
+              title="Text Box"
             >
               T
             </button>
@@ -625,22 +813,20 @@ export function CombinedToolbar({
             <div className="toolbar-dropdown">
               <button
                 className={`toolbar-btn ${currentTool === 'stamp' ? 'active' : ''}`}
-                onClick={() => handleToolClick('stamp')}
+                onClick={() => toggleMenu('stamp')}
+                data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"
                 title="Stamp"
               >
                 🔖
               </button>
-              {currentTool === 'stamp' && (
-                <div className="toolbar-menu stamp-menu">
+              {activeMenu === 'stamp' && (
+                <div className="toolbar-menu stamp-menu" id="toolbar-stamp-menu" data-toolbar-menu="stamp" role="group" aria-label="Stamp menu">
                   <span className="menu-section-label">Predefined</span>
                   {PREDEFINED_STAMPS.map((stamp) => (
                     <button
                       key={stamp}
-                      onClick={() => {
-                        setToolSettings({ ...toolSettings });
-                         
-                        (window as unknown as Record<string, unknown>).__selectedStamp = { type: 'predefined', name: stamp };
-                      }}
+                      aria-pressed={selectedStamp.type === 'predefined' && selectedStamp.name === stamp}
+                      onClick={() => chooseStamp({ type: 'predefined', name: stamp })}
                     >
                       {stamp}
                     </button>
@@ -649,17 +835,11 @@ export function CombinedToolbar({
                     <>
                       <div className="menu-divider" />
                       <span className="menu-section-label">Custom</span>
-                      {customStamps.map((stamp) => (
+                      {customStamps.map((stamp, index) => (
                         <button
-                          key={stamp.name}
-                          onClick={() => {
-                             
-                            (window as unknown as Record<string, unknown>).__selectedStamp = {
-                              type: 'custom',
-                              name: stamp.name,
-                              imageData: stamp.imageData,
-                            };
-                          }}
+                          key={`${stamp.name}-${index}`}
+                          aria-pressed={selectedStamp.type === 'custom' && selectedStamp.name === stamp.name}
+                          onClick={() => chooseCustomStamp(stamp)}
                         >
                           {stamp.name}
                         </button>
@@ -667,7 +847,7 @@ export function CombinedToolbar({
                     </>
                   )}
                   <div className="menu-divider" />
-                  <button onClick={handleAddCustomStamp}>+ Add Custom</button>
+                  <button onClick={() => stampInputRef.current?.click()}>+ Add Custom</button>
                 </div>
               )}
             </div>
@@ -678,14 +858,15 @@ export function CombinedToolbar({
             <>
               <div className="toolbar-divider" />
               <div className="toolbar-group tool-settings">
-                <label className="setting-item" title="Color">
+                {currentTool === 'stamp' && <span className="setting-item" role="status" style={{ overflowWrap: 'anywhere' }}>Stamp: {selectedStamp.name} — click the page to place</span>}
+                {currentTool !== 'stamp' && <label className="setting-item" title="Color">
                   <input
                     type="color"
                     value={toolSettings.color}
                     onChange={handleColorChange}
                     className="color-input"
                   />
-                </label>
+                </label>}
 
                 {(currentTool === 'highlight' ||
                   currentTool === 'rectangle' ||

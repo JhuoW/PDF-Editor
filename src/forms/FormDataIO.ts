@@ -1,311 +1,190 @@
-/**
- * Form data import/export utilities
- * Supports JSON, FDF (Forms Data Format), and XFDF (XML Forms Data Format)
- */
-
+/** Form data exchange with Unicode and explicit empty values. */
+import { PDFArray, PDFDict, PDFHexString, PDFName, PDFParser, PDFString } from 'pdf-lib';
 import type { FormField, FormData } from './types';
 
-// ============================================================================
-// JSON Format
-// ============================================================================
+type FieldValue = FormField['value'];
+type FileMetadata = { pdfFileName?: string };
+const dataFields = (fields: FormField[]) => fields.filter(field => field.type !== 'button' && field.type !== 'signature');
+const uniqueFields = (fields: FormField[]) => new Map(dataFields(fields).map(field => [field.name, field]));
 
-/**
- * Export form data to JSON format
- */
-export function exportToJSON(
-  fields: FormField[],
-  metadata?: { pdfFileName?: string }
-): string {
+export function exportToJSON(fields: FormField[], metadata?: FileMetadata): string {
   const data: FormData = {
-    fields: {},
-    metadata: {
-      pdfFileName: metadata?.pdfFileName,
-      exportDate: new Date().toISOString(),
-      version: '1.0',
-    },
+    fields: Object.fromEntries([...uniqueFields(fields)].map(([name, field]) => [name, field.value])),
+    metadata: { pdfFileName: metadata?.pdfFileName, exportDate: new Date().toISOString(), version: '1.0' },
   };
-
-  // Group fields by name and collect unique values
-  const fieldsByName = new Map<string, string | boolean | string[]>();
-  fields.forEach(field => {
-    // Only export if value is set
-    if (field.value !== '' && field.value !== false) {
-      fieldsByName.set(field.name, field.value);
-    }
-  });
-
-  fieldsByName.forEach((value, name) => {
-    data.fields[name] = value;
-  });
-
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * Import form data from JSON format
- */
-export function importFromJSON(jsonString: string): Map<string, string | boolean | string[]> {
-  const data: FormData = JSON.parse(jsonString);
-  const fieldValues = new Map<string, string | boolean | string[]>();
-
-  Object.entries(data.fields).forEach(([name, value]) => {
-    fieldValues.set(name, value);
-  });
-
-  return fieldValues;
-}
-
-// ============================================================================
-// FDF Format (Forms Data Format)
-// ============================================================================
-
-/**
- * Export form data to FDF format
- * FDF is Adobe's binary format for form data, but we export a simplified text version
- */
-export function exportToFDF(
-  fields: FormField[],
-  metadata?: { pdfFileName?: string }
-): string {
-  const lines: string[] = [];
-
-  lines.push('%FDF-1.2');
-  lines.push('1 0 obj');
-  lines.push('<<');
-  lines.push('/FDF');
-  lines.push('<<');
-
-  // Add PDF file reference if provided
-  if (metadata?.pdfFileName) {
-    lines.push(`/F (${escapeFDFString(metadata.pdfFileName)})`);
+export function importFromJSON(source: string): Map<string, FieldValue> {
+  const data: unknown = JSON.parse(source);
+  if (!data || typeof data !== 'object' || !('fields' in data) || !data.fields || typeof data.fields !== 'object' || Array.isArray(data.fields)) {
+    throw new Error('Form JSON must contain a fields object.');
   }
-
-  // Add fields
-  lines.push('/Fields [');
-
-  // Group fields by name
-  const fieldsByName = new Map<string, string | boolean | string[]>();
-  fields.forEach(field => {
-    if (field.value !== '' && field.value !== false) {
-      fieldsByName.set(field.name, field.value);
+  const values = new Map<string, FieldValue>();
+  for (const [name, value] of Object.entries(data.fields)) {
+    if (typeof value !== 'string' && typeof value !== 'boolean' && !(Array.isArray(value) && value.every(item => typeof item === 'string'))) {
+      throw new Error(`Invalid value for form field "${name}".`);
     }
-  });
-
-  fieldsByName.forEach((value, name) => {
-    lines.push('<<');
-    lines.push(`/T (${escapeFDFString(name)})`);
-
-    if (typeof value === 'boolean') {
-      lines.push(`/V /${value ? 'Yes' : 'Off'}`);
-    } else if (Array.isArray(value)) {
-      lines.push(`/V [${value.map(v => `(${escapeFDFString(v)})`).join(' ')}]`);
-    } else {
-      lines.push(`/V (${escapeFDFString(String(value))})`);
-    }
-
-    lines.push('>>');
-  });
-
-  lines.push(']');
-  lines.push('>>');
-  lines.push('>>');
-  lines.push('endobj');
-  lines.push('trailer');
-  lines.push('<<');
-  lines.push('/Root 1 0 R');
-  lines.push('>>');
-  lines.push('%%EOF');
-
-  return lines.join('\n');
+    values.set(name, value);
+  }
+  return values;
 }
 
-/**
- * Import form data from FDF format
- */
-export function importFromFDF(fdfString: string): Map<string, string | boolean | string[]> {
-  const fieldValues = new Map<string, string | boolean | string[]>();
+/** Button /V values use widget appearance names, which may differ from labels. */
+function exchangeValue(field: FormField, fields: FormField[]): FieldValue {
+  if (field.type === 'checkbox') return field.value ? field.appearanceValue ?? field.exportValue ?? 'Yes' : 'Off';
+  if (field.type === 'radio') {
+    if (!field.value) return 'Off';
+    return fields.find(widget => widget.name === field.name && widget.exportValue === field.value)?.appearanceValue ?? field.value;
+  }
+  return field.value;
+}
+const pdfString = (text: string) => PDFHexString.fromText(text).toString();
 
-  // Simple FDF parser - looks for /T (name) and /V (value) pairs
-  const fieldRegex = /\/T\s*\(([^)]+)\)\s*\/V\s*(?:\/(\w+)|\(([^)]*)\)|\[([^\]]*)\])/g;
-  let match;
+export function exportToFDF(fields: FormField[], metadata?: FileMetadata): string {
+  const entries = [...uniqueFields(fields)].map(([name, field]) => {
+    const value = exchangeValue(field, fields);
+    const encoded = field.type === 'checkbox' || field.type === 'radio'
+      ? PDFName.of(String(value)).toString()
+      : Array.isArray(value) ? `[${value.map(pdfString).join(' ')}]` : pdfString(String(value));
+    return `<< /T ${pdfString(name)} /V ${encoded} >>`;
+  });
+  return ['%FDF-1.2', '1 0 obj', '<< /FDF <<', metadata?.pdfFileName ? `/F ${pdfString(metadata.pdfFileName)}` : '',
+    `/Fields [\n${entries.join('\n')}\n]`, '>> >>', 'endobj', 'trailer', '<< /Root 1 0 R >>', '%%EOF'].join('\n');
+}
 
-  while ((match = fieldRegex.exec(fdfString)) !== null) {
-    const name = unescapeFDFString(match[1]);
-
-    if (match[2]) {
-      // Name value like /Yes or /Off
-      const nameValue = match[2];
-      fieldValues.set(name, nameValue === 'Yes' || nameValue === 'On');
-    } else if (match[3] !== undefined) {
-      // String value
-      fieldValues.set(name, unescapeFDFString(match[3]));
-    } else if (match[4]) {
-      // Array value
-      const arrayMatch = match[4].match(/\(([^)]*)\)/g);
-      if (arrayMatch) {
-        const values = arrayMatch.map(v => unescapeFDFString(v.slice(1, -1)));
-        fieldValues.set(name, values);
+export async function importFromFDF(source: string | ArrayBuffer): Promise<Map<string, FieldValue>> {
+  const bytes = typeof source === 'string' ? Uint8Array.from(source, char => char.charCodeAt(0)) : new Uint8Array(source.slice(0));
+  if (new TextDecoder().decode(bytes.subarray(0, 5)) !== '%FDF-') throw new Error('Invalid FDF header.');
+  // FDF uses PDF objects and string encodings. The header replacement has the
+  // same length, so existing cross-reference offsets remain valid.
+  bytes[1] = 'P'.charCodeAt(0);
+  const context = await PDFParser.forBytesWithOptions(bytes, 100, true).parseDocument();
+  const root = context.lookup(context.trailerInfo.Root, PDFDict);
+  const fdf = root.lookup(PDFName.of('FDF'), PDFDict);
+  const entries = fdf.lookupMaybe(PDFName.of('Fields'), PDFArray);
+  const result = new Map<string, FieldValue>();
+  const visited = new Set<PDFDict>();
+  const stringValue = (value: unknown): string => {
+    if (value instanceof PDFString || value instanceof PDFHexString) return value.decodeText();
+    if (value instanceof PDFName) return value.decodeText();
+    throw new Error('FDF field values must be strings or button names.');
+  };
+  const visit = (fields: PDFArray, prefix: string, depth = 0) => {
+    if (depth > 64) throw new Error('FDF field hierarchy is too deep.');
+    for (let index = 0; index < fields.size(); index++) {
+      const field = fields.lookup(index, PDFDict);
+      if (visited.has(field)) throw new Error('FDF fields contain a circular or repeated reference.');
+      visited.add(field);
+      const nameObject = field.lookup(PDFName.of('T'));
+      const name = nameObject === undefined ? '' : stringValue(nameObject);
+      const fullName = [prefix, name].filter(Boolean).join('.');
+      const value = field.lookup(PDFName.of('V'));
+      if (value !== undefined) {
+        if (!fullName) throw new Error('An FDF value has no field name.');
+        result.set(fullName, value instanceof PDFArray
+          ? Array.from({ length: value.size() }, (_, item) => stringValue(value.lookup(item))) : stringValue(value));
       }
+      const kids = field.lookupMaybe(PDFName.of('Kids'), PDFArray);
+      if (kids) visit(kids, fullName, depth + 1);
     }
-  }
-
-  return fieldValues;
+  };
+  if (entries) visit(entries, '');
+  return result;
 }
 
-function escapeFDFString(str: string): string {
-  return str
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
+function escapeXML(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
-function unescapeFDFString(str: string): string {
-  return str
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\t/g, '\t')
-    .replace(/\\\(/g, '(')
-    .replace(/\\\)/g, ')')
-    .replace(/\\\\/g, '\\');
-}
-
-// ============================================================================
-// XFDF Format (XML Forms Data Format)
-// ============================================================================
-
-/**
- * Export form data to XFDF format
- */
-export function exportToXFDF(
-  fields: FormField[],
-  metadata?: { pdfFileName?: string }
-): string {
-  const lines: string[] = [];
-
-  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-  lines.push('<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">');
-
-  // Add PDF file reference if provided
-  if (metadata?.pdfFileName) {
-    lines.push(`  <f href="${escapeXML(metadata.pdfFileName)}" />`);
-  }
-
-  lines.push('  <fields>');
-
-  // Group fields by name
-  const fieldsByName = new Map<string, string | boolean | string[]>();
-  fields.forEach(field => {
-    if (field.value !== '' && field.value !== false) {
-      fieldsByName.set(field.name, field.value);
-    }
+export function exportToXFDF(fields: FormField[], metadata?: FileMetadata): string {
+  const entries = [...uniqueFields(fields)].map(([name, field]) => {
+    const value = exchangeValue(field, fields);
+    const values = Array.isArray(value) ? value : [String(value)];
+    return `    <field name="${escapeXML(name)}">${values.map(item => `<value>${escapeXML(item)}</value>`).join('')}</field>`;
   });
-
-  fieldsByName.forEach((value, name) => {
-    lines.push(`    <field name="${escapeXML(name)}">`);
-
-    if (typeof value === 'boolean') {
-      lines.push(`      <value>${value ? 'Yes' : 'Off'}</value>`);
-    } else if (Array.isArray(value)) {
-      value.forEach(v => {
-        lines.push(`      <value>${escapeXML(v)}</value>`);
-      });
-    } else {
-      lines.push(`      <value>${escapeXML(String(value))}</value>`);
-    }
-
-    lines.push('    </field>');
-  });
-
-  lines.push('  </fields>');
-  lines.push('</xfdf>');
-
-  return lines.join('\n');
+  return ['<?xml version="1.0" encoding="UTF-8"?>', '<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">',
+    metadata?.pdfFileName ? `  <f href="${escapeXML(metadata.pdfFileName)}" />` : '', '  <fields>', ...entries, '  </fields>', '</xfdf>'].join('\n');
 }
 
-/**
- * Import form data from XFDF format
- */
-export function importFromXFDF(xfdfString: string): Map<string, string | boolean | string[]> {
-  const fieldValues = new Map<string, string | boolean | string[]>();
+export function importFromXFDF(source: string): Map<string, FieldValue> {
+  const document = new DOMParser().parseFromString(source, 'application/xml');
+  if (document.querySelector('parsererror') || document.documentElement.localName !== 'xfdf') throw new Error('Invalid XFDF format.');
+  const result = new Map<string, FieldValue>();
+  const children = (element: Element, name: string) => [...element.children].filter(child => child.localName === name);
+  const visit = (element: Element, prefix: string, depth = 0) => {
+    if (depth > 64) throw new Error('XFDF field hierarchy is too deep.');
+    for (const field of children(element, 'field')) {
+      const name = field.getAttribute('name');
+      if (!name) throw new Error('An XFDF field has no name.');
+      const fullName = prefix ? `${prefix}.${name}` : name;
+      const values = children(field, 'value').map(item => item.textContent ?? '');
+      const nested = children(field, 'field');
+      if (values.length || !nested.length) result.set(fullName, values.length === 1 ? values[0] : values);
+      visit(field, fullName, depth + 1);
+    }
+  };
+  for (const fields of children(document.documentElement, 'fields')) visit(fields, '');
+  return result;
+}
 
-  // Parse XML
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xfdfString, 'application/xml');
-
-  // Check for parse errors
-  const parseError = doc.querySelector('parsererror');
-  if (parseError) {
-    throw new Error('Invalid XFDF format');
-  }
-
-  // Find all field elements
-  const fieldElements = doc.querySelectorAll('field');
-
-  fieldElements.forEach(fieldEl => {
-    const name = fieldEl.getAttribute('name');
-    if (!name) return;
-
-    const valueElements = fieldEl.querySelectorAll('value');
-    if (valueElements.length === 0) return;
-
-    if (valueElements.length === 1) {
-      const value = valueElements[0].textContent || '';
-      // Check for boolean values
-      if (value === 'Yes' || value === 'On') {
-        fieldValues.set(name, true);
-      } else if (value === 'Off' || value === 'No') {
-        fieldValues.set(name, false);
-      } else {
-        fieldValues.set(name, value);
+/** Validate all values before changing the workspace; text such as "Off" stays text. */
+export function normalizeImportedFormValues(fields: FormField[], input: Map<string, FieldValue>, nativeButtons = true): Map<string, FieldValue> {
+  const result = new Map<string, FieldValue>();
+  for (const [name, field] of uniqueFields(fields)) {
+    if (field.readOnly || !input.has(name)) continue;
+    let value = input.get(name)!;
+    if (field.type === 'checkbox') {
+      if (typeof value !== 'boolean') {
+        if (!nativeButtons) throw new Error(`Expected a checkbox boolean for "${name}".`);
+        if (value === 'Off' || value === '') value = false;
+        else if (value === (field.appearanceValue ?? field.exportValue ?? 'Yes')) value = true;
+        else throw new Error(`Invalid checkbox value for "${name}".`);
+      }
+    } else if (field.type === 'radio') {
+      if (typeof value !== 'string') throw new Error(`Expected a radio option for "${name}".`);
+      if (nativeButtons) value = value === 'Off' ? '' : fields.find(widget => widget.name === name && widget.appearanceValue === value)?.exportValue ?? value;
+      if (value !== '' && !fields.some(widget => widget.name === name && widget.exportValue === value)) {
+        throw new Error(`Unknown radio option for "${name}".`);
+      }
+    } else if (field.type === 'text') {
+      if (typeof value !== 'string') throw new Error(`Expected text for "${name}".`);
+      if (field.maxLength !== undefined && value.length > field.maxLength) {
+        throw new Error(`Field "${name}" accepts at most ${field.maxLength} characters.`);
       }
     } else {
-      // Multiple values (for listbox)
-      const values = Array.from(valueElements).map(el => el.textContent || '');
-      fieldValues.set(name, values);
+      if (typeof value !== 'string' && !Array.isArray(value)) throw new Error(`Expected option values for "${name}".`);
+      const multiple = field.multiSelect ?? (field.type === 'listbox' || Array.isArray(field.value));
+      if (!multiple && Array.isArray(value) && value.length > 1) {
+        throw new Error(`Field "${name}" accepts only one option.`);
+      }
+      if (field.type === 'listbox' || multiple) {
+        if (!Array.isArray(value)) value = value === '' ? [] : [value];
+      } else if (Array.isArray(value)) {
+        if (value.length > 1) throw new Error(`Field "${name}" accepts only one option.`);
+        value = value[0] ?? '';
+      }
+      if (field.options && !field.allowCustomValue) {
+        const selected = Array.isArray(value) ? value : value === '' ? [] : [value];
+        const options = selected.map(option => field.options!.find(item => item.value === option || item.label === option));
+        if (options.some(option => !option)) throw new Error(`Unknown option for "${name}".`);
+        value = Array.isArray(value) ? options.map(option => option!.value) : options[0]?.value ?? '';
+      }
     }
-  });
-
-  return fieldValues;
+    result.set(name, value);
+  }
+  return result;
 }
 
-function escapeXML(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-// ============================================================================
-// Download utilities
-// ============================================================================
-
-/**
- * Download form data as a file
- */
-export function downloadFormData(
-  content: string,
-  filename: string,
-  mimeType: string
-): void {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-
+export function downloadFormData(content: string, filename: string, mimeType: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
   link.click();
-
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/**
- * Read a file and return its content as a string
- */
 export function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

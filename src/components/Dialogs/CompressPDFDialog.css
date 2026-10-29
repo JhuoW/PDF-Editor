@@ -1,0 +1,72 @@
+.compress-pdf-dialog { width: min(1320px, calc(100vw - 24px)); height: min(920px, calc(100vh - 32px)); max-height: calc(100vh - 32px); box-sizing: border-box; margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--gray-7, #9ca3af); border-radius: 12px; background: var(--gray-2, #fff); color: var(--gray-12, #1f2937); box-shadow: 0 16px 60px #0006; font-size: 14px; }
+.compress-pdf-dialog[open] { display: flex; flex-direction: column; }
+.compress-pdf-dialog::backdrop { background: #0009; }
+.compress-pdf-dialog header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--gray-6, #e5e7eb); }
+.compress-pdf-dialog h2 { margin: 0; font-size: 21px; }
+.compress-pdf-dialog h3 { font-size: 14px; margin: 10px 0; }
+.compress-pdf-dialog header p { font-size: 12px; color: var(--gray-11, #4b5563); margin: 6px 0 0; line-height: 1.5; }
+.compress-pdf-dialog button { border: 1px solid var(--gray-7, #9ca3af); border-radius: 5px; padding: 8px 10px; background: var(--gray-3, #f9fafb); color: var(--gray-12, #111827); cursor: pointer; font: inherit; }
+.compress-pdf-dialog button:disabled { opacity: .5; cursor: default; }
+.compress-pdf-dialog :focus-visible { outline: 2px solid var(--blue-9, #2563eb); outline-offset: 2px; }
+.compress-pdf-dialog label { display: flex; flex-direction: column; gap: 5px; margin: 12px 0; min-width: 0; font-size: 12px; font-weight: 500; }
+.compress-pdf-dialog input, .compress-pdf-dialog select { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--gray-7, #9ca3af); border-radius: 4px; padding: 7px 8px; background: var(--gray-1, #fff); color: var(--gray-12, #111827); font: inherit; font-size: 13px; }
+.compress-pdf-dialog input[type=range] { padding: 0; }
+.compress-pdf-dialog fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.compress-modes legend { font-size: 12px; font-weight: 600; margin-top: 6px; }
+.compress-pdf-dialog .compress-modes label { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; }
+.compress-pdf-dialog .compress-modes input { width: 16px; height: 16px; margin: 0; }
+.compress-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); overflow: hidden; }
+.compress-settings { padding: 12px 16px; overflow: auto; border-right: 1px solid var(--gray-6, #e5e7eb); }
+.compress-help { color: var(--gray-11, #4b5563); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.compress-notice, .compress-error { margin: 12px 0; padding: 10px; border-radius: 5px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.compress-notice { background: var(--amber-3, #fffbeb); color: var(--amber-11, #92400e); }
+.compress-error { background: var(--red-3, #fef2f2); color: var(--red-11, #991b1b); }
+.compress-settings details { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.compress-settings summary { cursor: pointer; }
+.compress-settings ul { padding-left: 18px; }
+.compress-sizes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 16px 0 8px; }
+.compress-sizes div { min-width: 0; padding: 10px; border: 1px solid var(--gray-6, #e5e7eb); border-radius: 5px; }
+.compress-sizes dt { color: var(--gray-11, #4b5563); font-size: 12px; }
+.compress-sizes dd { margin: 5px 0 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.compress-sizes small { display: block; font-size: 10px; font-weight: 400; margin-top: 4px; }
+.compress-savings { color: var(--green-11, #047857); font-size: 13px; font-weight: 600; }
+.compress-preview { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--gray-4, #e5e7eb); }
+.compress-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 14px; flex-wrap: wrap; }
+.compress-preview-toolbar label { width: 120px; }
+.compress-preview-switch { display: none; gap: 5px; }
+.compress-preview-switch button { padding: 6px 8px; font-size: 12px; }
+.compress-preview-switch button[aria-pressed=true] { background: var(--blue-4, #dbeafe); border-color: var(--blue-8, #60a5fa); color: var(--blue-11, #1d4ed8); }
+.compress-preview-pages { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); flex: 1; min-height: 0; }
+.compress-preview-page { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid transparent; }
+.compress-preview-page + .compress-preview-page { border-left: 1px solid var(--gray-7, #9ca3af); }
+.compress-preview-page h3 { text-align: center; font-weight: 500; }
+.compress-preview-empty { padding: 16px; text-align: center; font-size: 12px; line-height: 1.5; }
+.compress-pdf-dialog .decoration-pdf-preview { flex: 1; min-height: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
+.compress-pdf-dialog .decoration-pdf-preview canvas { display: block; margin: 0 auto; background: #fff; box-shadow: 0 3px 16px #0003; }
+.compress-pdf-dialog .decoration-pdf-preview p { text-align: center; font-size: 12px; }
+.compress-loading { flex: 1; padding: 20px; }
+.compress-pdf-dialog footer { flex-shrink: 0; border-top: 1px solid var(--gray-6, #e5e7eb); padding: 10px 20px; }
+.compress-pdf-dialog footer > div:last-child { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.compress-pdf-dialog footer p { font-size: 12px; line-height: 1.5; margin: 0 0 8px; }
+.compress-progress { display: flex; gap: 6px; flex-direction: column; margin-bottom: 10px; font-size: 12px; }
+.compress-progress progress { width: 100%; }
+.compress-pdf-dialog .compress-primary { background: var(--blue-9, #2563eb); border-color: var(--blue-9, #2563eb); color: #fff; }
+@media (max-width: 1050px) {
+  .compress-preview-switch { display: flex; }
+  .compress-preview-pages { display: flex; }
+  .compress-preview-page { flex: 1; border-left: 0; }
+  .compress-preview-page[data-active=false] { display: none; }
+  .compress-preview-page + .compress-preview-page { border-left: 0; }
+}
+@media (max-width: 700px) {
+  .compress-pdf-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
+  .compress-pdf-dialog header { padding: 12px; }
+  .compress-body { display: flex; flex-direction: column; overflow: auto; }
+  .compress-preview { order: -1; height: min(42vh, 380px); flex-shrink: 0; }
+  .compress-settings { overflow: visible; border-right: 0; border-top: 1px solid var(--gray-6, #e5e7eb); }
+  .compress-preview-toolbar { padding: 0 10px; }
+  .compress-preview-toolbar label { width: 105px; }
+  .compress-pdf-dialog footer { padding: 10px 12px; }
+  .compress-pdf-dialog footer > div:last-child { gap: 6px; }
+  .compress-pdf-dialog footer button { font-size: 12px; padding: 8px; }
+}

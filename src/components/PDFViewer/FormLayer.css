@@ -67,9 +67,12 @@ textarea.form-field-text {
 
 .form-field-checkbox input {
   position: absolute;
+  inset: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: inherit;
 }
 
 .form-field-checkbox .checkbox-visual {
@@ -109,9 +112,12 @@ textarea.form-field-text {
 
 .form-field-radio input {
   position: absolute;
+  inset: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: inherit;
 }
 
 .form-field-radio .radio-visual {

@@ -66,3 +66,14 @@
     transform: rotate(360deg);
   }
 }
+
+/* Explicit page anchoring avoids native scroll anchoring fighting zoom/rotation. */
+.view-mode-continuous {
+  overflow-anchor: none;
+}
+
+.page-viewport {
+  position: relative;
+  flex: none;
+  background: white;
+}

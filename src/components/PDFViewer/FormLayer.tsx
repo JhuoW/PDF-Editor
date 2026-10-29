@@ -3,26 +3,27 @@
  */
 
 import { useCallback, useMemo } from 'react';
+import type { PDFPageProxy } from 'pdfjs-dist';
 import { useFormStore } from '../../store/formStore';
 import type { FormField } from '../../forms/types';
+import { getEffectiveRotation } from '../../core/PDFRenderer';
+import { mapViewportRect } from '../../utils/viewportMapping';
 import './FormLayer.css';
 
 interface FormLayerProps {
+  page: PDFPageProxy;
   pageNumber: number;
   scale: number;
   rotation: number;
-  pageWidth: number;
-  pageHeight: number;
 }
 
 export function FormLayer({
+  page,
   pageNumber,
   scale,
   rotation,
-  pageWidth,
-  pageHeight,
 }: FormLayerProps) {
-  const { fields, setFieldValue, activeFieldId, setActiveField } = useFormStore();
+  const { fields, setFieldValueByName, activeFieldId, setActiveField } = useFormStore();
 
   // Get fields for this page
   const pageFields = useMemo(
@@ -30,75 +31,54 @@ export function FormLayer({
     [fields, pageNumber]
   );
 
-  // Transform field position based on rotation
+  const sourceViewport = useMemo(() => page.getViewport({ scale: 1, rotation: 0 }), [page]);
+  const effectiveRotation = getEffectiveRotation(page, rotation);
+  const targetViewport = useMemo(() => page.getViewport({ scale, rotation: effectiveRotation }), [page, scale, effectiveRotation]);
+
   const transformPosition = useCallback(
     (field: FormField) => {
-      let { x, y, width, height } = field.rect;
-
-      // Apply rotation transformation
-      switch (rotation) {
-        case 90:
-          [x, y] = [y, pageWidth - x - width];
-          [width, height] = [height, width];
-          break;
-        case 180:
-          x = pageWidth - x - width;
-          y = pageHeight - y - height;
-          break;
-        case 270:
-          [x, y] = [pageHeight - y - height, x];
-          [width, height] = [height, width];
-          break;
-      }
+      const { x, y, width, height } = mapViewportRect(field.rect, sourceViewport, targetViewport);
+      const fieldWidth = field.rect.width * scale;
+      const fieldHeight = field.rect.height * scale;
 
       return {
-        left: x * scale,
-        top: y * scale,
-        width: width * scale,
-        height: height * scale,
+        left: x + (width - fieldWidth) / 2,
+        top: y + (height - fieldHeight) / 2,
+        width: fieldWidth,
+        height: fieldHeight,
+        transform: `rotate(${effectiveRotation}deg)`,
       };
     },
-    [rotation, scale, pageWidth, pageHeight]
+    [sourceViewport, targetViewport, scale, effectiveRotation]
   );
 
   const handleTextChange = useCallback(
     (field: FormField, value: string) => {
-      setFieldValue(field.id, value);
+      setFieldValueByName(field.name, value);
     },
-    [setFieldValue]
+    [setFieldValueByName]
   );
 
   const handleCheckboxChange = useCallback(
     (field: FormField, checked: boolean) => {
-      setFieldValue(field.id, checked);
+      setFieldValueByName(field.name, checked);
     },
-    [setFieldValue]
+    [setFieldValueByName]
   );
 
   const handleSelectChange = useCallback(
-    (field: FormField, value: string) => {
-      setFieldValue(field.id, value);
+    (field: FormField, value: string | string[]) => {
+      setFieldValueByName(field.name, value);
     },
-    [setFieldValue]
+    [setFieldValueByName]
   );
 
   const handleRadioChange = useCallback(
     (field: FormField) => {
-      // For radio buttons, set the value to the export value and update all in group
-      const radioValue = field.exportValue || field.options?.[0]?.value || 'Yes';
-
-      // Update all fields in the same radio group
-      fields
-        .filter(f => f.radioGroup === field.radioGroup)
-        .forEach(f => {
-          if (f.id === field.id) {
-            setFieldValue(f.id, radioValue);
-          } else {
-            setFieldValue(f.id, '');
-          }
-        });
+      // Widgets share one field value; exportValue identifies this option.
+      if (field.exportValue !== undefined) setFieldValueByName(field.name, field.exportValue);
     },
-    [fields, setFieldValue]
+    [setFieldValueByName]
   );
 
   const handleFocus = useCallback(
@@ -115,6 +95,8 @@ export function FormLayer({
   const renderField = (field: FormField) => {
     const position = transformPosition(field);
     const isActive = activeFieldId === field.id;
+    const multiple = field.multiSelect ?? (field.type === 'listbox' || Array.isArray(field.value));
+    const selectedValues = Array.isArray(field.value) ? field.value : field.value ? [String(field.value)] : [];
     const baseClass = `form-field form-field-${field.type}${isActive ? ' active' : ''}${field.required ? ' required' : ''}`;
 
     const style: React.CSSProperties = {
@@ -122,7 +104,9 @@ export function FormLayer({
       top: position.top,
       width: position.width,
       height: position.height,
-      fontSize: Math.max(10, (field.fontSize || 12) * scale * 0.75),
+      transform: position.transform,
+      fontSize: Math.max(10, (field.fontSize || 12) * scale),
+      textAlign: field.textAlign,
     };
 
     switch (field.type) {
@@ -130,6 +114,7 @@ export function FormLayer({
         return field.multiline ? (
           <textarea
             key={field.id}
+            aria-label={field.name}
             className={baseClass}
             style={style}
             value={String(field.value || '')}
@@ -143,6 +128,7 @@ export function FormLayer({
         ) : (
           <input
             key={field.id}
+            aria-label={field.name}
             type="text"
             className={baseClass}
             style={style}
@@ -165,6 +151,7 @@ export function FormLayer({
           >
             <input
               type="checkbox"
+              aria-label={field.name}
               checked={Boolean(field.value)}
               onChange={(e) => handleCheckboxChange(field, e.target.checked)}
               onFocus={() => handleFocus(field.id)}
@@ -184,8 +171,9 @@ export function FormLayer({
           >
             <input
               type="radio"
+              aria-label={`${field.name}: ${field.exportValue ?? ''}`}
               name={field.radioGroup}
-              checked={Boolean(field.value)}
+              checked={field.exportValue !== undefined && field.value === field.exportValue}
               onChange={() => handleRadioChange(field)}
               onFocus={() => handleFocus(field.id)}
               onBlur={handleBlur}
@@ -196,18 +184,34 @@ export function FormLayer({
         );
 
       case 'dropdown':
+        if (field.allowCustomValue && !multiple) {
+          const listId = `form-options-${encodeURIComponent(field.id)}`;
+          return <span key={field.id}>
+            <input type="text" list={listId} aria-label={field.name} className={baseClass} style={style}
+              value={selectedValues[0] ?? ''} disabled={field.readOnly}
+              onChange={event => handleSelectChange(field, event.target.value)}
+              onFocus={() => handleFocus(field.id)} onBlur={handleBlur} />
+            <datalist id={listId}>{field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</datalist>
+          </span>;
+        }
         return (
           <select
             key={field.id}
+            aria-label={field.name}
             className={baseClass}
             style={style}
-            value={String(field.value || '')}
-            onChange={(e) => handleSelectChange(field, e.target.value)}
+            multiple={multiple}
+            value={multiple ? selectedValues : selectedValues[0] ?? ''}
+            onChange={(e) => handleSelectChange(field, multiple
+              ? Array.from(e.target.selectedOptions, option => option.value)
+              : e.target.value)}
             onFocus={() => handleFocus(field.id)}
             onBlur={handleBlur}
             disabled={field.readOnly}
           >
-            <option value="">-- Select --</option>
+            {!multiple && <option value="">-- Select --</option>}
+            {field.allowCustomValue && multiple && selectedValues.filter(value => !field.options?.some(option => option.value === value))
+              .map(value => <option key={value} value={value}>{value}</option>)}
             {field.options?.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
@@ -220,13 +224,20 @@ export function FormLayer({
         return (
           <select
             key={field.id}
+            ref={element => {
+              // React otherwise selects the first option for an unmatched
+              // scalar value, although native PDF lists can have no selection.
+              if (element && !multiple && selectedValues.length === 0) element.selectedIndex = -1;
+            }}
+            aria-label={field.name}
             className={baseClass}
             style={style}
-            multiple
-            value={Array.isArray(field.value) ? field.value : [String(field.value || '')]}
+            multiple={multiple}
+            size={Math.max(2, Math.min(field.options?.length ?? 2, 8))}
+            value={multiple ? selectedValues : selectedValues[0] ?? ''}
             onChange={(e) => {
               const selected = Array.from(e.target.selectedOptions, opt => opt.value);
-              setFieldValue(field.id, selected);
+              setFieldValueByName(field.name, selected);
             }}
             onFocus={() => handleFocus(field.id)}
             onBlur={handleBlur}

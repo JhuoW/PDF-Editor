@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { buildSearchText, findTextMatches } from '../utils/textSearch';
 
 export interface SearchResult {
   pageNumber: number;
@@ -43,7 +44,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     wholeWord: false,
   },
 
-  setQuery: (query) => set({ query }),
+  setQuery: (query) => set({ query, results: [], currentResultIndex: -1, isSearching: Boolean(query) }),
 
   setResults: (results) => set({
     results,
@@ -56,6 +57,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   setOptions: (options) => set((state) => ({
     options: { ...state.options, ...options },
+    results: [], currentResultIndex: -1, isSearching: Boolean(state.query),
   })),
 
   nextResult: () => set((state) => ({
@@ -91,53 +93,23 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 export async function searchDocument(
   document: PDFDocumentProxy,
   query: string,
-  options: SearchOptions
+  options: SearchOptions,
+  signal?: AbortSignal
 ): Promise<SearchResult[]> {
-  if (!query || query.length === 0) return [];
-
+  const checkCancelled = () => { if (signal?.aborted) throw new DOMException('Search cancelled.', 'AbortError'); };
+  checkCancelled();
+  if (!query) return [];
   const results: SearchResult[] = [];
-  const searchQuery = options.caseSensitive ? query : query.toLowerCase();
-
-  for (let pageNum = 1; pageNum <= document.numPages; pageNum++) {
-    const page = await document.getPage(pageNum);
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+    checkCancelled();
+    const page = await document.getPage(pageNumber);
+    checkCancelled();
     const textContent = await page.getTextContent();
-
-    let pageText = '';
-    for (const item of textContent.items) {
-      if ('str' in item) {
-        pageText += item.str;
-      }
-    }
-
-    const textToSearch = options.caseSensitive ? pageText : pageText.toLowerCase();
-
-    let matchIndex = 0;
-    let startIndex = 0;
-    while ((startIndex = textToSearch.indexOf(searchQuery, startIndex)) !== -1) {
-      // Check whole word if option is enabled
-      if (options.wholeWord) {
-        const beforeChar = startIndex > 0 ? textToSearch[startIndex - 1] : ' ';
-        const afterChar = startIndex + searchQuery.length < textToSearch.length
-          ? textToSearch[startIndex + searchQuery.length]
-          : ' ';
-
-        if (!/\W/.test(beforeChar) || !/\W/.test(afterChar)) {
-          startIndex++;
-          continue;
-        }
-      }
-
-      results.push({
-        pageNumber: pageNum,
-        matchIndex: matchIndex++,
-        textContent: pageText.substring(
-          Math.max(0, startIndex - 20),
-          Math.min(pageText.length, startIndex + query.length + 20)
-        ),
-      });
-      startIndex++;
-    }
+    checkCancelled();
+    const { text } = buildSearchText(textContent.items);
+    findTextMatches(text, query, options).forEach((match, matchIndex) => {
+      results.push({ pageNumber, matchIndex, textContent: text.substring(Math.max(0, match.start - 20), Math.min(text.length, match.end + 20)) });
+    });
   }
-
   return results;
 }

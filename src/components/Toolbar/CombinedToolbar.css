@@ -106,11 +106,15 @@
 }
 
 .toolbar-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
+  position: fixed;
+  top: var(--toolbar-menu-top, 120px);
+  left: var(--toolbar-menu-left, 8px);
   min-width: 160px;
+  max-width: calc(100vw - 16px);
+  max-height: max(40px, calc(100dvh - var(--toolbar-menu-top, 120px) - 8px));
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--gray-2);
   border: 1px solid var(--gray-6);
   border-radius: 6px;
@@ -132,6 +136,12 @@
 }
 
 .toolbar-menu button:hover:not(:disabled) {
+  background: var(--gray-4);
+}
+
+.toolbar-menu button:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: -2px;
   background: var(--gray-4);
 }
 
@@ -174,19 +184,26 @@
   color: white !important;
 }
 
-.toolbar-menu button.active {
+.toolbar-menu button.active,
+.stamp-menu button[aria-pressed="true"] {
   background: var(--accent-3);
   color: var(--accent-11);
 }
 
-.toolbar-menu button.active:hover {
+.toolbar-menu button.active:hover,
+.stamp-menu button[aria-pressed="true"]:hover {
   background: var(--accent-4);
 }
 
 /* Stamp menu */
 .stamp-menu {
-  max-height: 300px;
+  max-height: min(300px, max(40px, calc(100dvh - var(--toolbar-menu-top, 120px) - 8px)));
   overflow-y: auto;
+}
+
+.stamp-menu button {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Annotation group */
@@ -234,6 +251,14 @@
 /* Tool settings */
 .tool-settings {
   gap: 8px;
+  max-width: 100%;
+}
+
+.tool-settings [role="status"] {
+  max-width: min(360px, calc(100vw - 32px));
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 
 .setting-item {

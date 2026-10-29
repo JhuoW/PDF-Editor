@@ -1,15 +1,22 @@
-import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react';
+import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { ZoomMode } from '../../store/documentStore';
 import type { AnnotationTool } from '../../annotations/types';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import { PageCanvas } from './PageCanvas';
+import { getEffectiveRotation } from '../../core/PDFRenderer';
+import { useTextBoxStore } from '../../store/textBoxStore';
+import { useAnnotationStore } from '../../store/annotationStore';
 import './PDFViewer.css';
+import type { PDFLinkView } from '../../core/PDFLinkTypes';
+import { PDF_LINK_SCROLL_INSET } from '../../core/PDFLinkNavigation';
 
 export interface LinkDestination {
   pageNumber: number;
   top?: number;
   left?: number;
+  view?: PDFLinkView;
+  rectangle?: [number, number, number, number];
 }
 
 interface PDFViewerProps {
@@ -30,7 +37,11 @@ interface PDFViewerProps {
   currentTool?: AnnotationTool;
   pendingImages?: PendingImageData[];
   onImagePlaced?: () => void;
+  onTextLayout?: (blockId: string) => void;
 }
+
+const EMPTY_PAGES: PDFPageProxy[] = [];
+const FIT_PADDING = 40;
 
 export function PDFViewer({
   document,
@@ -50,161 +61,141 @@ export function PDFViewer({
   currentTool = 'select',
   pendingImages,
   onImagePlaced,
+  onTextLayout,
 }: PDFViewerProps) {
-  const [pages, setPages] = useState<PDFPageProxy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [calculatedScale, setCalculatedScale] = useState(scale);
+  const firstPage = viewMode === 'continuous'
+    ? 1
+    : viewMode === 'two-page' ? currentPage - ((currentPage + 1) % 2) : currentPage;
+  const lastPage = viewMode === 'continuous'
+    ? document.numPages
+    : Math.min(firstPage + (viewMode === 'two-page' ? 1 : 0), document.numPages);
+  const request = useMemo(() => ({ document, documentVersion, firstPage, lastPage }), [document, documentVersion, firstPage, lastPage]);
+  const [result, setResult] = useState<{ request: typeof request; pages: PDFPageProxy[]; error?: string } | null>(null);
+  const pages = result?.request === request ? result.pages : EMPTY_PAGES;
+  const loading = result?.request !== request;
+  const loadError = result?.request === request ? result.error : undefined;
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number; gap: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const scrollReportedPage = useRef<number | null>(null);
+  const [visibility, setVisibility] = useState<{ pages: PDFPageProxy[]; numbers: number[] } | null>(null);
+  const visiblePagesRef = useRef<Set<number>>(new Set());
+  const scrollHandlerRef = useRef<() => void>(() => {});
+  const scrollAnchorRef = useRef<{
+    pages: PDFPageProxy[];
+    layout: Map<number, { width: number; height: number }>;
+    pageNumber: number;
+    fraction: number;
+  } | null>(null);
+  const handledDestination = useRef<{ destination: LinkDestination; pages: PDFPageProxy[] } | null>(null);
+  const editingTextBoxId = useTextBoxStore((state) => state.editingTextBoxId);
+  const editingPageNumber = useAnnotationStore((state) => {
+    if (!editingTextBoxId) return undefined;
+    for (const [pageNumber, annotations] of state.annotations) {
+      if (annotations.some((annotation) => annotation.id === editingTextBoxId)) return pageNumber;
+    }
+    return undefined;
+  });
+
+  const calculatedScale = useMemo(() => {
+    if (zoomMode === 'manual' || pages.length === 0 || !containerSize) return scale;
+    const visiblePages = viewMode === 'two-page' ? pages : [pages[0]];
+    const viewports = visiblePages.map(page => page.getViewport({ scale: 1, rotation: getEffectiveRotation(page, rotation) }));
+    const availableWidth = containerSize.width - FIT_PADDING * 2 - containerSize.gap * (visiblePages.length - 1);
+    const availableHeight = containerSize.height - FIT_PADDING * 2;
+    if (availableWidth <= 0 || availableHeight <= 0) return scale;
+    const width = viewports.reduce((sum, viewport) => sum + viewport.width, 0);
+    const height = Math.max(...viewports.map(viewport => viewport.height));
+    return Math.min(availableWidth / width, zoomMode === 'fit-page' ? availableHeight / height : Infinity, 4);
+  }, [zoomMode, pages, containerSize, scale, rotation, viewMode]);
+
+  // Keep lightweight slots for every page; only nearby pages own canvases/editors.
+  const pageLayouts = useMemo(() => new Map(pages.map((page) => {
+    const viewport = page.getViewport({ scale: calculatedScale, rotation: getEffectiveRotation(page, rotation) });
+    return [page.pageNumber, { width: viewport.width, height: viewport.height }];
+  })), [pages, calculatedScale, rotation]);
+  const renderedPages = useMemo(() => {
+    const result = new Set<number>();
+    const visible = visibility?.pages === pages ? visibility.numbers : [];
+    for (const pageNumber of [...visible, currentPage]) {
+      for (let offset = -1; offset <= 1; offset++) result.add(pageNumber + offset);
+    }
+    // An active TipTap editor must survive scrolling until it commits its edit.
+    if (editingPageNumber !== undefined) result.add(editingPageNumber);
+    return result;
+  }, [visibility, pages, currentPage, editingPageNumber]);
 
   // Pan state
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
   const [isSpacePanning, setIsSpacePanning] = useState(false);
 
-  // Padding around the page in fit modes
-  const FIT_PADDING = 40;
-
-  // Load pages based on view mode
-  // Include documentVersion in dependencies to force reload when PDF is modified
+  // A new request hides the previous result immediately, without clearing state
+  // in the effect. Late results can never become the visible pages of a new PDF.
   useEffect(() => {
-    if (!document) return;
-
     let cancelled = false;
-    setLoading(true);
-    // Clear pages immediately to force re-render with fresh data
-    setPages([]);
-
     const loadPages = async () => {
       try {
-        let loadedPages: PDFPageProxy[] = [];
-
-        if (viewMode === 'single') {
-          const page = await document.getPage(currentPage);
-          loadedPages = [page];
-        } else if (viewMode === 'continuous') {
-          for (let i = 1; i <= document.numPages; i++) {
-            if (cancelled) return;
-            const page = await document.getPage(i);
-            loadedPages.push(page);
-          }
-        } else if (viewMode === 'two-page') {
-          const startPage = currentPage % 2 === 0 ? currentPage - 1 : currentPage;
-          for (let i = Math.max(1, startPage); i <= Math.min(startPage + 1, document.numPages); i++) {
-            if (cancelled) return;
-            const page = await document.getPage(i);
-            loadedPages.push(page);
-          }
+        const loadedPages: PDFPageProxy[] = [];
+        for (let pageNumber = request.firstPage; pageNumber <= request.lastPage; pageNumber++) {
+          if (cancelled) return;
+          loadedPages.push(await request.document.getPage(pageNumber));
         }
-
-        if (!cancelled) {
-          setPages(loadedPages);
-          setLoading(false);
-        }
+        if (!cancelled) setResult({ request, pages: loadedPages });
       } catch (error) {
-        console.error('Error loading pages:', error);
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setResult({ request, pages: EMPTY_PAGES, error: error instanceof Error ? error.message : 'Could not load PDF pages' });
       }
     };
+    void loadPages();
+    return () => { cancelled = true; };
+  }, [request]);
 
-    loadPages();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [document, documentVersion, currentPage, viewMode]);
-
-  // Calculate zoom for fit-page and fit-width modes
-  const calculateFitZoom = useCallback(() => {
-    if (!containerRef.current || pages.length === 0) return null;
-
-    const container = containerRef.current;
-    const containerWidth = container.clientWidth - FIT_PADDING * 2;
-    const containerHeight = container.clientHeight - FIT_PADDING * 2;
-
-    // Get the current page dimensions
-    const page = pages[0]; // Use first loaded page for dimensions
-    const viewport = page.getViewport({ scale: 1, rotation });
-
-    // Account for rotation - swap width/height if rotated 90 or 270 degrees
-    const pageWidth = viewport.width;
-    const pageHeight = viewport.height;
-
-    // For two-page mode, account for both pages side by side
-    const effectivePageWidth = viewMode === 'two-page' ? pageWidth * 2 + 20 : pageWidth;
-
-    if (zoomMode === 'fit-page') {
-      // Fit both width and height
-      const scaleX = containerWidth / effectivePageWidth;
-      const scaleY = containerHeight / pageHeight;
-      return Math.min(scaleX, scaleY, 4); // Cap at 400%
-    } else if (zoomMode === 'fit-width') {
-      // Fit width only
-      return Math.min(containerWidth / effectivePageWidth, 4);
-    }
-
-    return null;
-  }, [pages, rotation, viewMode, zoomMode, FIT_PADDING]);
-
-  // Apply calculated zoom when in fit mode
+  // Fit reacts to the viewer's actual size, including sidebar and panel changes.
   useLayoutEffect(() => {
-    if (zoomMode === 'manual') {
-      setCalculatedScale(scale);
-      return;
-    }
-
-    const newScale = calculateFitZoom();
-    if (newScale !== null && newScale !== calculatedScale) {
-      setCalculatedScale(newScale);
-      onCalculatedZoomChange?.(newScale);
-    }
-  }, [zoomMode, scale, calculateFitZoom, calculatedScale, onCalculatedZoomChange]);
-
-  // Recalculate on window resize
-  useEffect(() => {
-    if (zoomMode === 'manual') return;
-
-    const handleResize = () => {
-      const newScale = calculateFitZoom();
-      if (newScale !== null) {
-        setCalculatedScale(newScale);
-        onCalculatedZoomChange?.(newScale);
-      }
+    const container = containerRef.current;
+    if (!container) return;
+    let cancelled = false;
+    const measure = () => {
+      if (cancelled) return;
+      const wrapper = container.querySelector('.pdf-pages-wrapper');
+      const next = { width: container.clientWidth, height: container.clientHeight,
+        gap: wrapper ? parseFloat(window.getComputedStyle(wrapper).columnGap) || 0 : 0 };
+      setContainerSize(previous => previous?.width === next.width && previous.height === next.height && previous.gap === next.gap ? previous : next);
     };
+    // The initial DOM measurement must precede paint to avoid flashing a page at
+    // the wrong fit size. All subsequent updates originate from ResizeObserver.
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => { cancelled = true; observer.disconnect(); };
+  }, [viewMode]);
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [zoomMode, calculateFitZoom, onCalculatedZoomChange]);
-
-  // Track if we should skip the next page scroll (when navigating via link)
-  const skipNextPageScroll = useRef(false);
+  useEffect(() => {
+    if (zoomMode !== 'manual' && pages.length && containerSize && calculatedScale !== scale) onCalculatedZoomChange?.(calculatedScale);
+  }, [calculatedScale, scale, zoomMode, pages, containerSize, onCalculatedZoomChange]);
 
   // Scroll to current page in continuous mode
   useEffect(() => {
     if (viewMode !== 'continuous' || !containerRef.current) return;
 
-    // Skip if this scroll was triggered by a link navigation
-    if (skipNextPageScroll.current) {
-      skipNextPageScroll.current = false;
-      return;
-    }
+    // Scrolling updates the page indicator without snapping back to the page top.
+    const reportedPage = scrollReportedPage.current;
+    scrollReportedPage.current = null;
+    if (reportedPage === currentPage) return;
 
     const pageElement = pageRefs.current.get(currentPage);
     if (pageElement) {
-      pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Jump directly so intermediate pages cannot overwrite the requested page
+      // while fit layout and IntersectionObserver are catching up.
+      pageElement.scrollIntoView({ behavior: 'instant', block: 'start' });
+      scrollHandlerRef.current();
     }
-  }, [currentPage, viewMode]);
+  }, [currentPage, viewMode, pages]);
 
   // Scroll to highlight destination (for citation links in continuous mode)
   useEffect(() => {
     if (!highlightDestination || !containerRef.current) return;
-
-    // Skip the normal page scroll since we're doing a precise destination scroll
-    if (viewMode === 'continuous') {
-      skipNextPageScroll.current = true;
-    }
+    if (handledDestination.current?.destination === highlightDestination && handledDestination.current.pages === pages) return;
 
     const pageElement = pageRefs.current.get(highlightDestination.pageNumber);
     if (!pageElement) return;
@@ -218,52 +209,99 @@ export function PDFViewer({
       return;
     }
 
-    // Calculate the scroll position based on destination coordinates
-    const pageHeight = page.view[3] - page.view[1]; // PDF page height in PDF units
-
-    // Convert PDF top coordinate to pixel offset from top of page element
-    let offsetY = 0;
-    if (highlightDestination.top !== undefined) {
-      // PDF coordinates have origin at bottom-left
-      offsetY = (pageHeight - highlightDestination.top) * calculatedScale;
+    handledDestination.current = { destination: highlightDestination, pages };
+    const viewport = page.getViewport({ scale: calculatedScale, rotation: getEffectiveRotation(page, rotation) });
+    let [offsetX, offsetY] = viewport.convertToViewportPoint(
+      highlightDestination.left ?? page.view[0],
+      highlightDestination.top ?? page.view[3]
+    );
+    if (highlightDestination.view === 'Fit' || highlightDestination.view === 'FitB') { offsetX = 0; offsetY = 0; }
+    if (highlightDestination.rectangle) {
+      const [x0, y0, x1, y1] = viewport.convertToViewportRectangle(highlightDestination.rectangle);
+      offsetX = Math.min(x0, x1); offsetY = Math.min(y0, y1);
     }
+    const pageTop = pageElement.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+    const pageLeft = pageElement.getBoundingClientRect().left - container.getBoundingClientRect().left + container.scrollLeft;
+    container.scrollTo({ top: Math.max(0, pageTop + offsetY - PDF_LINK_SCROLL_INSET.top),
+      ...(highlightDestination.view ? { left: Math.max(0, pageLeft + offsetX - PDF_LINK_SCROLL_INSET.left) } : {}), behavior: 'smooth' });
+  }, [highlightDestination, pages, calculatedScale, rotation, viewMode]);
 
-    // Calculate the target scroll position
-    const pageTop = pageElement.offsetTop;
-    const targetScrollTop = pageTop + offsetY - 100; // 100px padding from top
-
-    container.scrollTo({
-      top: Math.max(0, targetScrollTop),
-      behavior: 'smooth'
-    });
-  }, [highlightDestination, pages, calculatedScale, viewMode]);
-
-  // Detect visible page in continuous mode
-  const handleScroll = useCallback(() => {
-    if (viewMode !== 'continuous' || !onPageChange || !containerRef.current) return;
-
+  // Inspect only pages reported by the browser, rather than measuring the whole PDF on every scroll.
+  const handleScroll = useCallback((reportPage = true) => {
+    if (viewMode !== 'continuous' || !containerRef.current || pages.length === 0) return;
     const container = containerRef.current;
     const containerRect = container.getBoundingClientRect();
-    const containerCenter = containerRect.top + containerRect.height / 2;
-
+    const containerCenter = containerRect.top + container.clientHeight / 2;
+    const candidates = new Set([currentPage, ...visiblePagesRef.current]);
     let closestPage = currentPage;
     let closestDistance = Infinity;
 
-    pageRefs.current.forEach((element, pageNum) => {
+    for (const pageNumber of candidates) {
+      const element = pageRefs.current.get(pageNumber);
+      if (!element) continue;
       const rect = element.getBoundingClientRect();
-      const pageCenter = rect.top + rect.height / 2;
-      const distance = Math.abs(pageCenter - containerCenter);
-
+      const distance = Math.abs(rect.top + rect.height / 2 - containerCenter);
       if (distance < closestDistance) {
         closestDistance = distance;
-        closestPage = pageNum;
+        closestPage = pageNumber;
       }
-    });
+    }
 
-    if (closestPage !== currentPage) {
+    const element = pageRefs.current.get(closestPage);
+    const layout = pageLayouts.get(closestPage);
+    if (element && layout && layout.height > 0) {
+      scrollAnchorRef.current = {
+        pages, layout: pageLayouts, pageNumber: closestPage,
+        fraction: (containerCenter - element.getBoundingClientRect().top) / layout.height,
+      };
+    }
+    if (reportPage && closestPage !== currentPage && onPageChange) {
+      scrollReportedPage.current = closestPage;
       onPageChange(closestPage);
     }
-  }, [viewMode, currentPage, onPageChange]);
+  }, [viewMode, currentPage, onPageChange, pageLayouts, pages]);
+
+  // Preserve the page and relative position at the viewport center across geometry changes.
+  // Slots retain their sizes when canvases are unmounted, so virtualization itself never moves content.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const anchor = scrollAnchorRef.current;
+    if (container && viewMode === 'continuous' && anchor?.pages === pages && anchor.layout !== pageLayouts) {
+      const element = pageRefs.current.get(anchor.pageNumber);
+      const layout = pageLayouts.get(anchor.pageNumber);
+      if (element && layout) {
+        const center = container.getBoundingClientRect().top + container.clientHeight / 2;
+        container.scrollTop += element.getBoundingClientRect().top + layout.height * anchor.fraction - center;
+      }
+    }
+    scrollHandlerRef.current = handleScroll;
+    handleScroll(false);
+  }, [handleScroll, pageLayouts, pages, viewMode]);
+
+  useEffect(() => {
+    visiblePagesRef.current = new Set();
+    if (viewMode !== 'continuous' || !containerRef.current || pages.length === 0) return;
+    let cancelled = false;
+    const visible = new Set<number>();
+    const observer = new IntersectionObserver((entries) => {
+      if (cancelled) return;
+      for (const entry of entries) {
+        const pageNumber = Number(entry.target.getAttribute('data-page'));
+        if (entry.isIntersecting) visible.add(pageNumber);
+        else visible.delete(pageNumber);
+      }
+      visiblePagesRef.current = new Set(visible);
+      const next = [...visible].sort((a, b) => a - b);
+      setVisibility((previous) => previous?.pages === pages && previous.numbers.length === next.length &&
+        previous.numbers.every((page, index) => page === next[index]) ? previous : { pages, numbers: next });
+      scrollHandlerRef.current();
+    }, { root: containerRef.current, threshold: 0 });
+    pageRefs.current.forEach((element) => observer.observe(element));
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [pages, viewMode]);
 
   // Throttled scroll handler
   useEffect(() => {
@@ -272,19 +310,21 @@ export function PDFViewer({
     const container = containerRef.current;
     if (!container) return;
 
-    let ticking = false;
+    let frame: number | null = null;
     const onScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
+      if (frame === null) {
+        frame = window.requestAnimationFrame(() => {
+          frame = null;
           handleScroll();
-          ticking = false;
         });
-        ticking = true;
       }
     };
 
     container.addEventListener('scroll', onScroll);
-    return () => container.removeEventListener('scroll', onScroll);
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, [viewMode, handleScroll]);
 
   // Pan handlers
@@ -322,8 +362,15 @@ export function PDFViewer({
   // Space key for temporary pan mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip if typing in an input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Leave spaces to form controls and rich-text editors, including their children.
+      const target = e.target;
+      if (target instanceof HTMLElement && (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target.isContentEditable ||
+        target.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')
+      )) return;
 
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
@@ -354,17 +401,6 @@ export function PDFViewer({
     return undefined;
   };
 
-  if (loading && pages.length === 0) {
-    return (
-      <div className="pdf-viewer-container">
-        <div className="pdf-viewer-loading">
-          <div className="loading-spinner" />
-          <span>Loading document...</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       ref={containerRef}
@@ -375,33 +411,44 @@ export function PDFViewer({
       onMouseUp={handlePanEnd}
       onMouseLeave={handlePanEnd}
     >
+      {loading && pages.length === 0 && (
+        <div className="pdf-viewer-loading">
+          <div className="loading-spinner" />
+          <span>Loading document...</span>
+        </div>
+      )}
+      {loadError && <div className="pdf-viewer-loading" role="alert">{loadError}</div>}
       <div className="pdf-pages-wrapper">
         {pages.map((page) => (
           <div
             key={`v${documentVersion}-page-${page.pageNumber}`}
             ref={(el) => {
               if (el) pageRefs.current.set(page.pageNumber, el);
+              else pageRefs.current.delete(page.pageNumber);
             }}
             className="page-wrapper"
             data-page={page.pageNumber}
           >
-            <PageCanvas
-              page={page}
-              pageNumber={page.pageNumber}
-              scale={calculatedScale}
-              rotation={rotation}
-              searchQuery={searchQuery}
-              activeMatchPage={activeMatchPage}
-              activeMatchIndex={activeMatchIndex}
-              onLinkClick={onLinkClick}
-              highlightDestination={
-                highlightDestination?.pageNumber === page.pageNumber
-                  ? highlightDestination
-                  : undefined
-              }
-              pendingImages={pendingImages}
-              onImagePlaced={onImagePlaced}
-            />
+            <div className="page-viewport" style={pageLayouts.get(page.pageNumber)}>
+              {(viewMode !== 'continuous' || renderedPages.has(page.pageNumber)) && <PageCanvas
+                page={page}
+                pageNumber={page.pageNumber}
+                scale={calculatedScale}
+                rotation={rotation}
+                searchQuery={searchQuery}
+                activeMatchPage={activeMatchPage}
+                activeMatchIndex={activeMatchIndex}
+                onLinkClick={onLinkClick}
+                highlightDestination={
+                  highlightDestination?.pageNumber === page.pageNumber
+                    ? highlightDestination
+                    : undefined
+                }
+                pendingImages={pendingImages}
+                onImagePlaced={onImagePlaced}
+                onTextLayout={onTextLayout}
+              />}
+            </div>
             {viewMode === 'continuous' && (
               <div className="page-number-label">Page {page.pageNumber}</div>
             )}

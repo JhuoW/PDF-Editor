@@ -1,0 +1,48 @@
+.pdf-bookmarks-dialog { width: min(1240px, calc(100vw - 24px)); height: min(940px, calc(100vh - 32px)); max-height: calc(100vh - 32px); box-sizing: border-box; margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--gray-7, #9ca3af); border-radius: 12px; background: var(--gray-2, #fff); color: var(--gray-12, #1f2937); box-shadow: 0 16px 60px #0006; font-size: 14px; }
+.pdf-bookmarks-dialog[open] { display: flex; flex-direction: column; }
+.pdf-bookmarks-dialog::backdrop { background: #0009; }
+.pdf-bookmarks-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--gray-6, #e5e7eb); }
+.pdf-bookmarks-dialog h2 { margin: 0; font-size: 21px; }
+.pdf-bookmarks-dialog header p { margin: 6px 0 0; color: var(--gray-11, #4b5563); font-size: 12px; line-height: 1.5; }
+.pdf-bookmarks-dialog button { border: 1px solid var(--gray-7, #9ca3af); border-radius: 5px; padding: 8px 10px; background: var(--gray-3, #f9fafb); color: var(--gray-12, #111827); cursor: pointer; font: inherit; }
+.pdf-bookmarks-dialog button:disabled { opacity: .5; cursor: default; }
+.pdf-bookmarks-dialog :focus-visible { outline: 2px solid var(--blue-9, #2563eb); outline-offset: 2px; }
+.pdf-bookmarks-dialog label { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; min-width: 0; font-size: 12px; font-weight: 500; }
+.pdf-bookmarks-dialog input, .pdf-bookmarks-dialog select { min-width: 0; width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--gray-7, #9ca3af); border-radius: 4px; background: var(--gray-1, #fff); color: var(--gray-12, #111827); font: inherit; font-size: 13px; }
+.pdf-bookmarks-dialog select[size] { min-height: 138px; padding: 4px; }
+.pdf-bookmarks-dialog select[size] option { padding: 4px; }
+.pdf-bookmarks-dialog input[type=color] { height: 34px; padding: 3px; }
+.pdf-bookmarks-dialog label.bookmark-check { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; }
+.pdf-bookmarks-dialog input[type=checkbox] { width: 15px; height: 15px; margin: 0; }
+.pdf-bookmarks-dialog fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.bookmark-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 370px; overflow: hidden; }
+.bookmark-settings { padding: 8px 16px 16px; min-width: 0; overflow: auto; border-left: 1px solid var(--gray-6, #e5e7eb); }
+.bookmark-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.bookmark-actions button { font-size: 12px; }
+.bookmark-numbers { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 12px; }
+.bookmark-style { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 12px; }
+.bookmark-help { color: var(--gray-11, #4b5563); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.bookmark-error, .bookmark-warning { margin: 8px 0; padding: 8px 10px; border-radius: 5px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.bookmark-error { background: var(--red-3, #fef2f2); color: var(--red-11, #991b1b); }
+.bookmark-warning { background: var(--amber-3, #fffbeb); color: var(--amber-11, #92400e); }
+.bookmark-preview-column { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--gray-4, #e5e7eb); }
+.bookmark-preview-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; padding: 0 12px 8px; }
+.bookmark-preview-toolbar label { width: 112px; margin: 8px 0 0; }
+.bookmark-preview-toolbar p { width: 100%; margin: 4px 0 0; }
+.bookmark-loading { flex: 1; padding: 20px; }
+.pdf-bookmarks-dialog footer { flex-shrink: 0; padding: 10px 20px; border-top: 1px solid var(--gray-6, #e5e7eb); }
+.pdf-bookmarks-dialog footer > p { margin: 0 0 8px; }
+.pdf-bookmarks-dialog footer > div { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.pdf-bookmarks-dialog .bookmark-primary { background: var(--blue-9, #2563eb); border-color: var(--blue-9, #2563eb); color: #fff; }
+.pdf-bookmarks-dialog .bookmark-delete { color: var(--red-11, #b91c1c); margin-top: 12px; }
+.bookmark-delete-confirm { margin-top: 12px; padding: 10px; border: 1px solid var(--red-7, #b91c1c); border-radius: 5px; font-size: 12px; overflow-wrap: anywhere; }
+.bookmark-delete-confirm p { margin-top: 0; }
+.bookmark-delete-confirm button { margin-right: 6px; }
+@media (max-width: 760px) {
+  .pdf-bookmarks-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
+  .pdf-bookmarks-dialog header { padding: 12px; }
+  .bookmark-body { display: flex; flex-direction: column; overflow: auto; }
+  .bookmark-preview-column { height: min(45vh, 400px); flex-shrink: 0; }
+  .bookmark-settings { overflow: visible; border-left: 0; border-top: 1px solid var(--gray-6, #e5e7eb); }
+  .pdf-bookmarks-dialog footer { padding: 10px 12px; }
+}

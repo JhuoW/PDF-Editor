@@ -14,6 +14,8 @@ IMAGE_INSERT_SPEC.md
 node_modules
 dist
 dist-ssr
+playwright-report
+test-results
 *.local
 
 # Editor directories and files
@@ -29,3 +31,7 @@ dist-ssr
 
 # Local Netlify folder
 .netlify
+
+# Local project notes
+/docs/architecture.zh.md
+/docs/product-roadmap.zh.md

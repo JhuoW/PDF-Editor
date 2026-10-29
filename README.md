@@ -2,7 +2,7 @@
 
 [中文介绍](README_zh.md)
 
-Say goodbye to expensive monthly subscriptions and intrusive cloud syncing. **PDF-Editor** is the definitive free, private, and open-source alternative to Adobe Acrobat and Foxit. Designed for users who demand professional-grade power without the corporate bloat, it gives you total control to **view**, **annotate**, **merge**, and **edit** PDF documents directly on your device. With zero hidden fees and a commitment to 100% local processing, your sensitive data never leaves your machine, proving that powerful document management doesn't have to come at the cost of your privacy or your wallet.
+**PDF-Editor** is a free, open-source PDF editor for your browser. View, edit, annotate, and organize PDFs locally without uploading your files.
 
 <div align="center">
   <img src="docs/imgs/example1.png" width="96%" style="margin: 0 1.5%;"/>
@@ -11,50 +11,56 @@ Say goodbye to expensive monthly subscriptions and intrusive cloud syncing. **PD
 
 ## Features
 
-- **📄 PDF Viewing & Navigation**: Smoothly browse documents with thumbnails, bookmarks, and intuitive page controls.
-- **✏️ Rich Annotations**: Highlight, underline, draw freehand, add shapes, and attach sticky notes to your PDFs.
-- **🔗 Merge & Split**: Combine multiple PDFs into one or extract specific pages with ease.
-- **🖼️ Image Insert**: Add and position images anywhere in your PDF documents.
-- **🔒 100% Private**: All processing happens locally on your device—your files never leave your machine.
-- **💰 Free & Open Source**: No subscriptions, no hidden fees, no cloud dependency—forever free.
+- **📄 Viewing & Navigation**: Browse PDFs with thumbnails, bookmarks, search, and flexible page views.
+- **✏️ Text & Image Editing**: Edit existing text and images, or insert new content.
+- **🖊️ Annotations & Signatures**: Highlight, draw, add notes, and place handwritten or image signatures.
+- **🔗 Page Organization**: Merge, split, insert, delete, rotate, and reorder pages.
+- **📝 Forms**: Create and fill PDF forms, import/export data, and flatten fields.
+- **🔍 Scan OCR**: Make English and Simplified Chinese scans searchable with local recognition.
+- **🔒 Private & Open Source**: Process documents locally, without subscriptions or cloud uploads.
 
 ## Quick Start
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v18 or higher)
-- npm (comes with Node.js)
-
-### Installation
+Requires [Node.js](https://nodejs.org/) 20.19+ (20.x) or 22.12+, and npm.
 
 ```bash
-# Clone the repository
 git clone https://github.com/JhuoW/PDF-Editor.git
 cd PDF-Editor
-
-# Install dependencies
-npm install
-```
-
-### Running the Application
-
-```bash
-# Start the development server
+npm ci
 npm run dev
 ```
 
-The application will open in your browser at `http://localhost:5173`.
+Open `http://localhost:5173` in your browser.
 
 ### Basic Usage
 
-1. **Open a PDF**: Click "Open File" or drag and drop a PDF file into the viewer
-2. **Navigate**: Use the thumbnail sidebar or page controls to move between pages
-3. **Zoom**: Use the zoom controls or Ctrl + Mouse Wheel to adjust the view
-4. **Annotate**: Select annotation tools from the toolbar to highlight, draw, or add notes
-5. **Save**: Click "Save" to download your edited PDF
+1. **Open**: Click **Open** or drag a PDF into the viewer.
+2. **Navigate**: Use thumbnails, page controls, and zoom to browse the document.
+3. **Edit & Annotate**: Use the toolbar to edit content or add annotations. Click **Apply Content Changes** after editing original text or images.
+4. **Organize**: Use the page tools to merge, split, rotate, or reorder pages.
+5. **Export**: Click **Export** to download your edited PDF.
 
 ## Contributing
 
-We welcome contributions from the community! Whether you're fixing bugs, adding new features, improving documentation, or suggesting ideas, your help makes PDF-Editor better for everyone.
+Bug reports, feature requests, and pull requests are welcome. Start with an [issue](https://github.com/JhuoW/PDF-Editor/issues).
 
-Feel free to open an [issue](https://github.com/JhuoW/PDF-Editor/issues) if you find a bug or have a feature request. All contributions, big or small, are greatly appreciated!
+## Development checks
+
+```bash
+npm run build
+npm run test:run
+npx playwright install chromium
+npm run test:e2e
+npm run lint
+npm run audit:dependencies
+```
+
+### Static deployment
+
+Deploy the entire `dist/` directory after `npm run build`. For a subdirectory:
+
+```bash
+npm run build -- --base=/pdf-editor/
+```
+
+Keep all bundled assets and license files. PDF-Editor and MuPDF use [AGPL-3.0](LICENSE); bundled Tesseract.js components and language data use Apache-2.0.

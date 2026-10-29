@@ -96,3 +96,10 @@
   display: flex;
   flex-direction: column;
 }
+
+.outline-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.outline-panel-header button { color: var(--gray-12); background: var(--gray-4); border: 1px solid var(--gray-7); border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+.outline-tree, .outline-children { list-style: none; margin: 0; padding: 0; }
+.outline-action { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.outline-action:disabled { cursor: default; }
+.outline-panel button:focus-visible, .outline-panel a:focus-visible { outline: 2px solid var(--blue-9); outline-offset: 3px; }

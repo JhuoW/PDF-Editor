@@ -1,0 +1,19 @@
+.sticky-note-editor {
+  position: fixed; right: 20px; bottom: 20px; z-index: 200;
+  width: 340px; max-width: calc(100vw - 32px); max-height: calc(100vh - 190px);
+  overflow: auto; padding: 16px; border: 1px solid #d1d5db; border-radius: 10px;
+  background: #fffef5; color: #1f2937; box-shadow: 0 8px 32px #0003;
+  font-size: 14px; text-align: left;
+}
+.sticky-note-editor header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.sticky-note-editor h2, .sticky-note-editor h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.sticky-note-editor h3 { margin: 16px 0 8px; }
+.sticky-note-editor label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-weight: 500; }
+.sticky-note-editor input, .sticky-note-editor textarea { box-sizing: border-box; width: 100%; padding: 7px; border: 1px solid #9ca3af; border-radius: 4px; background: white; color: #111827; font: inherit; }
+.sticky-note-editor textarea { resize: vertical; min-height: 55px; }
+.sticky-note-editor button { border: 1px solid #9ca3af; border-radius: 4px; padding: 5px 10px; background: white; color: #1f2937; cursor: pointer; }
+.sticky-note-editor button:disabled { opacity: .5; cursor: not-allowed; }
+.sticky-note-editor .danger { color: #b91c1c; }
+.sticky-note-actions { display: flex; gap: 8px; }
+.sticky-note-hint { margin: 10px 0; font-size: 12px; color: #4b5563; }
+.sticky-note-reply { margin: 8px 0; padding: 10px; border: 1px solid #d1d5db; border-radius: 4px; }

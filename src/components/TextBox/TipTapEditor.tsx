@@ -1,69 +1,28 @@
 import { useEffect, useCallback, forwardRef, useImperativeHandle, useRef } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { TextStyle } from '@tiptap/extension-text-style';
+import { FontSize, TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
 import FontFamily from '@tiptap/extension-font-family';
 import TextAlign from '@tiptap/extension-text-align';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
-import { Extension } from '@tiptap/core';
 import type { TextStyle as PDFTextStyle } from '../../annotations/types';
 import { useTextBoxStore } from '../../store/textBoxStore';
 import './TipTapEditor.css';
 
-// Custom font size extension
-declare module '@tiptap/core' {
-  interface Commands<ReturnType> {
-    fontSize: {
-      setFontSize: (size: string) => ReturnType;
-      unsetFontSize: () => ReturnType;
-    };
-  }
+function editorStyle(defaultStyle: PDFTextStyle): string {
+  // Each field is one CSS value, including styles restored from a document.
+  // Assign properties individually so a semicolon cannot add declarations.
+  const style = document.createElement('span').style;
+  style.fontFamily = defaultStyle.fontFamily;
+  style.fontSize = `${defaultStyle.fontSize}px`;
+  style.color = defaultStyle.color;
+  style.lineHeight = String(defaultStyle.lineHeight);
+  style.letterSpacing = `${defaultStyle.letterSpacing}px`;
+  style.textAlign = defaultStyle.textAlign;
+  return style.cssText;
 }
-
-const FontSize = Extension.create({
-  name: 'fontSize',
-
-  addOptions() {
-    return {
-      types: ['textStyle'],
-    };
-  },
-
-  addGlobalAttributes() {
-    return [
-      {
-        types: this.options.types,
-        attributes: {
-          fontSize: {
-            default: null,
-            parseHTML: element => element.style.fontSize?.replace(/['"]+/g, ''),
-            renderHTML: attributes => {
-              if (!attributes.fontSize) {
-                return {};
-              }
-              return {
-                style: `font-size: ${attributes.fontSize}`,
-              };
-            },
-          },
-        },
-      },
-    ];
-  },
-
-  addCommands() {
-    return {
-      setFontSize: (fontSize: string) => ({ chain }) => {
-        return chain().setMark('textStyle', { fontSize }).run();
-      },
-      unsetFontSize: () => ({ chain }) => {
-        return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run();
-      },
-    };
-  },
-});
 
 export interface TipTapEditorProps {
   initialContent?: string;
@@ -98,6 +57,13 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
     },
     ref
   ) {
+    const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const currentOnBlur = useRef(onBlur);
+    useEffect(() => { currentOnBlur.current = onBlur; }, [onBlur]);
+    useEffect(() => () => {
+      if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+    }, []);
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -109,6 +75,7 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
           listItem: false,
           bulletList: false,
           orderedList: false,
+          underline: false,
         }),
         TextStyle,
         Color,
@@ -128,27 +95,17 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
       editorProps: {
         attributes: {
           class: 'tiptap-editor-content',
-          style: `
-            font-family: ${defaultStyle.fontFamily};
-            font-size: ${defaultStyle.fontSize}px;
-            color: ${defaultStyle.color};
-            line-height: ${defaultStyle.lineHeight};
-            letter-spacing: ${defaultStyle.letterSpacing}px;
-            text-align: ${defaultStyle.textAlign};
-          `,
+          style: editorStyle(defaultStyle),
         },
       },
       onUpdate: ({ editor }) => {
         onContentChange?.(editor.getHTML(), editor.getText());
       },
-      onTransaction: ({ editor }) => {
-        // Always update on any transaction to capture formatting changes
-        // This ensures that applying bold/italic/etc. without content changes still updates
-        onContentChange?.(editor.getHTML(), editor.getText());
-      },
       onBlur: () => {
         // Delay blur handling to check if focus moved to toolbar
-        setTimeout(() => {
+        if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+        blurTimer.current = setTimeout(() => {
+          blurTimer.current = null;
           const activeElement = document.activeElement;
           const isToolbarElement = activeElement?.closest('.textbox-format-toolbar-container') ||
                                    activeElement?.closest('.tiptap-toolbar') ||
@@ -159,9 +116,13 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
                                   activeElement?.closest('.freetext-editor-container');
 
           if (!isToolbarElement && !isEditorElement) {
-            onBlur?.();
+            currentOnBlur.current?.();
           }
         }, 100);
+      },
+      onFocus: () => {
+        if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+        blurTimer.current = null;
       },
     });
 
@@ -228,126 +189,5 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
     );
   }
 );
-
-// Utility functions for format detection and application
-export function getEditorFormattingState(editor: Editor | null) {
-  if (!editor) {
-    return {
-      isBold: false,
-      isItalic: false,
-      isUnderline: false,
-      isStrikethrough: false,
-      fontFamily: 'Helvetica',
-      fontSize: 14,
-      color: '#000000',
-      textAlign: 'left' as const,
-      highlightColor: null as string | null,
-    };
-  }
-
-  return {
-    isBold: editor.isActive('bold'),
-    isItalic: editor.isActive('italic'),
-    isUnderline: editor.isActive('underline'),
-    isStrikethrough: editor.isActive('strike'),
-    fontFamily: editor.getAttributes('textStyle').fontFamily || 'Helvetica',
-    fontSize: parseInt(editor.getAttributes('textStyle').fontSize || '14', 10),
-    color: editor.getAttributes('textStyle').color || '#000000',
-    textAlign: editor.getAttributes('paragraph').textAlign || 'left',
-    highlightColor: editor.getAttributes('highlight').color || null,
-  };
-}
-
-// Commands to apply formatting
-export function applyFormatting(editor: Editor | null, format: Partial<PDFTextStyle>) {
-  if (!editor) return;
-
-  const chain = editor.chain().focus();
-
-  if (format.fontWeight !== undefined) {
-    if (format.fontWeight === 'bold') {
-      chain.setBold();
-    } else {
-      chain.unsetBold();
-    }
-  }
-
-  if (format.fontStyle !== undefined) {
-    if (format.fontStyle === 'italic') {
-      chain.setItalic();
-    } else {
-      chain.unsetItalic();
-    }
-  }
-
-  if (format.textDecoration !== undefined) {
-    if (format.textDecoration === 'underline') {
-      chain.setUnderline();
-    } else if (format.textDecoration === 'line-through') {
-      chain.setStrike();
-    } else {
-      chain.unsetUnderline().unsetStrike();
-    }
-  }
-
-  if (format.fontFamily !== undefined) {
-    chain.setFontFamily(format.fontFamily);
-  }
-
-  if (format.fontSize !== undefined) {
-    chain.setFontSize(`${format.fontSize}px`);
-  }
-
-  if (format.color !== undefined) {
-    chain.setColor(format.color);
-  }
-
-  if (format.textAlign !== undefined) {
-    chain.setTextAlign(format.textAlign);
-  }
-
-  chain.run();
-}
-
-// Toggle formatting commands
-export function toggleBold(editor: Editor | null) {
-  editor?.chain().focus().toggleBold().run();
-}
-
-export function toggleItalic(editor: Editor | null) {
-  editor?.chain().focus().toggleItalic().run();
-}
-
-export function toggleUnderline(editor: Editor | null) {
-  editor?.chain().focus().toggleUnderline().run();
-}
-
-export function toggleStrikethrough(editor: Editor | null) {
-  editor?.chain().focus().toggleStrike().run();
-}
-
-export function setFontFamily(editor: Editor | null, fontFamily: string) {
-  editor?.chain().focus().setFontFamily(fontFamily).run();
-}
-
-export function setFontSize(editor: Editor | null, fontSize: number) {
-  editor?.chain().focus().setFontSize(`${fontSize}px`).run();
-}
-
-export function setColor(editor: Editor | null, color: string) {
-  editor?.chain().focus().setColor(color).run();
-}
-
-export function setTextAlign(editor: Editor | null, align: 'left' | 'center' | 'right' | 'justify') {
-  editor?.chain().focus().setTextAlign(align).run();
-}
-
-export function setHighlight(editor: Editor | null, color: string | null) {
-  if (color) {
-    editor?.chain().focus().setHighlight({ color }).run();
-  } else {
-    editor?.chain().focus().unsetHighlight().run();
-  }
-}
 
 export default TipTapEditor;

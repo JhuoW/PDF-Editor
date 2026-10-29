@@ -1,6 +1,6 @@
 /**
  * Redaction Application
- * Permanently removes content from PDFs and applies black boxes
+ * Adds visual covers to PDFs. Underlying content remains recoverable.
  *
  * SECURITY CRITICAL: True redaction must remove data, not just hide it
  */
@@ -17,7 +17,7 @@ export interface RedactionResult {
 
 /**
  * Apply redactions to a PDF document
- * This permanently removes content under the redaction areas
+ * This only obscures content visually; it does not perform secure redaction.
  */
 export async function applyRedactions(
   pdfBytes: ArrayBuffer,
@@ -110,12 +110,12 @@ export async function applyRedactions(
     pdfDoc.setAuthor('');
     pdfDoc.setSubject('');
     pdfDoc.setKeywords([]);
-    pdfDoc.setProducer('PDF Editor - Redacted Document');
+    pdfDoc.setProducer('PDF Editor - Visually Covered Document');
     pdfDoc.setCreator('');
 
     // Save the modified PDF
     const modifiedPdf = await pdfDoc.save({
-      useObjectStreams: false, // Avoid compression that might preserve data
+      useObjectStreams: false,
     });
 
     return {
@@ -175,7 +175,7 @@ export async function verifyRedactions(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _redactions: RedactionArea[]
 ): Promise<{ verified: boolean; warnings: string[] }> {
-  const warnings: string[] = [];
+  const warnings: string[] = ['Visual covers do not remove underlying text or images. Secure redaction is not verified.'];
 
   try {
     const redactedDoc = await PDFDocument.load(redactedPdf);

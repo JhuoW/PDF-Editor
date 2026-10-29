@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand';
+import { useHistoryStore } from './historyStore';
 import type {
   EditingMode,
   TextBlock,
@@ -34,11 +35,13 @@ interface EditingStore {
   selectRedaction: (redactionId: string | null) => void;
 
   // Text editing
-  updateBlockText: (blockId: string, newText: string) => void;
+  updateBlockText: (blockId: string, newText: string, groupKey?: string) => void;
+  updateBlockLayout: (edit: TextEditOperation) => void;
   getBlock: (blockId: string) => TextBlock | null;
 
   // Image editing
   addImageEdit: (edit: ImageEditOperation) => void;
+  resetImageEdits: (imageId: string) => void;
 
   // Redaction
   addRedaction: (redaction: Omit<RedactionArea, 'id' | 'applied'>) => void;
@@ -53,7 +56,10 @@ interface EditingStore {
   hasChanges: () => boolean;
 }
 
-let redactionIdCounter = 0;
+function recordEditingState(state: EditingStore, actionName: string, groupKey?: string) {
+  const { textBlocks, images, redactions, textEdits, imageEdits, isDirty } = state;
+  useHistoryStore.getState().pushWorkspaceState({ editing: { textBlocks, images, redactions, textEdits, imageEdits, isDirty } }, actionName, groupKey);
+}
 
 export const useEditingStore = create<EditingStore>((set, get) => ({
   // Initial state
@@ -105,42 +111,34 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     set({ selectedRedactionId: redactionId, selectedBlockId: null, selectedImageId: null });
   },
 
-  updateBlockText: (blockId, newText) => {
-    set((state) => {
-      let blockFound = false;
-      const newTextBlocks = new Map<number, TextBlock[]>();
+  updateBlockText: (blockId, newText, groupKey) => {
+    const state = get(), block = state.getBlock(blockId);
+    if (!block || !block.editable || block.text === newText) return;
+    recordEditingState(state, 'Edit original text', groupKey);
+    const existing = state.textEdits.find(edit => edit.blockId === blockId);
+    const originalText = existing?.originalText ?? block.text;
+    const textEdits = state.textEdits.filter(edit => edit.blockId !== blockId);
+    if (newText !== originalText || existing?.layout) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(existing?.layout ? { layout: existing.layout } : {}) });
+    const textBlocks = new Map(state.textBlocks);
+    textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === blockId ? { ...item, text: newText } : item));
+    set({ textBlocks, textEdits, isDirty: textEdits.length > 0 || state.imageEdits.length > 0 || state.redactions.some(area => !area.applied) });
+  },
 
-      state.textBlocks.forEach((blocks, pageNumber) => {
-        const updatedBlocks = blocks.map((block) => {
-          if (block.id === blockId) {
-            blockFound = true;
-            return { ...block, text: newText };
-          }
-          return block;
-        });
-        newTextBlocks.set(pageNumber, updatedBlocks);
-      });
-
-      if (blockFound) {
-        // Find the original text for the edit record
-        let originalText = '';
-        state.textBlocks.forEach((blocks) => {
-          const block = blocks.find((b) => b.id === blockId);
-          if (block) originalText = block.text;
-        });
-
-        return {
-          textBlocks: newTextBlocks,
-          textEdits: [
-            ...state.textEdits,
-            { blockId, originalText, newText, timestamp: Date.now() },
-          ],
-          isDirty: true,
-        };
-      }
-
-      return {};
+  updateBlockLayout: edit => {
+    const state = get(), block = state.getBlock(edit.blockId);
+    if (!block?.editable) return;
+    const previous = state.textEdits.find(item => item.blockId === edit.blockId);
+    const originalText = previous?.originalText ?? block.text;
+    const layout = edit.layout && Object.keys(edit.layout).length ? structuredClone(edit.layout) : undefined;
+    if (block.text === edit.newText && JSON.stringify(previous?.layout) === JSON.stringify(layout)) return;
+    recordEditingState(state, 'Change text layout');
+    const textEdits = state.textEdits.filter(item => item.blockId !== edit.blockId);
+    if (edit.newText !== originalText || layout) textEdits.push({
+      blockId: edit.blockId, originalText, newText: edit.newText, timestamp: Date.now(), ...(layout ? { layout } : {}),
     });
+    const textBlocks = new Map(state.textBlocks);
+    textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === block.id ? { ...item, text: edit.newText } : item));
+    set({ textBlocks, textEdits, isDirty: textEdits.length > 0 || state.imageEdits.length > 0 || state.redactions.some(area => !area.applied) });
   },
 
   getBlock: (blockId) => {
@@ -153,37 +151,40 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   },
 
   addImageEdit: (edit) => {
+    recordEditingState(get(), 'Edit original image');
     set((state) => ({
       imageEdits: [...state.imageEdits, edit],
       isDirty: true,
     }));
   },
 
-  addRedaction: (redaction) => {
-    const id = `redact-${++redactionIdCounter}`;
-    set((state) => ({
-      redactions: [
-        ...state.redactions,
-        { ...redaction, id, applied: false },
-      ],
-      isDirty: true,
-    }));
+  resetImageEdits: imageId => {
+    const state = get();
+    if (!state.imageEdits.some(edit => edit.imageId === imageId)) return;
+    recordEditingState(state, 'Reset image edits');
+    const imageEdits = state.imageEdits.filter(edit => edit.imageId !== imageId);
+    set({ imageEdits, isDirty: imageEdits.length > 0 || state.textEdits.length > 0 || state.redactions.some(area => !area.applied) });
   },
 
-  removeRedaction: (redactionId) => {
-    set((state) => ({
-      redactions: state.redactions.filter((r) => r.id !== redactionId),
-      selectedRedactionId:
-        state.selectedRedactionId === redactionId ? null : state.selectedRedactionId,
-    }));
+  addRedaction: redaction => {
+    recordEditingState(get(), 'Add removal area');
+    set(state => ({ redactions: [...state.redactions, { ...redaction, id: `redact-${crypto.randomUUID()}`, applied: false }], isDirty: true }));
+  },
+
+  removeRedaction: redactionId => {
+    const state = get();
+    if (!state.redactions.some(area => area.id === redactionId)) return;
+    recordEditingState(state, 'Delete removal area');
+    const redactions = state.redactions.filter(area => area.id !== redactionId);
+    set({ redactions, selectedRedactionId: state.selectedRedactionId === redactionId ? null : state.selectedRedactionId,
+      isDirty: state.textEdits.length > 0 || state.imageEdits.length > 0 || redactions.some(area => !area.applied) });
   },
 
   updateRedaction: (redactionId, updates) => {
-    set((state) => ({
-      redactions: state.redactions.map((r) =>
-        r.id === redactionId ? { ...r, ...updates } : r
-      ),
-    }));
+    const state = get(), original = state.redactions.find(area => area.id === redactionId);
+    if (!original || JSON.stringify({ ...original, ...updates }) === JSON.stringify(original)) return;
+    recordEditingState(state, 'Edit removal area');
+    set({ redactions: state.redactions.map(area => area.id === redactionId ? { ...area, ...updates } : area), isDirty: true });
   },
 
   getRedactionsOnPage: (pageNumber) => {
@@ -211,7 +212,6 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
       imageEdits: [],
       isDirty: false,
     });
-    redactionIdCounter = 0;
   },
 
   clearPage: (pageNumber) => {

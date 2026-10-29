@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
+import { NativeLinkBorderLayer } from './NativeLinkBorderLayer';
 import './AnnotationLayer.css';
 
 interface AnnotationLayerProps {
@@ -17,6 +18,7 @@ export function AnnotationLayer({
   onLinkClick,
 }: AnnotationLayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewport = useMemo(() => page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) }), [page, scale, rotation]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -24,10 +26,6 @@ export function AnnotationLayer({
 
     // Clear previous annotations
     container.innerHTML = '';
-
-    // Calculate effective rotation (page's embedded rotation + view rotation)
-    const effectiveRotation = getEffectiveRotation(page, rotation);
-    const viewport = page.getViewport({ scale, rotation: effectiveRotation });
 
     // Set container dimensions
     container.style.width = `${viewport.width}px`;
@@ -44,6 +42,7 @@ export function AnnotationLayer({
         for (const annotation of annotations) {
           // Only handle link annotations
           if (annotation.subtype !== 'Link') continue;
+          if ((annotation.annotationFlags ?? 0) & (2 | 32)) continue;
 
           // Get the annotation rectangle
           const rect = annotation.rect;
@@ -55,6 +54,7 @@ export function AnnotationLayer({
           // Create link element
           const link = document.createElement('a');
           link.className = 'pdf-link-annotation';
+          const description = typeof annotation.contentsObj?.str === 'string' ? annotation.contentsObj.str : undefined;
 
           // Position the link
           const left = Math.min(x1, x2);
@@ -72,6 +72,7 @@ export function AnnotationLayer({
             // Internal link (destination within document)
             link.href = '#';
             link.title = 'Go to destination';
+            link.setAttribute('aria-label', description || 'Go to destination');
             link.onclick = (e) => {
               e.preventDefault();
               if (onLinkClick) {
@@ -84,6 +85,7 @@ export function AnnotationLayer({
             link.target = '_blank';
             link.rel = 'noopener noreferrer';
             link.title = annotation.url;
+            link.setAttribute('aria-label', description || annotation.url);
           } else if (annotation.action) {
             // Action-based link (like GoTo action)
             const action = annotation.action;
@@ -113,7 +115,10 @@ export function AnnotationLayer({
     return () => {
       cancelled = true;
     };
-  }, [page, scale, rotation, onLinkClick]);
+  }, [page, viewport, onLinkClick]);
 
-  return <div ref={containerRef} className="annotation-layer-container" />;
+  return <div className="annotation-layer-container">
+    <NativeLinkBorderLayer page={page} viewport={viewport} />
+    <div ref={containerRef} className="annotation-layer-container" />
+  </div>;
 }

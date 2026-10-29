@@ -1,0 +1,62 @@
+.form-designer-dialog { width: min(1240px, calc(100vw - 24px)); height: min(920px, calc(100vh - 32px)); max-height: calc(100vh - 32px); box-sizing: border-box; margin: auto; padding: 0; border: 1px solid var(--gray-7, #9ca3af); border-radius: 12px; background: var(--gray-2, #fff); color: var(--gray-12, #1f2937); box-shadow: 0 16px 60px #0006; font-size: 14px; overflow: hidden; }
+.form-designer-dialog[open] { display: flex; flex-direction: column; }
+.form-designer-dialog::backdrop { background: #0009; }
+.form-designer-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px 10px; }
+.form-designer-dialog h2 { margin: 0; font-size: 21px; }
+.form-designer-dialog header p { margin: 6px 0; color: var(--gray-11, #4b5563); font-size: 12px; }
+.form-designer-dialog button { padding: 8px 10px; border: 1px solid var(--gray-7, #9ca3af); border-radius: 5px; background: var(--gray-3, #f9fafb); color: var(--gray-12, #111827); cursor: pointer; font: inherit; }
+.form-designer-dialog button:disabled { opacity: .5; cursor: default; }
+.form-designer-dialog button[aria-pressed=true] { background: var(--blue-4, #dbeafe); border-color: var(--blue-8, #60a5fa); color: var(--blue-11, #1d4ed8); }
+.form-designer-dialog .form-designer-primary { background: var(--blue-9, #2563eb); border-color: var(--blue-9, #2563eb); color: #fff; }
+.form-designer-dialog :focus-visible { outline: 2px solid var(--blue-9, #2563eb); outline-offset: 2px; }
+.form-designer-dialog label { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; min-width: 0; font-size: 12px; font-weight: 500; }
+.form-designer-dialog input:not([type=checkbox]), .form-designer-dialog select, .form-designer-dialog textarea { min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid var(--gray-7, #9ca3af); border-radius: 4px; padding: 7px 8px; background: var(--gray-1, #fff); color: var(--gray-12, #111827); font: inherit; font-size: 13px; }
+.form-designer-dialog fieldset { margin: 18px 0; padding: 0; border: 0; min-width: 0; }
+.form-designer-dialog legend { font-weight: 600; }
+.form-designer-dialog h4 { margin: 16px 0 4px; font-size: 13px; }
+.form-designer-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 20px 14px; border-bottom: 1px solid var(--gray-6, #e5e7eb); }
+.form-designer-tools button { font-size: 12px; }
+.form-designer-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; flex: 1; min-height: 0; overflow: hidden; }
+.form-designer-canvas-column { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--gray-4, #e5e7eb); }
+.form-designer-page-toolbar { display: flex; align-items: center; gap: 14px; padding: 0 12px; flex-shrink: 0; }
+.form-designer-page-toolbar label { flex-shrink: 0; width: 100px; }
+.form-designer-page-toolbar p { font-size: 12px; color: var(--gray-11, #4b5563); line-height: 1.4; }
+.form-designer-preview { flex: 1; min-height: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
+.form-designer-page { margin: 0 auto; position: relative; box-shadow: 0 3px 16px #0003; background: #fff; flex-shrink: 0; }
+.form-designer-page canvas { display: block; }
+.form-designer-overlay { position: absolute; inset: 0; touch-action: none; }
+.form-designer-overlay.placing { cursor: crosshair; }
+.form-designer-widget-wrapper { display: contents; }
+.form-designer-dialog .form-designer-widget { position: absolute; overflow: hidden; border: 1px solid #2563eb; border-radius: 1px; padding: 2px 4px; background: #bfdbfe80; color: #1e3a8a; font-size: 11px; line-height: 1.1; text-align: left; cursor: move; user-select: none; touch-action: none; }
+.form-designer-dialog .form-designer-widget.selected { border: 2px solid #1d4ed8; background: #93c5fd99; }
+.form-designer-dialog .form-designer-widget.hidden-widget { border-style: dashed; opacity: .6; }
+.form-designer-overlay.placing .form-designer-widget { cursor: crosshair; }
+.form-designer-dialog .form-designer-resize { position: absolute; width: 12px; height: 12px; padding: 0; border: 1px solid #fff; border-radius: 1px; background: #2563eb; cursor: nwse-resize; touch-action: none; }
+.form-designer-ghost { position: absolute; pointer-events: none; border: 2px dashed #2563eb; box-sizing: border-box; background: #93c5fd66; }
+.form-designer-panel { overflow: auto; padding: 12px 16px; min-width: 0; border-left: 1px solid var(--gray-6, #e5e7eb); }
+.form-designer-hint { color: var(--gray-11, #4b5563); font-size: 11px; line-height: 1.5; }
+.form-designer-property-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+.form-designer-checks { display: flex; flex-wrap: wrap; gap: 12px; }
+.form-designer-dialog label.form-designer-check { flex-direction: row; align-items: center; gap: 7px; font-weight: 400; }
+.form-designer-check input { margin: 0; width: 16px; height: 16px; }
+.form-designer-option { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 28px; align-items: end; gap: 6px; }
+.form-designer-option label { margin: 6px 0; }
+.form-designer-option button { margin-bottom: 6px; padding: 7px 3px; }
+.form-designer-delete-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.form-designer-dialog .form-designer-danger { color: var(--red-11, #b91c1c); }
+.form-designer-warning, .form-designer-error { font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 5px; overflow-wrap: anywhere; }
+.form-designer-warning { background: var(--amber-3, #fffbeb); color: var(--amber-11, #92400e); }
+.form-designer-error { background: var(--red-3, #fef2f2); color: var(--red-11, #991b1b); }
+.form-designer-loading { flex: 1; padding: 20px; }
+.form-designer-dialog footer { flex-shrink: 0; border-top: 1px solid var(--gray-6, #e5e7eb); padding: 12px 20px; }
+.form-designer-dialog footer > div { display: flex; justify-content: flex-end; gap: 8px; }
+.form-designer-dialog footer p { margin: 0 0 10px; }
+@media (max-width: 800px) {
+  .form-designer-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
+  .form-designer-dialog header { padding: 12px 12px 4px; }
+  .form-designer-tools { padding: 8px 12px; }
+  .form-designer-body { display: block; overflow: auto; }
+  .form-designer-canvas-column { height: min(55vh, 500px); }
+  .form-designer-panel { overflow: visible; border-left: 0; border-top: 1px solid var(--gray-6, #e5e7eb); }
+  .form-designer-dialog footer { padding: 10px 12px; }
+}

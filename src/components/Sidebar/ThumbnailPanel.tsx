@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import { useEffect, useState, useRef } from 'react';
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
+import { movePageSelection } from '../../core/pageMapping';
 import './ThumbnailPanel.css';
 
 interface ThumbnailPanelProps {
@@ -7,6 +8,7 @@ interface ThumbnailPanelProps {
   currentPage: number;
   selectedPages?: number[];
   onPageSelect: (page: number, multiSelect: boolean) => void;
+  onReorderPages?: (order: number[]) => void;
 }
 
 interface ThumbnailData {
@@ -15,114 +17,91 @@ interface ThumbnailData {
   loading: boolean;
 }
 
-const THUMBNAIL_SCALE = 0.2;
 const THUMBNAIL_WIDTH = 120;
+const MAX_CONCURRENT_RENDERS = 2;
+const initialThumbnails = (document: PDFDocumentProxy): ThumbnailData[] =>
+  Array.from({ length: document.numPages }, (_, index) => ({ pageNumber: index + 1, dataUrl: null, loading: false }));
 
-export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPageSelect }: ThumbnailPanelProps) {
-  const [thumbnails, setThumbnails] = useState<ThumbnailData[]>([]);
+export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPageSelect, onReorderPages }: ThumbnailPanelProps) {
+  const [state, setState] = useState(() => ({ document, items: initialThumbnails(document) }));
+  // A changed document owns a new thumbnail cache. Late renders check the owner
+  // before publishing, even when the parent does not remount this component.
+  if (state.document !== document) setState({ document, items: initialThumbnails(document) });
+  const thumbnails = state.document === document ? state.items : initialThumbnails(document);
   const containerRef = useRef<HTMLDivElement>(null);
-  const observerRef = useRef<IntersectionObserver | null>(null);
+  const draggedPages = useRef<number[]>([]);
+  const [dropTarget, setDropTarget] = useState<{ page: number; after: boolean } | null>(null);
 
-  // Initialize thumbnail data
   useEffect(() => {
-    if (!document) return;
-
-    const initialThumbnails: ThumbnailData[] = [];
-    for (let i = 1; i <= document.numPages; i++) {
-      initialThumbnails.push({
-        pageNumber: i,
-        dataUrl: null,
-        loading: false,
-      });
-    }
-    setThumbnails(initialThumbnails);
-  }, [document]);
-
-  // Render thumbnail for a specific page
-  const renderThumbnail = useCallback(async (pageNumber: number) => {
-    if (!document) return;
-
-    setThumbnails((prev) =>
-      prev.map((t) =>
-        t.pageNumber === pageNumber ? { ...t, loading: true } : t
-      )
-    );
-
-    try {
-      const page: PDFPageProxy = await document.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: THUMBNAIL_SCALE });
-
-      const canvas = window.document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      if (!context) return;
-
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-
-      await page.render({
-        canvasContext: context,
-        viewport,
-        canvas,
-      }).promise;
-
-      const dataUrl = canvas.toDataURL();
-
-      setThumbnails((prev) =>
-        prev.map((t) =>
-          t.pageNumber === pageNumber ? { ...t, dataUrl, loading: false } : t
-        )
-      );
-    } catch (error) {
-      console.error(`Error rendering thumbnail for page ${pageNumber}:`, error);
-      setThumbnails((prev) =>
-        prev.map((t) =>
-          t.pageNumber === pageNumber ? { ...t, loading: false } : t
-        )
-      );
-    }
-  }, [document]);
-
-  // Set up intersection observer for lazy loading
-  useEffect(() => {
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const pageNumber = parseInt(entry.target.getAttribute('data-page') || '0', 10);
-            const thumbnail = thumbnails.find((t) => t.pageNumber === pageNumber);
-            if (thumbnail && !thumbnail.dataUrl && !thumbnail.loading) {
-              renderThumbnail(pageNumber);
-            }
-          }
-        });
-      },
-      {
-        root: containerRef.current,
-        rootMargin: '100px',
-        threshold: 0,
-      }
-    );
-
-    return () => {
-      observerRef.current?.disconnect();
-    };
-  }, [thumbnails, renderThumbnail]);
-
-  // Observe thumbnail elements
-  useEffect(() => {
-    const observer = observerRef.current;
-    if (!observer) return;
-
     const container = containerRef.current;
     if (!container) return;
-
-    const items = container.querySelectorAll('.thumbnail-item');
-    items.forEach((item) => observer.observe(item));
-
-    return () => {
-      items.forEach((item) => observer.unobserve(item));
+    let disposed = false;
+    let running = 0;
+    const queue = new Set<number>();
+    const started = new Set<number>();
+    const tasks = new Set<RenderTask>();
+    const update = (pageNumber: number, changes: Partial<ThumbnailData>) => {
+      if (disposed) return;
+      setState(previous => previous.document !== document ? previous : {
+        ...previous,
+        items: previous.items.map(item => item.pageNumber === pageNumber ? { ...item, ...changes } : item),
+      });
     };
-  }, [thumbnails]);
+    const render = async (pageNumber: number) => {
+      let task: RenderTask | undefined;
+      let canvas: HTMLCanvasElement | undefined;
+      try {
+        update(pageNumber, { loading: true });
+        const page = await document.getPage(pageNumber);
+        if (disposed) return;
+        const size = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: Math.min(THUMBNAIL_WIDTH / size.width, 1000 / size.height) });
+        canvas = window.document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Canvas rendering is unavailable');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        task = page.render({ canvasContext: context, viewport, canvas });
+        tasks.add(task);
+        await task.promise;
+        update(pageNumber, { dataUrl: canvas.toDataURL(), loading: false });
+      } catch (error) {
+        if (!disposed) {
+          console.error(`Error rendering thumbnail for page ${pageNumber}:`, error);
+          update(pageNumber, { loading: false });
+        }
+      } finally {
+        if (task) tasks.delete(task);
+        if (canvas) { canvas.width = 0; canvas.height = 0; }
+        running--;
+        pump();
+      }
+    };
+    const pump = () => {
+      while (!disposed && running < MAX_CONCURRENT_RENDERS && queue.size) {
+        const pageNumber = queue.values().next().value!;
+        queue.delete(pageNumber);
+        started.add(pageNumber);
+        running++;
+        void render(pageNumber);
+      }
+    };
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const pageNumber = Number(entry.target.getAttribute('data-page'));
+        if (!entry.isIntersecting) queue.delete(pageNumber);
+        else if (!started.has(pageNumber)) queue.add(pageNumber);
+      }
+      pump();
+    }, { root: container.querySelector('.thumbnail-list'), rootMargin: '100px', threshold: 0 });
+    container.querySelectorAll('.thumbnail-item').forEach(item => observer.observe(item));
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      queue.clear();
+      tasks.forEach(task => task.cancel());
+    };
+  }, [document]);
 
   // Scroll to current page thumbnail
   useEffect(() => {
@@ -139,18 +118,52 @@ export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPa
     <div className="thumbnail-panel" ref={containerRef}>
       <div className="thumbnail-panel-header">
         <span>Pages</span>
+        {onReorderPages && <span className="thumbnail-reorder-hint">Drag to reorder</span>}
       </div>
       <div className="thumbnail-list">
         {thumbnails.map((thumbnail) => (
           <div
             key={thumbnail.pageNumber}
-            className={`thumbnail-item ${currentPage === thumbnail.pageNumber ? 'active' : ''} ${selectedPages.includes(thumbnail.pageNumber) ? 'selected' : ''}`}
+            className={`thumbnail-item ${currentPage === thumbnail.pageNumber ? 'active' : ''} ${selectedPages.includes(thumbnail.pageNumber) ? 'selected' : ''} ${dropTarget?.page === thumbnail.pageNumber ? dropTarget.after ? 'drop-after' : 'drop-before' : ''}`}
+            role="group"
+            aria-label={`Page ${thumbnail.pageNumber}`}
+            draggable={!!onReorderPages}
+            onDragStart={event => {
+              if (!onReorderPages) return;
+              draggedPages.current = selectedPages.includes(thumbnail.pageNumber) ? selectedPages : [thumbnail.pageNumber];
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('application/x-pdf-editor-pages', JSON.stringify(draggedPages.current));
+              event.stopPropagation();
+            }}
+            onDragOver={event => {
+              if (!draggedPages.current.length) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = 'move';
+              const bounds = event.currentTarget.getBoundingClientRect();
+              setDropTarget({ page: thumbnail.pageNumber, after: event.clientY > bounds.top + bounds.height / 2 });
+            }}
+            onDrop={event => {
+              if (!draggedPages.current.length || !onReorderPages) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const before = thumbnail.pageNumber + (event.clientY > bounds.top + bounds.height / 2 ? 1 : 0);
+              const order = movePageSelection(document.numPages, draggedPages.current, before);
+              draggedPages.current = [];
+              setDropTarget(null);
+              if (order.some((page, index) => page !== index + 1)) onReorderPages(order);
+            }}
+            onDragEnd={() => { draggedPages.current = []; setDropTarget(null); }}
             data-page={thumbnail.pageNumber}
-            onClick={(e) => onPageSelect(thumbnail.pageNumber, e.ctrlKey || e.metaKey)}
           >
+            <button className="thumbnail-select" type="button"
+              aria-label={`Go to page ${thumbnail.pageNumber}`}
+              aria-current={currentPage === thumbnail.pageNumber ? 'page' : undefined}
+              onClick={event => onPageSelect(thumbnail.pageNumber, event.ctrlKey || event.metaKey)}>
             <div className="thumbnail-canvas" style={{ width: THUMBNAIL_WIDTH }}>
               {thumbnail.dataUrl ? (
-                <img src={thumbnail.dataUrl} alt={`Page ${thumbnail.pageNumber}`} />
+                <img src={thumbnail.dataUrl} alt="" draggable={false} />
               ) : thumbnail.loading ? (
                 <div className="thumbnail-loading">Loading...</div>
               ) : (
@@ -158,6 +171,15 @@ export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPa
               )}
             </div>
             <span className="thumbnail-label">{thumbnail.pageNumber}</span>
+            </button>
+            {onReorderPages && (
+              <div className="thumbnail-move-controls">
+                <button aria-label={`Move page ${thumbnail.pageNumber} earlier`} disabled={thumbnail.pageNumber === 1}
+                  onClick={event => { event.stopPropagation(); onReorderPages(movePageSelection(document.numPages, [thumbnail.pageNumber], thumbnail.pageNumber - 1)); }}>↑</button>
+                <button aria-label={`Move page ${thumbnail.pageNumber} later`} disabled={thumbnail.pageNumber === document.numPages}
+                  onClick={event => { event.stopPropagation(); onReorderPages(movePageSelection(document.numPages, [thumbnail.pageNumber], thumbnail.pageNumber + 2)); }}>↓</button>
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -15,6 +15,7 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
 
   const {
     isEditing,
+    startEditing,
     stopEditing,
     cancelEditing,
     handleTextInput,
@@ -53,7 +54,7 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
 
   // Toggle text formatting
   const toggleFormat = useCallback(
-    (property: keyof TextStyle, value1: any, value2: any) => {
+    <K extends keyof TextStyle>(property: K, value1: TextStyle[K], value2: TextStyle[K]) => {
       const annotation = isEditing
         ? getEditingAnnotation()
         : (getSelectedAnnotation() as FreeTextAnnotation | null);
@@ -77,6 +78,7 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!enabled) return;
+      if (!isEditing && e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
 
       const isCtrl = e.ctrlKey || e.metaKey;
       const isShift = e.shiftKey;
@@ -177,7 +179,7 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
                 toggleFormat('textDecoration', 'line-through', 'none');
                 return;
               case '.':
-              case '>':
+              case '>': {
                 e.preventDefault();
                 // Increase font size
                 const annotation1 = getEditingAnnotation();
@@ -190,8 +192,9 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
                   recordUpdate({ ...annotation1, style: newStyle }, previousState);
                 }
                 return;
+              }
               case ',':
-              case '<':
+              case '<': {
                 e.preventDefault();
                 // Decrease font size
                 const annotation2 = getEditingAnnotation();
@@ -204,6 +207,7 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
                   recordUpdate({ ...annotation2, style: newStyle }, previousState);
                 }
                 return;
+              }
             }
           }
         }
@@ -256,7 +260,7 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
       // Enter to start editing
       if (e.key === 'Enter' && !isCtrl) {
         e.preventDefault();
-        useTextBoxEditing().startEditing(selectedAnnotationId);
+        startEditing(selectedAnnotationId);
         return;
       }
 
@@ -350,6 +354,7 @@ export function useTextBoxKeyboard(options: UseTextBoxKeyboardOptions = {}) {
       isEditing,
       selectedAnnotationId,
       cancelEditing,
+      startEditing,
       stopEditing,
       handleMoveCursorLeft,
       handleMoveCursorRight,

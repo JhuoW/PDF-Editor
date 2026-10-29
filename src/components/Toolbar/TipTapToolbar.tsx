@@ -11,7 +11,7 @@ import {
   setFontSize,
   setColor,
   setTextAlign,
-} from '../TextBox/TipTapEditor';
+} from '../TextBox/tiptapFormatting';
 import './TextFormatToolbar.css';
 
 interface TipTapToolbarProps {

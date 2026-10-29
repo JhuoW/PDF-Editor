@@ -453,6 +453,101 @@ export function RichTextEditor({
   }, []);
 
   // Keyboard handlers
+  // Insert text at cursor position (handles single char or multiple chars)
+  const insertText = useCallback((text: string) => {
+    if (!text) return;
+
+    const hasSelection = cursor.selectionStart !== null && cursor.selectionEnd !== null;
+    const selStart = hasSelection ? Math.min(cursor.selectionStart!, cursor.selectionEnd!) : cursor.position;
+    const selEnd = hasSelection ? Math.max(cursor.selectionStart!, cursor.selectionEnd!) : cursor.position;
+
+    // Determine style for new text
+    let style: TextStyle;
+    if (pendingFormat) {
+      const baseStyle = getStyleAtPosition(segments, selStart) || defaultStyle;
+      style = { ...baseStyle, ...pendingFormat };
+    } else {
+      style = getStyleAtPosition(segments, selStart > 0 ? selStart - 1 : selStart) || defaultStyle;
+    }
+
+    let newSegments = segments;
+
+    // Delete selection first if any
+    if (hasSelection) {
+      newSegments = deleteTextInRange(newSegments, selStart, selEnd);
+    }
+
+    // Insert the entire text at once
+    newSegments = insertTextAtPosition(newSegments, selStart, text, style);
+
+    onChange(normalizeSegments(newSegments));
+    setCursorPosition(selStart + text.length);
+    clearSelection();
+    clearPendingFormat();
+  }, [cursor, pendingFormat, segments, defaultStyle, onChange, setCursorPosition, clearSelection, clearPendingFormat]);
+
+  // Text input handler
+  const handleInput = useCallback((e: React.FormEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const text = input.value;
+    input.value = '';
+
+    if (text) {
+      insertText(text);
+    }
+  }, [insertText]);
+
+  // Apply format to selection or set pending format
+  const applyFormat = useCallback((format: Partial<TextStyle>) => {
+    const hasSelection = cursor.selectionStart !== null && cursor.selectionEnd !== null;
+
+    if (hasSelection) {
+      const selStart = Math.min(cursor.selectionStart!, cursor.selectionEnd!);
+      const selEnd = Math.max(cursor.selectionStart!, cursor.selectionEnd!);
+
+      // Check current format to toggle
+      const currentStyle = getSelectionStyle(segments, selStart, selEnd);
+      const toggledFormat: Partial<TextStyle> = {};
+
+      for (const [key, value] of Object.entries(format)) {
+        const currentValue = currentStyle.style[key as keyof TextStyle];
+        if (key === 'fontWeight') {
+          toggledFormat.fontWeight = currentValue === 'bold' ? 'normal' : 'bold';
+        } else if (key === 'fontStyle') {
+          toggledFormat.fontStyle = currentValue === 'italic' ? 'normal' : 'italic';
+        } else if (key === 'textDecoration') {
+          toggledFormat.textDecoration = currentValue === value ? 'none' : value as TextStyle['textDecoration'];
+        } else {
+          Object.assign(toggledFormat, { [key]: value });
+        }
+      }
+
+      const newSegments = applyStyleToRange(segments, selStart, selEnd, toggledFormat);
+      onChange(normalizeSegments(newSegments));
+    } else {
+      // Set pending format
+      const currentStyle = getStyleAtPosition(segments, cursor.position) || defaultStyle;
+      const toggledFormat: Partial<TextStyle> = {};
+
+      for (const [key, value] of Object.entries(format)) {
+        if (key === 'fontWeight') {
+          const current = pendingFormat?.fontWeight ?? currentStyle.fontWeight;
+          toggledFormat.fontWeight = current === 'bold' ? 'normal' : 'bold';
+        } else if (key === 'fontStyle') {
+          const current = pendingFormat?.fontStyle ?? currentStyle.fontStyle;
+          toggledFormat.fontStyle = current === 'italic' ? 'normal' : 'italic';
+        } else if (key === 'textDecoration') {
+          const current = pendingFormat?.textDecoration ?? currentStyle.textDecoration;
+          toggledFormat.textDecoration = current === value ? 'none' : value as TextStyle['textDecoration'];
+        } else {
+          Object.assign(toggledFormat, { [key]: value });
+        }
+      }
+
+      useTextBoxStore.getState().mergePendingFormat(toggledFormat);
+    }
+  }, [cursor, segments, defaultStyle, pendingFormat, onChange]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     const isCtrl = e.ctrlKey || e.metaKey;
     const isShift = e.shiftKey;
@@ -666,110 +761,10 @@ export function RichTextEditor({
 
     // Enter key
     if (e.key === 'Enter') {
-      insertChar('\n');
+      insertText('\n');
       return;
     }
-  }, [cursor, plainText, segments, charPositions, lineMetrics, onChange, setCursorPosition, setSelection, clearSelection, clearPendingFormat]);
-
-  // Insert text at cursor position (handles single char or multiple chars)
-  const insertText = useCallback((text: string) => {
-    if (!text) return;
-
-    const hasSelection = cursor.selectionStart !== null && cursor.selectionEnd !== null;
-    const selStart = hasSelection ? Math.min(cursor.selectionStart!, cursor.selectionEnd!) : cursor.position;
-    const selEnd = hasSelection ? Math.max(cursor.selectionStart!, cursor.selectionEnd!) : cursor.position;
-
-    // Determine style for new text
-    let style: TextStyle;
-    if (pendingFormat) {
-      const baseStyle = getStyleAtPosition(segments, selStart) || defaultStyle;
-      style = { ...baseStyle, ...pendingFormat };
-    } else {
-      style = getStyleAtPosition(segments, selStart > 0 ? selStart - 1 : selStart) || defaultStyle;
-    }
-
-    let newSegments = segments;
-
-    // Delete selection first if any
-    if (hasSelection) {
-      newSegments = deleteTextInRange(newSegments, selStart, selEnd);
-    }
-
-    // Insert the entire text at once
-    newSegments = insertTextAtPosition(newSegments, selStart, text, style);
-
-    onChange(normalizeSegments(newSegments));
-    setCursorPosition(selStart + text.length);
-    clearSelection();
-    clearPendingFormat();
-  }, [cursor, pendingFormat, segments, defaultStyle, onChange, setCursorPosition, clearSelection, clearPendingFormat]);
-
-  // Text input handler
-  const handleInput = useCallback((e: React.FormEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    const text = input.value;
-    input.value = '';
-
-    if (text) {
-      insertText(text);
-    }
-  }, [insertText]);
-
-  // Helper for single char insertion (used by Enter key)
-  const insertChar = useCallback((char: string) => {
-    insertText(char);
-  }, [insertText]);
-
-  // Apply format to selection or set pending format
-  const applyFormat = useCallback((format: Partial<TextStyle>) => {
-    const hasSelection = cursor.selectionStart !== null && cursor.selectionEnd !== null;
-
-    if (hasSelection) {
-      const selStart = Math.min(cursor.selectionStart!, cursor.selectionEnd!);
-      const selEnd = Math.max(cursor.selectionStart!, cursor.selectionEnd!);
-
-      // Check current format to toggle
-      const currentStyle = getSelectionStyle(segments, selStart, selEnd);
-      const toggledFormat: Partial<TextStyle> = {};
-
-      for (const [key, value] of Object.entries(format)) {
-        const currentValue = currentStyle.style[key as keyof TextStyle];
-        if (key === 'fontWeight') {
-          toggledFormat.fontWeight = currentValue === 'bold' ? 'normal' : 'bold';
-        } else if (key === 'fontStyle') {
-          toggledFormat.fontStyle = currentValue === 'italic' ? 'normal' : 'italic';
-        } else if (key === 'textDecoration') {
-          toggledFormat.textDecoration = currentValue === value ? 'none' : value as TextStyle['textDecoration'];
-        } else {
-          (toggledFormat as any)[key] = value;
-        }
-      }
-
-      const newSegments = applyStyleToRange(segments, selStart, selEnd, toggledFormat);
-      onChange(normalizeSegments(newSegments));
-    } else {
-      // Set pending format
-      const currentStyle = getStyleAtPosition(segments, cursor.position) || defaultStyle;
-      const toggledFormat: Partial<TextStyle> = {};
-
-      for (const [key, value] of Object.entries(format)) {
-        if (key === 'fontWeight') {
-          const current = pendingFormat?.fontWeight ?? currentStyle.fontWeight;
-          toggledFormat.fontWeight = current === 'bold' ? 'normal' : 'bold';
-        } else if (key === 'fontStyle') {
-          const current = pendingFormat?.fontStyle ?? currentStyle.fontStyle;
-          toggledFormat.fontStyle = current === 'italic' ? 'normal' : 'italic';
-        } else if (key === 'textDecoration') {
-          const current = pendingFormat?.textDecoration ?? currentStyle.textDecoration;
-          toggledFormat.textDecoration = current === value ? 'none' : value as TextStyle['textDecoration'];
-        } else {
-          (toggledFormat as any)[key] = value;
-        }
-      }
-
-      useTextBoxStore.getState().mergePendingFormat(toggledFormat);
-    }
-  }, [cursor, segments, defaultStyle, pendingFormat, onChange]);
+  }, [cursor, plainText, segments, charPositions, lineMetrics, onChange, setCursorPosition, setSelection, clearSelection, clearPendingFormat, insertText, applyFormat]);
 
   // Handle blur with delayed check to properly detect toolbar clicks
   const handleBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
@@ -854,46 +849,4 @@ export function RichTextEditor({
       />
     </div>
   );
-}
-
-// Export a hook to get the current selection style for toolbar display
-export function useSelectionStyle(segments: RichTextSegment[], defaultStyle: TextStyle) {
-  const { cursor, pendingFormat } = useTextBoxStore();
-
-  return useMemo(() => {
-    if (pendingFormat) {
-      const baseStyle = getStyleAtPosition(segments, cursor.position) || defaultStyle;
-      return {
-        style: { ...baseStyle, ...pendingFormat },
-        isMixed: {
-          fontFamily: false,
-          fontSize: false,
-          fontWeight: false,
-          fontStyle: false,
-          textDecoration: false,
-          color: false,
-        },
-      };
-    }
-
-    const hasSelection = cursor.selectionStart !== null && cursor.selectionEnd !== null;
-
-    if (hasSelection) {
-      const selStart = Math.min(cursor.selectionStart!, cursor.selectionEnd!);
-      const selEnd = Math.max(cursor.selectionStart!, cursor.selectionEnd!);
-      return getSelectionStyle(segments, selStart, selEnd);
-    }
-
-    return {
-      style: getStyleAtPosition(segments, cursor.position > 0 ? cursor.position - 1 : 0) || defaultStyle,
-      isMixed: {
-        fontFamily: false,
-        fontSize: false,
-        fontWeight: false,
-        fontStyle: false,
-        textDecoration: false,
-        color: false,
-      },
-    };
-  }, [segments, cursor, pendingFormat, defaultStyle]);
 }

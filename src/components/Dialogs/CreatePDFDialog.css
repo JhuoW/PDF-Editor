@@ -1,0 +1,17 @@
+.create-pdf-images { list-style: none; padding: 0; max-height: 250px; overflow: auto; margin: 16px 0; border: 1px solid var(--gray-7, #d1d5db); border-radius: 6px; }
+.create-pdf-images li { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid var(--gray-7, #e5e7eb); }
+.create-pdf-images li:last-child { border-bottom: 0; }
+.create-pdf-image-number { width: 20px; flex-shrink: 0; color: var(--gray-11, #6b7280); }
+.create-pdf-image-description { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.create-pdf-image-description strong { overflow-wrap: anywhere; font-weight: 500; }
+.create-pdf-image-description span { color: var(--gray-11, #6b7280); font-size: 12px; }
+.create-pdf-image-actions { display: flex; gap: 4px; }
+.create-pdf-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 550px) {
+  .create-pdf-dialog { padding: 16px; }
+  .create-pdf-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+  .create-pdf-options > label:first-child { grid-column: 1 / -1; }
+  .create-pdf-images { max-height: 180px; }
+  .create-pdf-images li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 6px 8px; }
+  .create-pdf-image-actions { grid-column: 2; justify-content: flex-end; }
+}

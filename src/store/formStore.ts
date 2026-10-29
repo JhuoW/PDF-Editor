@@ -4,6 +4,7 @@
 
 import { create } from 'zustand';
 import type { FormField } from '../forms/types';
+import { useHistoryStore } from './historyStore';
 
 interface FormStore {
   // State
@@ -17,6 +18,7 @@ interface FormStore {
   setFields: (fields: FormField[]) => void;
   setFieldValue: (fieldId: string, value: string | boolean | string[]) => void;
   setFieldValueByName: (fieldName: string, value: string | boolean | string[]) => void;
+  setFieldValues: (values: Map<string, FormField['value']>, actionName?: string) => void;
   setActiveField: (fieldId: string | null) => void;
   resetToOriginal: () => void;
   clearForm: () => void;
@@ -51,54 +53,43 @@ export const useFormStore = create<FormStore>((set, get) => ({
     });
   },
 
-  // Update a single field value by ID
+  // Widgets with the same field name are one logical value.
   setFieldValue: (fieldId, value) => {
-    set(state => {
-      const updatedFields = state.fields.map(field =>
-        field.id === fieldId ? { ...field, value } : field
-      );
-
-      // Check if any field differs from original
-      const isDirty = updatedFields.some(field => {
-        const original = state.originalValues.get(field.id);
-        return JSON.stringify(field.value) !== JSON.stringify(original);
-      });
-
-      return { fields: updatedFields, isDirty };
-    });
+    const field = get().fields.find(item => item.id === fieldId);
+    if (field) get().setFieldValueByName(field.name, value);
   },
 
-  // Update a field value by name (updates all widgets with that name)
   setFieldValueByName: (fieldName, value) => {
-    set(state => {
-      const updatedFields = state.fields.map(field =>
-        field.name === fieldName ? { ...field, value } : field
-      );
+    get().setFieldValues(new Map([[fieldName, value]]));
+  },
 
-      const isDirty = updatedFields.some(field => {
-        const original = state.originalValues.get(field.id);
-        return JSON.stringify(field.value) !== JSON.stringify(original);
-      });
-
-      return { fields: updatedFields, isDirty };
+  setFieldValues: (values, actionName) => {
+    const state = get();
+    const fields = state.fields.map(field => {
+      if (field.readOnly || !values.has(field.name)) return field;
+      const value = values.get(field.name)!;
+      return JSON.stringify(value) === JSON.stringify(field.value) ? field : { ...field, value: structuredClone(value) };
     });
+    if (fields.every((field, index) => field === state.fields[index])) return;
+    const active = state.fields.find(field => field.id === state.activeFieldId);
+    const group = !actionName && values.size === 1 && active && values.has(active.name)
+      && (active.type === 'text' || active.allowCustomValue) ? `form:${active.id}` : undefined;
+    useHistoryStore.getState().pushWorkspaceState({ form: { fields: state.fields, originalValues: state.originalValues, isDirty: state.isDirty } },
+      actionName ?? `Fill ${values.keys().next().value}`, group);
+    set({ fields, isDirty: fields.some(field => JSON.stringify(field.value) !== JSON.stringify(state.originalValues.get(field.id))) });
   },
 
-  // Set the currently active/focused field
-  setActiveField: (fieldId) => {
-    set({ activeFieldId: fieldId });
+  setActiveField: activeFieldId => {
+    if (get().activeFieldId !== activeFieldId) useHistoryStore.getState().endGroup();
+    set({ activeFieldId });
   },
 
-  // Reset all fields to their original values
   resetToOriginal: () => {
-    set(state => {
-      const resetFields = state.fields.map(field => ({
-        ...field,
-        value: state.originalValues.get(field.id) ?? field.defaultValue ?? '',
-      }));
-
-      return { fields: resetFields, isDirty: false };
-    });
+    const state = get();
+    const fields = state.fields.map(field => ({ ...field, value: structuredClone(state.originalValues.get(field.id) ?? field.defaultValue ?? '') }));
+    if (fields.every((field, index) => JSON.stringify(field.value) === JSON.stringify(state.fields[index].value))) return;
+    useHistoryStore.getState().pushWorkspaceState({ form: { fields: state.fields, originalValues: state.originalValues, isDirty: state.isDirty } }, 'Reset form');
+    set({ fields, isDirty: false });
   },
 
   // Clear all form state

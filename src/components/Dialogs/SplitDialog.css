@@ -4,12 +4,23 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  box-sizing: border-box;
+  background: transparent;
+  display: none;
   align-items: center;
   justify-content: center;
   z-index: 1000;
 }
+
+.split-dialog-overlay[open] { display: flex; }
+.split-dialog-overlay::backdrop { background: rgba(0, 0, 0, 0.6); }
 
 .split-dialog {
   background: var(--gray-2);
@@ -17,12 +28,14 @@
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
   width: 480px;
   max-width: 90vw;
-  max-height: 80vh;
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
 }
 
 .split-dialog-header {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -52,6 +65,7 @@
 }
 
 .split-dialog-content {
+  min-height: 0;
   padding: 20px;
   overflow-y: auto;
   flex: 1;
@@ -95,6 +109,11 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+@media (max-width: 400px) {
+  .split-range-row { flex-wrap: wrap; }
+  .split-range-row .split-range-label { flex-basis: 100%; }
 }
 
 .split-range-label {
@@ -233,6 +252,7 @@
 }
 
 .split-output-name input {
+  min-width: 0;
   flex: 1;
   padding: 8px 12px;
   border: 1px solid var(--gray-6);
@@ -258,6 +278,8 @@
 }
 
 .split-dialog-actions {
+  flex-shrink: 0;
+  flex-wrap: wrap;
   display: flex;
   justify-content: flex-end;
   gap: 10px;

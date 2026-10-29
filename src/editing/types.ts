@@ -27,6 +27,18 @@ export interface TextLine {
   baseline: number;
 }
 
+export interface TextRect { x: number; y: number; width: number; height: number }
+
+/** Replacement layout in unrotated, CropBox-relative page coordinates. */
+export interface TextLayoutOptions {
+  targetRect?: TextRect;
+  fontName?: string;
+  fontSize?: number;
+  fontColor?: string;
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+  lineHeight?: number;
+}
+
 export interface TextBlock {
   id: string;
   pageNumber: number;
@@ -46,13 +58,19 @@ export interface TextBlock {
     lineHeight: number;
   };
   editable: boolean;
+  unsupportedReason?: string;
 }
+
+export const INVISIBLE_TEXT_EDIT_REASON = 'This page contains an invisible OCR text layer. Editing scanned text is not supported; use search or copy instead.';
+export const CLIPPING_TEXT_EDIT_REASON = 'This page uses text as a clipping path. Editing this text is not supported safely; use search or copy instead.';
 
 export interface TextEditOperation {
   blockId: string;
   originalText: string;
   newText: string;
   timestamp: number;
+  /** The original block rectangle remains the source removal area. */
+  layout?: TextLayoutOptions;
 }
 
 // ============================================================================
@@ -63,6 +81,18 @@ export interface PDFImage {
   id: string;
   pageNumber: number;
   objectName: string;
+  /** Stable across object renumbering; refers to one drawing occurrence. */
+  source?: {
+    occurrence: number;
+    occurrenceCount: number;
+    transform: [number, number, number, number, number, number];
+    pixelWidth?: number;
+    pixelHeight?: number;
+    insideForm: boolean;
+    /** Managed page marks are edited through their batch settings. */
+    decorationInstance?: string;
+  };
+  unsupportedReason?: string;
   rect: {
     x: number;
     y: number;
@@ -78,7 +108,7 @@ export interface PDFImage {
 }
 
 export interface ImageEditOperation {
-  type: 'replace' | 'delete' | 'resize' | 'crop';
+  type: 'replace' | 'delete' | 'resize' | 'move' | 'crop';
   imageId: string;
   newImageData?: ArrayBuffer;
   newRect?: {

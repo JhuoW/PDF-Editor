@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
+import { useSearchStore } from '../../store/searchStore';
+import { buildSearchText, findTextMatches, type TextMatch } from '../../utils/textSearch';
 import './TextLayer.css';
 
 interface TextLayerProps {
@@ -21,6 +23,7 @@ export function TextLayer({
   activeMatchIndex,
 }: TextLayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchOptions = useSearchStore(state => state.options);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -38,6 +41,7 @@ export function TextLayer({
     container.style.height = `${viewport.height}px`;
 
     let cancelled = false;
+    let scrollTimer: ReturnType<typeof setTimeout> | undefined;
 
     const renderTextLayer = async () => {
       try {
@@ -50,8 +54,11 @@ export function TextLayer({
         textLayerDiv.className = 'textLayer';
         container.appendChild(textLayerDiv);
 
-        // Render text items manually
-        for (const item of textContent.items) {
+        const searchable = buildSearchText(textContent.items);
+        const textSpans: Array<{ span: HTMLElement; start: number; end: number }> = [];
+        // Keep each item's offset in the same page text used by the search store.
+        for (const segment of searchable.segments) {
+          const item = textContent.items[segment.itemIndex];
           if (!('str' in item) || !item.str) continue;
 
           const tx = item.transform;
@@ -72,16 +79,16 @@ export function TextLayer({
           }
 
           textLayerDiv.appendChild(span);
+          textSpans.push({ span, start: segment.start, end: segment.end });
         }
 
         // Apply search highlighting if query exists
         if (searchQuery && searchQuery.length > 0) {
           const isActivePage = activeMatchPage === page.pageNumber;
-          highlightSearchMatches(
-            textLayerDiv,
-            searchQuery,
-            isActivePage ? activeMatchIndex : undefined
-          );
+          const active = highlightSearchMatches(textSpans, findTextMatches(searchable.text, searchQuery, searchOptions), isActivePage ? activeMatchIndex : undefined);
+          if (active) scrollTimer = setTimeout(() => {
+            if (!cancelled && active.isConnected) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 100);
         }
       } catch (error) {
         if (!cancelled) {
@@ -94,84 +101,35 @@ export function TextLayer({
 
     return () => {
       cancelled = true;
+      clearTimeout(scrollTimer);
     };
-  }, [page, scale, rotation, searchQuery, activeMatchPage, activeMatchIndex]);
+  }, [page, scale, rotation, searchQuery, searchOptions, activeMatchPage, activeMatchIndex]);
 
   return <div ref={containerRef} className="text-layer-container" />;
 }
 
 function highlightSearchMatches(
-  container: HTMLElement,
-  query: string,
+  spans: Array<{ span: HTMLElement; start: number; end: number }>,
+  matches: TextMatch[],
   activeMatchIndex?: number
-): void {
-  const textSpans = container.querySelectorAll('span');
-  const lowerQuery = query.toLowerCase();
-  let globalMatchIndex = 0;
-
-  textSpans.forEach((span) => {
-    const text = span.textContent || '';
-    const lowerText = text.toLowerCase();
-
-    // Find all matches in this span
-    const fragments: Array<{ text: string; isMatch: boolean; isActive: boolean }> = [];
-    let lastIndex = 0;
-    let searchIndex = 0;
-
-    while ((searchIndex = lowerText.indexOf(lowerQuery, lastIndex)) !== -1) {
-      // Add text before the match
-      if (searchIndex > lastIndex) {
-        fragments.push({
-          text: text.substring(lastIndex, searchIndex),
-          isMatch: false,
-          isActive: false,
-        });
-      }
-
-      // Add the match
-      const isActive = globalMatchIndex === activeMatchIndex;
-      fragments.push({
-        text: text.substring(searchIndex, searchIndex + query.length),
-        isMatch: true,
-        isActive,
-      });
-
-      globalMatchIndex++;
-      lastIndex = searchIndex + query.length;
+): HTMLElement | undefined {
+  let firstMatch = 0, active: HTMLElement | undefined;
+  for (const { span, start, end } of spans) {
+    while (firstMatch < matches.length && matches[firstMatch].end <= start) firstMatch++;
+    if (firstMatch >= matches.length || matches[firstMatch].start >= end) continue;
+    const text = span.textContent ?? '', fragment = document.createDocumentFragment();
+    let cursor = start;
+    for (let index = firstMatch; index < matches.length && matches[index].start < end; index++) {
+      const from = Math.max(start, matches[index].start), to = Math.min(end, matches[index].end);
+      if (from > cursor) fragment.append(document.createTextNode(text.slice(cursor - start, from - start)));
+      const highlight = document.createElement('mark');
+      highlight.className = index === activeMatchIndex ? 'search-highlight active' : 'search-highlight';
+      highlight.textContent = text.slice(from - start, to - start); fragment.append(highlight);
+      if (index === activeMatchIndex && !active) active = highlight;
+      cursor = to;
     }
-
-    // Add remaining text after last match
-    if (lastIndex < text.length) {
-      fragments.push({
-        text: text.substring(lastIndex),
-        isMatch: false,
-        isActive: false,
-      });
-    }
-
-    // If we found matches, rebuild the span content
-    if (fragments.length > 0 && fragments.some((f) => f.isMatch)) {
-      span.innerHTML = '';
-
-      fragments.forEach((fragment) => {
-        if (fragment.isMatch) {
-          const highlight = document.createElement('mark');
-          highlight.className = fragment.isActive
-            ? 'search-highlight active'
-            : 'search-highlight';
-          highlight.textContent = fragment.text;
-          span.appendChild(highlight);
-
-          // Scroll active match into view
-          if (fragment.isActive) {
-            setTimeout(() => {
-              highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
-          }
-        } else {
-          span.appendChild(document.createTextNode(fragment.text));
-        }
-      });
-    }
-  });
+    if (cursor < end) fragment.append(document.createTextNode(text.slice(cursor - start)));
+    span.replaceChildren(fragment);
+  }
+  return active;
 }

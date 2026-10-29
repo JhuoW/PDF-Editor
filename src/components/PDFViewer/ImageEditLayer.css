@@ -110,3 +110,25 @@
 .image-btn.delete:hover {
   background: #fecaca;
 }
+
+.image-box.pending { border-color: #d97706; }
+.image-box.pending .image-label { opacity: 1; }
+.image-box.pending-delete { border-color: #dc2626; background: rgba(220, 38, 38, 0.08); }
+.image-controls {
+  top: 8px;
+  bottom: auto;
+  left: 8px;
+  transform: none;
+  display: block;
+  max-width: min(540px, calc(100% - 16px));
+  pointer-events: auto;
+  font-size: 12px;
+  color: #1f2937;
+  z-index: 100;
+}
+.image-control-actions, .image-geometry { display: flex; gap: 6px; flex-wrap: wrap; align-items: end; }
+.image-geometry { margin-top: 8px; }
+.image-geometry label { display: flex; flex-direction: column; gap: 3px; text-transform: capitalize; }
+.image-geometry input { width: 70px; padding: 3px; border: 1px solid #9ca3af; border-radius: 3px; }
+.image-controls p { max-width: 490px; margin: 7px 0 2px; }
+.image-controls button:disabled { opacity: .5; cursor: not-allowed; }

@@ -34,7 +34,7 @@ interface AnnotationState {
   };
 
   // Custom stamps library
-  customStamps: Array<{ name: string; imageData: string }>;
+  customStamps: Array<{ name: string; imageData: string; width?: number; height?: number }>;
 
   // Crop mode - annotation ID being cropped
   cropModeAnnotationId: string | null;
@@ -49,7 +49,7 @@ interface AnnotationState {
   getAnnotationsForPage: (pageNumber: number) => Annotation[];
   getAllAnnotations: () => Annotation[];
   clearAnnotations: () => void;
-  addCustomStamp: (name: string, imageData: string) => void;
+  addCustomStamp: (name: string, imageData: string, dimensions?: { width: number; height: number }) => void;
   removeCustomStamp: (name: string) => void;
   enterCropMode: (annotationId: string) => void;
   exitCropMode: () => void;
@@ -171,9 +171,9 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
     set({ annotations: new Map(), selectedAnnotationId: null });
   },
 
-  addCustomStamp: (name, imageData) => {
+  addCustomStamp: (name, imageData, dimensions) => {
     set((state) => ({
-      customStamps: [...state.customStamps, { name, imageData }],
+      customStamps: [...state.customStamps, { name, imageData, ...dimensions }],
     }));
   },
 

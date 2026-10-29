@@ -80,12 +80,13 @@ function processNode(node: Node, segments: RichTextSegment[], inheritedStyle: Pa
         case 'del':
           newStyle.textDecoration = 'line-through';
           break;
-        case 'span':
+        case 'span': {
           // Extract inline styles from span
           const spanStyle = element.getAttribute('style') || '';
           applyInlineStyles(spanStyle, newStyle);
           break;
-        case 'mark':
+        }
+        case 'mark': {
           // Highlight - we could track background color if needed
           const markColor = element.getAttribute('data-color');
           if (markColor) {
@@ -93,6 +94,7 @@ function processNode(node: Node, segments: RichTextSegment[], inheritedStyle: Pa
             // but this could be added
           }
           break;
+        }
         case 'br':
           segments.push({
             text: '\n',

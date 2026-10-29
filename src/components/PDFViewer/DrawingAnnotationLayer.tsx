@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
+import { hasOpenModal, isTextInput } from '../../utils/keyboard';
+import { useHistoryStore } from '../../store/historyStore';
+import { registerPendingEditor } from '../../store/workspaceHistory';
 import {
   createInkAnnotation,
   createRectangleAnnotation,
@@ -12,19 +16,24 @@ import {
   createFreeTextAnnotation,
   createImageAnnotation,
 } from '../../store/annotationStore';
-import type { Annotation, FreeTextAnnotation, ImageAnnotation, TextStyle } from '../../annotations/types';
+import type { Annotation, FreeTextAnnotation, ImageAnnotation, StickyNoteAnnotation, TextStyle } from '../../annotations/types';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import { DEFAULT_TEXT_STYLE } from '../../annotations/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
-import { TextBoxContextMenu, BoxPropertiesPanel, TextPropertiesPanel, TipTapEditor } from '../TextBox';
+import { TextBoxContextMenu } from '../TextBox/TextBoxContextMenu';
+import { BoxPropertiesPanel } from '../TextBox/BoxPropertiesPanel';
+import { TextPropertiesPanel } from '../TextBox/TextPropertiesPanel';
 import { ImageContextMenu, ImagePropertiesPanel } from '../ImageToolbar';
-import type { TipTapEditorRef } from '../TextBox';
+import type { TipTapEditorRef } from '../TextBox/TipTapEditor';
 import { useTextBoxStore } from '../../store/textBoxStore';
 import {
   textToSegments,
 } from '../../utils/richText';
 import { parseTipTapHTML, segmentsToTipTapHTML } from '../../utils/tiptapConverter';
+import { mapViewportPoint } from '../../utils/viewportMapping';
 import './DrawingAnnotationLayer.css';
+
+const TipTapEditor = lazy(() => import('../TextBox/TipTapEditor'));
 
 interface DrawingAnnotationLayerProps {
   page: PDFPageProxy;
@@ -45,7 +54,7 @@ type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null;
 export function DrawingAnnotationLayer({
   page,
   pageNumber,
-  scale,
+  scale: viewScale,
   rotation,
   pendingImages,
   onImagePlaced,
@@ -55,10 +64,41 @@ export function DrawingAnnotationLayer({
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPoint, setStartPoint] = useState<Point | null>(null);
   const [currentPath, setCurrentPath] = useState<Point[]>([]);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  // All drawing geometry lives in one unrotated viewport. A single CSS matrix
+  // places the complete canvas/editor layer in the displayed page viewport.
+  // Stored annotations remain in the PDF's original bottom-left coordinates.
+  const scale = viewScale * (page.userUnit || 1);
+  const localViewport = useMemo(() => page.getViewport({ scale: viewScale, rotation: 0 }), [page, viewScale]);
+  const displayViewport = useMemo(() => page.getViewport({ scale: viewScale, rotation: getEffectiveRotation(page, rotation) }), [page, viewScale, rotation]);
+  const dimensions = useMemo(() => ({ width: localViewport.width, height: localViewport.height }), [localViewport]);
+  const layerTransform = useMemo(() => {
+    const origin = mapViewportPoint(0, 0, localViewport, displayViewport);
+    const x = mapViewportPoint(1, 0, localViewport, displayViewport);
+    const y = mapViewportPoint(0, 1, localViewport, displayViewport);
+    return `matrix(${x.x - origin.x}, ${x.y - origin.y}, ${y.x - origin.x}, ${y.y - origin.y}, ${origin.x}, ${origin.y})`;
+  }, [localViewport, displayViewport]);
+  const visibleBounds = useMemo(() => {
+    const [left, top] = localViewport.convertToPdfPoint(0, 0);
+    const [right, bottom] = localViewport.convertToPdfPoint(localViewport.width, localViewport.height);
+    return { left, top, right, bottom };
+  }, [localViewport]);
+  const clientToLocal = useCallback((clientX: number, clientY: number) => {
+    const bounds = containerRef.current?.getBoundingClientRect();
+    if (!bounds) return null;
+    return mapViewportPoint(clientX - bounds.left, clientY - bounds.top, displayViewport, localViewport);
+  }, [displayViewport, localViewport]);
 
   // Text editing state
-  const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<{ id: string; token: number; initialContent: string } | null>(null);
+  const activeEditingSession = useRef<typeof editingSession>(null);
+  const nextEditingToken = useRef(0);
+  const editingAnnotationId = editingSession?.id ?? null;
+  const setEditingAnnotationId = useCallback((id: string | null) => {
+    const annotation = id ? useAnnotationStore.getState().getAllAnnotations().find(item => item.id === id) : undefined;
+    const session = id ? { id, token: ++nextEditingToken.current, initialContent: annotation?.type === 'freetext' ? annotation.content : '' } : null;
+    activeEditingSession.current = session;
+    setEditingSession(session);
+  }, []);
   const [editingContent, setEditingContent] = useState('');
   const tiptapEditorRef = useRef<TipTapEditorRef>(null);
   const lastHtmlContentRef = useRef<string>(''); // Store latest HTML for reliable access
@@ -102,7 +142,7 @@ export function DrawingAnnotationLayer({
   const dragCounterRef = useRef(0);
 
   // Crop mode state
-  const [isCropping, setIsCropping] = useState(false);
+  const [cropOwner, setCropOwner] = useState<string | null>(null);
   const [cropBounds, setCropBounds] = useState<{ top: number; right: number; bottom: number; left: number } | null>(null);
   const [cropHandle, setCropHandle] = useState<'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null>(null);
   const [cropStart, setCropStart] = useState<Point | null>(null);
@@ -128,6 +168,7 @@ export function DrawingAnnotationLayer({
 
   // Image cache for rendering - stores loaded HTMLImageElement objects
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  const [, repaintImages] = useState(0);
 
   const {
     currentTool,
@@ -147,53 +188,47 @@ export function DrawingAnnotationLayer({
   const annotations = getAnnotationsForPage(pageNumber);
   const selectedAnnotation = annotations.find(a => a.id === selectedAnnotationId);
 
-  // Calculate effective rotation and viewport
-  useEffect(() => {
-    if (!page) return;
-    const effectiveRotation = getEffectiveRotation(page, rotation);
-    const viewport = page.getViewport({ scale, rotation: effectiveRotation });
-    setDimensions({ width: viewport.width, height: viewport.height });
-  }, [page, scale, rotation]);
-
-  // Handle entering crop mode from store (triggered by ImageToolbar)
-  useEffect(() => {
-    if (!cropModeAnnotationId) return;
-
-    // Check if the annotation to crop is on this page
-    const annotationToCrop = annotations.find(a => a.id === cropModeAnnotationId);
-    if (!annotationToCrop || annotationToCrop.type !== 'image') return;
-
-    // Enter crop mode
-    const imgAnnotation = annotationToCrop as ImageAnnotation;
-    const existingCrop = imgAnnotation.cropBounds || { top: 0, right: 0, bottom: 0, left: 0 };
-    setCropBounds(existingCrop);
-    setInitialCropBounds(existingCrop);
-    setIsCropping(true);
-  }, [cropModeAnnotationId, annotations]);
+  const annotationToCrop = annotations.find(annotation => annotation.id === cropModeAnnotationId && annotation.type === 'image') as ImageAnnotation | undefined;
+  const isCropping = !!annotationToCrop;
+  const nextCropOwner = annotationToCrop?.id ?? null;
+  // The draft belongs to one crop session. Reset it only when that session
+  // changes, so unrelated annotation updates cannot reset an in-progress drag.
+  if (cropOwner !== nextCropOwner) {
+    const bounds = annotationToCrop ? annotationToCrop.cropBounds ?? { top: 0, right: 0, bottom: 0, left: 0 } : null;
+    setCropOwner(nextCropOwner);
+    setCropBounds(bounds);
+    setInitialCropBounds(bounds);
+    setCropHandle(null);
+    setCropStart(null);
+  }
 
   // Convert screen coordinates to PDF coordinates
   const screenToPdfCoords = useCallback(
     (screenX: number, screenY: number): Point => {
-      const effectiveRotation = getEffectiveRotation(page, rotation);
-      const viewport = page.getViewport({ scale, rotation: effectiveRotation });
-      const pdfX = screenX / scale;
-      const pdfY = (viewport.height - screenY) / scale;
+      const [pdfX, pdfY] = localViewport.convertToPdfPoint(screenX, screenY);
       return { x: pdfX, y: pdfY };
     },
-    [page, scale, rotation]
+    [localViewport]
   );
 
   // Convert PDF coordinates to screen coordinates
   const pdfToScreenCoords = useCallback(
     (pdfX: number, pdfY: number): Point => {
-      const effectiveRotation = getEffectiveRotation(page, rotation);
-      const viewport = page.getViewport({ scale, rotation: effectiveRotation });
-      const screenX = pdfX * scale;
-      const screenY = viewport.height - pdfY * scale;
+      const [screenX, screenY] = localViewport.convertToViewportPoint(pdfX, pdfY);
       return { x: screenX, y: screenY };
     },
-    [page, scale, rotation]
+    [localViewport]
   );
+
+  const noteGeometry = (annotation: StickyNoteAnnotation) => {
+    const anchor = pdfToScreenCoords(annotation.position.x, annotation.position.y);
+    const flags = annotation.nativeText?.flags ?? 28;
+    return {
+      anchor,
+      size: flags & 8 ? 24 : 24 * scale,
+      rotation: flags & 16 ? -getEffectiveRotation(page, rotation) : 0,
+    };
+  };
 
   // Calculate snap targets for the current page
   const calculateSnapTargets = useCallback((excludeAnnotationId?: string) => {
@@ -203,19 +238,16 @@ export function DrawingAnnotationLayer({
     };
 
     // Page center and edges (in PDF coords)
-    const pageWidth = dimensions.width / scale;
-    const pageHeight = dimensions.height / scale;
-
     // Page center
-    targets.vertical.push({ position: pageWidth / 2, type: 'center' });
-    targets.horizontal.push({ position: pageHeight / 2, type: 'center' });
+    targets.vertical.push({ position: (visibleBounds.left + visibleBounds.right) / 2, type: 'center' });
+    targets.horizontal.push({ position: (visibleBounds.bottom + visibleBounds.top) / 2, type: 'center' });
 
     // Page edges (small margin from edge)
     const margin = 10;
-    targets.vertical.push({ position: margin, type: 'edge' });
-    targets.vertical.push({ position: pageWidth - margin, type: 'edge' });
-    targets.horizontal.push({ position: margin, type: 'edge' });
-    targets.horizontal.push({ position: pageHeight - margin, type: 'edge' });
+    targets.vertical.push({ position: visibleBounds.left + margin, type: 'edge' });
+    targets.vertical.push({ position: visibleBounds.right - margin, type: 'edge' });
+    targets.horizontal.push({ position: visibleBounds.bottom + margin, type: 'edge' });
+    targets.horizontal.push({ position: visibleBounds.top - margin, type: 'edge' });
 
     // Other annotations on this page
     for (const annotation of annotations) {
@@ -250,7 +282,7 @@ export function DrawingAnnotationLayer({
     }
 
     return targets;
-  }, [annotations, dimensions.width, dimensions.height, scale]);
+  }, [annotations, visibleBounds]);
 
   // Apply snapping to a position and return snapped position plus active guides
   const applySnapping = useCallback((
@@ -424,7 +456,7 @@ export function DrawingAnnotationLayer({
     const { paths, color, strokeWidth } = annotation;
 
     ctx.strokeStyle = color;
-    ctx.lineWidth = strokeWidth;
+    ctx.lineWidth = strokeWidth * scale;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -464,7 +496,7 @@ export function DrawingAnnotationLayer({
     }
 
     ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = strokeWidth;
+    ctx.lineWidth = strokeWidth * scale;
     ctx.strokeRect(topLeft.x, topLeft.y, width, height);
 
     if (isSelected) {
@@ -497,7 +529,7 @@ export function DrawingAnnotationLayer({
     }
 
     ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = strokeWidth;
+    ctx.lineWidth = strokeWidth * scale;
     ctx.stroke();
 
     if (isSelected) {
@@ -516,7 +548,7 @@ export function DrawingAnnotationLayer({
     const endScreen = pdfToScreenCoords(end[0], end[1]);
 
     ctx.strokeStyle = color;
-    ctx.lineWidth = strokeWidth;
+    ctx.lineWidth = strokeWidth * scale;
     ctx.lineCap = 'round';
 
     ctx.beginPath();
@@ -526,7 +558,7 @@ export function DrawingAnnotationLayer({
 
     if (endArrow || annotation.type === 'arrow') {
       const angle = Math.atan2(endScreen.y - startScreen.y, endScreen.x - startScreen.x);
-      const arrowLength = 15;
+      const arrowLength = 10 * scale;
       const arrowAngle = Math.PI / 6;
 
       ctx.beginPath();
@@ -560,10 +592,11 @@ export function DrawingAnnotationLayer({
     annotation: Annotation & { type: 'sticky-note' },
     isSelected: boolean
   ) => {
-    const { position, color } = annotation;
-    const screen = pdfToScreenCoords(position.x, position.y);
-
-    const size = 24;
+    const { color } = annotation;
+    const { anchor, size, rotation: noteRotation } = noteGeometry(annotation);
+    ctx.translate(anchor.x, anchor.y);
+    ctx.rotate(noteRotation * Math.PI / 180);
+    const screen = { x: 0, y: 0 };
     ctx.fillStyle = color;
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
@@ -661,23 +694,17 @@ export function DrawingAnnotationLayer({
 
     // Get or create cached image
     let img = imageCache.current.get(annotation.id);
-    if (!img) {
+    if (!img || img.getAttribute('src') !== imageData) {
       img = new Image();
-      img.src = imageData;
       imageCache.current.set(annotation.id, img);
-      // Force re-render when image loads
-      img.onload = () => {
-        const canvas = canvasRef.current;
-        if (canvas) {
-          canvas.dispatchEvent(new Event('imageLoaded'));
-        }
-      };
+      img.onload = () => repaintImages(version => version + 1);
+      img.src = imageData;
     }
 
     // Draw border if specified
     if (borderWidth > 0 && borderStyle !== 'none') {
       ctx.strokeStyle = borderColor;
-      ctx.lineWidth = borderWidth;
+      ctx.lineWidth = borderWidth * scale;
 
       if (borderStyle === 'dashed') {
         ctx.setLineDash([6, 3]);
@@ -837,7 +864,7 @@ export function DrawingAnnotationLayer({
     // Draw border with border radius
     if (borderWidth > 0 && borderStyle !== 'none') {
       ctx.strokeStyle = borderColor;
-      ctx.lineWidth = borderWidth;
+      ctx.lineWidth = borderWidth * scale;
 
       // Set dash pattern based on style
       if (borderStyle === 'dashed') {
@@ -1197,7 +1224,7 @@ export function DrawingAnnotationLayer({
 
     ctx.strokeStyle = toolSettings.color;
     ctx.fillStyle = toolSettings.color;
-    ctx.lineWidth = toolSettings.strokeWidth;
+    ctx.lineWidth = toolSettings.strokeWidth * scale;
     ctx.globalAlpha = toolSettings.opacity;
 
     if (currentTool === 'ink' && currentPath.length > 0) {
@@ -1233,7 +1260,7 @@ export function DrawingAnnotationLayer({
 
       if (currentTool === 'arrow') {
         const angle = Math.atan2(endY - startPoint.y, endX - startPoint.x);
-        const arrowLength = 15;
+        const arrowLength = 10 * scale;
         const arrowAngle = Math.PI / 6;
 
         ctx.beginPath();
@@ -1264,7 +1291,8 @@ export function DrawingAnnotationLayer({
     }
   };
 
-  // Render annotations on canvas - placed after render functions to avoid "used before defined" errors
+  // Paint after each component render so the canvas reflects the complete
+  // current drawing, selection and crop state used by the helpers above.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1293,7 +1321,7 @@ export function DrawingAnnotationLayer({
     if (isDrawing && currentTool !== 'select') {
       renderDrawingPreview(ctx);
     }
-  }, [annotations, dimensions, scale, selectedAnnotationId, isDrawing, currentPath, startPoint, currentTool, toolSettings, editingAnnotationId]);
+  });
 
   // Get resize handle at position
   const getResizeHandleAt = (x: number, y: number, annotation: Annotation): ResizeHandle => {
@@ -1360,11 +1388,12 @@ export function DrawingAnnotationLayer({
 
   // Mouse event handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const point = clientToLocal(e.clientX, e.clientY);
+    if (!point) return;
+    const { x, y } = point;
+    // Commit before another box/tool interaction can replace the active session.
+    // Delayed blur events from the old editor are then harmless.
+    if (editingAnnotationId) finishEditing();
 
     // Check for rotation handle on selected freetext or image annotation (skip if cropping)
     if (!isCropping && selectedAnnotation && (selectedAnnotation.type === 'freetext' || selectedAnnotation.type === 'image') && isOnRotationHandle(x, y, selectedAnnotation)) {
@@ -1464,11 +1493,9 @@ export function DrawingAnnotationLayer({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const point = clientToLocal(e.clientX, e.clientY);
+    if (!point) return;
+    const { x, y } = point;
 
     // Handle crop handle dragging
     if (cropHandle && cropStart && initialCropBounds && selectedAnnotation?.type === 'image') {
@@ -1546,38 +1573,38 @@ export function DrawingAnnotationLayer({
       const deltaX = (x - resizeStart.x) / scale;
       const deltaY = -(y - resizeStart.y) / scale; // Invert Y for PDF coords
 
-      let newRect = [...resizeAnnotationRect] as [number, number, number, number];
+      const newRect = [...resizeAnnotationRect] as [number, number, number, number];
 
       switch (resizeHandle) {
         case 'nw':
           newRect[0] += deltaX;
-          newRect[1] += deltaY;
           newRect[2] -= deltaX;
-          newRect[3] -= deltaY;
+          newRect[3] += deltaY;
           break;
         case 'n':
-          newRect[1] += deltaY;
-          newRect[3] -= deltaY;
+          newRect[3] += deltaY;
           break;
         case 'ne':
-          newRect[1] += deltaY;
           newRect[2] += deltaX;
-          newRect[3] -= deltaY;
+          newRect[3] += deltaY;
           break;
         case 'e':
           newRect[2] += deltaX;
           break;
         case 'se':
           newRect[2] += deltaX;
-          newRect[3] += deltaY;
+          newRect[1] += deltaY;
+          newRect[3] -= deltaY;
           break;
         case 's':
-          newRect[3] += deltaY;
+          newRect[1] += deltaY;
+          newRect[3] -= deltaY;
           break;
         case 'sw':
           newRect[0] += deltaX;
           newRect[2] -= deltaX;
-          newRect[3] += deltaY;
+          newRect[1] += deltaY;
+          newRect[3] -= deltaY;
           break;
         case 'w':
           newRect[0] += deltaX;
@@ -1621,8 +1648,8 @@ export function DrawingAnnotationLayer({
 
           // Convert guide positions from PDF coords to screen coords for rendering
           const screenGuides = {
-            vertical: snapping.guides.vertical.map(pos => pos * scale),
-            horizontal: snapping.guides.horizontal.map(pos => dimensions.height - pos * scale),
+            vertical: snapping.guides.vertical.map(pos => pdfToScreenCoords(pos, visibleBounds.bottom).x),
+            horizontal: snapping.guides.horizontal.map(pos => pdfToScreenCoords(visibleBounds.left, pos).y),
           };
           setSnapGuides(screenGuides);
         } else {
@@ -1651,8 +1678,8 @@ export function DrawingAnnotationLayer({
           newY += snapping.deltaY;
 
           const screenGuides = {
-            vertical: snapping.guides.vertical.map(pos => pos * scale),
-            horizontal: snapping.guides.horizontal.map(pos => dimensions.height - pos * scale),
+            vertical: snapping.guides.vertical.map(pos => pdfToScreenCoords(pos, visibleBounds.bottom).x),
+            horizontal: snapping.guides.horizontal.map(pos => pdfToScreenCoords(visibleBounds.left, pos).y),
           };
           setSnapGuides(screenGuides);
         } else {
@@ -1755,11 +1782,9 @@ export function DrawingAnnotationLayer({
       return;
     }
 
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const endX = e.clientX - rect.left;
-    const endY = e.clientY - rect.top;
+    const point = clientToLocal(e.clientX, e.clientY);
+    if (!point) return;
+    const { x: endX, y: endY } = point;
 
     const startPdf = screenToPdfCoords(startPoint.x, startPoint.y);
     const endPdf = screenToPdfCoords(endX, endY);
@@ -1886,12 +1911,15 @@ export function DrawingAnnotationLayer({
         break;
       }
       case 'stamp': {
-        const selectedStamp = (window as unknown as { __selectedStamp?: { type: 'predefined' | 'custom'; name: string; imageData?: string } }).__selectedStamp || {
+        const selectedStamp = (window as unknown as { __selectedStamp?: { type: 'predefined' | 'custom'; name: string; imageData?: string; width?: number; height?: number } }).__selectedStamp || {
           type: 'predefined',
           name: 'Approved',
         };
-        const w = 120;
-        const h = 40;
+        let w = 120, h = 40;
+        if (selectedStamp.type === 'custom' && selectedStamp.width && selectedStamp.height && Number.isFinite(selectedStamp.width) && Number.isFinite(selectedStamp.height) && selectedStamp.width > 0 && selectedStamp.height > 0) {
+          const scale = 120 / Math.max(selectedStamp.width, selectedStamp.height);
+          w = selectedStamp.width * scale; h = selectedStamp.height * scale;
+        }
         annotation = createStampAnnotation(
           pageNumber,
           [startPdf.x - w / 2, startPdf.y - h / 2, w, h],
@@ -1919,11 +1947,9 @@ export function DrawingAnnotationLayer({
 
   // Handle double-click to edit text box (works regardless of current tool)
   const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const point = clientToLocal(e.clientX, e.clientY);
+    if (!point) return;
+    const { x, y } = point;
 
     for (const annotation of annotations) {
       if (annotation.type === 'freetext' && isPointInAnnotation(x, y, annotation)) {
@@ -1971,17 +1997,20 @@ export function DrawingAnnotationLayer({
 
   // Finish editing text box
   const finishEditing = useCallback(() => {
-    if (!editingAnnotationId) return;
+    if (!editingAnnotationId || !editingSession || activeEditingSession.current !== editingSession) return;
+    // Blur can be queued more than once, including after another box is opened.
+    // Only the current session may commit, and it can commit just once.
+    activeEditingSession.current = null;
 
-    const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
+    const annotation = useAnnotationStore.getState().getAnnotationsForPage(pageNumber).find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
     if (annotation && annotation.type === 'freetext') {
       if (useTipTapEditor) {
         // Get content from TipTap editor or from ref as fallback
         const htmlContent = tiptapEditorRef.current?.getHTML() || lastHtmlContentRef.current;
-        const plainContent = (tiptapEditorRef.current?.getText() || editingContent).trim();
+        const plainContent = (tiptapEditorRef.current?.getText() ?? editingContent).trim();
 
         if (plainContent === '') {
-          if (!annotation.content || annotation.content.trim() === '') {
+          if (!editingSession.initialContent.trim()) {
             // Delete empty text box and record deletion for undo
             recordDelete(annotation);
             deleteAnnotation(editingAnnotationId);
@@ -2012,7 +2041,7 @@ export function DrawingAnnotationLayer({
         const trimmedContent = editingContent.trim();
 
         if (trimmedContent === '') {
-          if (!annotation.content || annotation.content.trim() === '') {
+          if (!editingSession.initialContent.trim()) {
             // Delete empty text box and record deletion for undo
             recordDelete(annotation);
             deleteAnnotation(editingAnnotationId);
@@ -2029,13 +2058,15 @@ export function DrawingAnnotationLayer({
       }
     }
 
+    useHistoryStore.getState().endGroup();
     setEditingAnnotationId(null);
     setEditingContent('');
     setEditingSegments([]);
     lastHtmlContentRef.current = ''; // Clear HTML ref
     // Clear textbox store state
     useTextBoxStore.getState().stopEditing();
-  }, [editingAnnotationId, annotations, useTipTapEditor, editingContent, recordDelete, deleteAnnotation, updateAnnotation, recordUpdate, setEditingSegments]);
+  }, [editingAnnotationId, editingSession, pageNumber, useTipTapEditor, editingContent, recordDelete, deleteAnnotation, updateAnnotation, recordUpdate, setEditingSegments, setEditingAnnotationId]);
+  useEffect(() => registerPendingEditor(finishEditing), [finishEditing]);
 
   // Handle click for selection
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -2044,11 +2075,9 @@ export function DrawingAnnotationLayer({
     // Skip if we just finished dragging or resizing (selection was handled in mousedown)
     if (justFinishedInteraction.current) return;
 
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const point = clientToLocal(e.clientX, e.clientY);
+    if (!point) return;
+    const { x, y } = point;
 
     // Handle image placement when in image tool mode with pending images
     if (currentTool === 'image' && pendingImages && pendingImages.length > 0) {
@@ -2127,9 +2156,12 @@ export function DrawingAnnotationLayer({
         );
       }
       case 'sticky-note': {
-        const { position } = annotation as { position: { x: number; y: number } };
-        const screen = pdfToScreenCoords(position.x, position.y);
-        return x >= screen.x && x <= screen.x + 24 && y >= screen.y && y <= screen.y + 24;
+        const { anchor, size, rotation: noteRotation } = noteGeometry(annotation);
+        const angle = -noteRotation * Math.PI / 180;
+        const dx = x - anchor.x, dy = y - anchor.y;
+        const localX = dx * Math.cos(angle) - dy * Math.sin(angle);
+        const localY = dx * Math.sin(angle) + dy * Math.cos(angle);
+        return localX >= 0 && localX <= size && localY >= 0 && localY <= size;
       }
       case 'line':
       case 'arrow': {
@@ -2198,6 +2230,7 @@ export function DrawingAnnotationLayer({
   // Handle keyboard for delete, undo/redo and formatting shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || hasOpenModal() || isTextInput(e.target) || isCropping) return;
       // Skip if typing in an input (except for undo/redo)
       const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
       const isCtrl = e.ctrlKey || e.metaKey;
@@ -2545,7 +2578,7 @@ export function DrawingAnnotationLayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, deleteAnnotation, updateAnnotation, addAnnotation, editingAnnotationId, annotations, recordDelete, recordUpdate, selectAnnotation, recordAdd, pageNumber]);
+  }, [selectedAnnotationId, deleteAnnotation, updateAnnotation, addAnnotation, editingAnnotationId, annotations, recordDelete, recordUpdate, selectAnnotation, recordAdd, pageNumber, setEditingSegments, setEditingAnnotationId, isCropping]);
 
   // Handle undo for annotations
   const handleAnnotationUndo = useCallback(() => {
@@ -2619,7 +2652,7 @@ export function DrawingAnnotationLayer({
     }
 
     if (e.key === 'Escape') {
-      const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
+      const annotation = useAnnotationStore.getState().getAnnotationsForPage(pageNumber).find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
       if (annotation && annotation.type === 'freetext' && !annotation.content) {
         // Record deletion for undo before deleting
         recordDelete(annotation);
@@ -2631,7 +2664,7 @@ export function DrawingAnnotationLayer({
       finishEditing();
     } else if (isCtrl && editingAnnotationId) {
       // Formatting shortcuts
-      const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
+      const annotation = useAnnotationStore.getState().getAnnotationsForPage(pageNumber).find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
       if (annotation && annotation.type === 'freetext') {
         const currentStyle = getAnnotationStyle(annotation);
         let styleUpdate: Partial<TextStyle> | null = null;
@@ -2677,7 +2710,7 @@ export function DrawingAnnotationLayer({
   // Get editing annotation rect for textarea
   const getEditingAnnotationRect = () => {
     if (!editingAnnotationId) return null;
-    const annotation = annotations.find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
+    const annotation = useAnnotationStore.getState().getAnnotationsForPage(pageNumber).find((a) => a.id === editingAnnotationId) as FreeTextAnnotation | undefined;
     if (!annotation || annotation.type !== 'freetext') return null;
 
     const style = getAnnotationStyle(annotation);
@@ -2781,8 +2814,8 @@ export function DrawingAnnotationLayer({
             pdfY = pdfCoords.y;
           } else {
             // Center of visible area
-            pdfX = dimensions.width / scale / 2;
-            pdfY = dimensions.height / scale / 2;
+            pdfX = (visibleBounds.left + visibleBounds.right) / 2;
+            pdfY = (visibleBounds.bottom + visibleBounds.top) / 2;
           }
 
           // Calculate image dimensions - fit to max 200px (or page size for very small pages)
@@ -2821,8 +2854,8 @@ export function DrawingAnnotationLayer({
           // Constrain position to keep image on page
           const halfWidth = imgWidth / 2;
           const halfHeight = imgHeight / 2;
-          pdfX = Math.max(halfWidth, Math.min(pageWidth - halfWidth, pdfX));
-          pdfY = Math.max(halfHeight, Math.min(pageHeight - halfHeight, pdfY));
+          pdfX = Math.max(visibleBounds.left + halfWidth, Math.min(visibleBounds.right - halfWidth, pdfX));
+          pdfY = Math.max(visibleBounds.bottom + halfHeight, Math.min(visibleBounds.top - halfHeight, pdfY));
 
           // Create and add image annotation
           const imageAnnotation = createImageAnnotation(
@@ -2849,7 +2882,7 @@ export function DrawingAnnotationLayer({
 
       reader.readAsDataURL(file);
     });
-  }, [pageNumber, dimensions, scale, addAnnotation, recordAdd, selectAnnotation, screenToPdfCoords]);
+  }, [pageNumber, dimensions, scale, visibleBounds, addAnnotation, recordAdd, selectAnnotation, screenToPdfCoords]);
 
   // Handle drag enter
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -2885,11 +2918,9 @@ export function DrawingAnnotationLayer({
     setIsDragOver(false);
     dragCounterRef.current = 0;
 
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const dropX = e.clientX - rect.left;
-    const dropY = e.clientY - rect.top;
+    const point = clientToLocal(e.clientX, e.clientY);
+    if (!point) return;
+    const { x: dropX, y: dropY } = point;
 
     const files = Array.from(e.dataTransfer.files);
     const imageFiles = files.filter(f => f.type.startsWith('image/'));
@@ -2902,7 +2933,7 @@ export function DrawingAnnotationLayer({
       const offsetY = dropY + i * 20;
       await processImageFile(file, offsetX, offsetY);
     }
-  }, [processImageFile]);
+  }, [processImageFile, clientToLocal]);
 
   // Handle clipboard paste for images
   useEffect(() => {
@@ -2939,7 +2970,6 @@ export function DrawingAnnotationLayer({
 
   // Cancel crop mode
   const cancelCropMode = useCallback(() => {
-    setIsCropping(false);
     setCropBounds(null);
     setCropHandle(null);
     setCropStart(null);
@@ -3002,6 +3032,7 @@ export function DrawingAnnotationLayer({
     if (!isCropping) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || hasOpenModal() || isTextInput(e.target)) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         applyCrop();
@@ -3033,14 +3064,49 @@ export function DrawingAnnotationLayer({
     return 'default';
   };
 
+  // In selection mode only annotation regions capture events. Empty page areas
+  // remain available for PDF text selection; an active drag captures the layer.
+  const renderHitRegion = (annotation: Annotation) => {
+    if ('rect' in annotation) {
+      const [x, y, width, height] = annotation.rect;
+      const top = pdfToScreenCoords(x, y + height);
+      const bottom = pdfToScreenCoords(x + width, y);
+      return <g key={annotation.id}>
+        <rect x={top.x - 5} y={top.y - 5} width={bottom.x - top.x + 10} height={bottom.y - top.y + 10} fill="transparent" pointerEvents="all" />
+        {annotation.id === selectedAnnotationId && (annotation.type === 'freetext' || annotation.type === 'image') &&
+          <circle cx={(top.x + bottom.x) / 2} cy={top.y - 25} r={10} fill="transparent" pointerEvents="all" />}
+      </g>;
+    }
+    if (annotation.type === 'sticky-note') {
+      const { anchor, size, rotation: noteRotation } = noteGeometry(annotation);
+      return <rect key={annotation.id} x={anchor.x} y={anchor.y} width={size} height={size} transform={`rotate(${noteRotation} ${anchor.x} ${anchor.y})`} fill="transparent" pointerEvents="all" />;
+    }
+    if (annotation.type === 'line' || annotation.type === 'arrow') {
+      const start = pdfToScreenCoords(...annotation.start), end = pdfToScreenCoords(...annotation.end);
+      return <line key={annotation.id} x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="transparent" strokeWidth={20} pointerEvents="stroke" />;
+    }
+    if (annotation.type === 'ink') {
+      return <g key={annotation.id}>{annotation.paths.map((path, index) => {
+        const points = path.map(point => pdfToScreenCoords(point[0], point[1]));
+        const d = points.map((point, i) => `${i ? 'L' : 'M'}${point.x} ${point.y}`).join(' ');
+        return <path key={index} d={d} fill="none" stroke="transparent" strokeWidth={20} pointerEvents="stroke" />;
+      })}</g>;
+    }
+    return null;
+  };
+
   return (
+    <>
     <div
       ref={containerRef}
       className={`drawing-annotation-layer ${currentTool !== 'select' && currentTool !== 'pan' ? 'drawing-mode' : ''} ${currentTool === 'pan' ? 'pan-mode' : ''} ${isDragOver ? 'drag-over' : ''}`}
       style={{
         width: dimensions.width,
         height: dimensions.height,
+        transform: layerTransform,
+        transformOrigin: '0 0',
         cursor: getCursor(),
+        pointerEvents: isDragging || isResizing || isRotating ? 'auto' : undefined,
       }}
       onMouseDown={currentTool === 'pan' ? undefined : handleMouseDown}
       onMouseMove={currentTool === 'pan' ? undefined : handleMouseMove}
@@ -3053,11 +3119,9 @@ export function DrawingAnnotationLayer({
       onDrop={handleDrop}
       onContextMenu={(e) => {
         e.preventDefault();
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) return;
-
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const point = clientToLocal(e.clientX, e.clientY);
+        if (!point) return;
+        const { x, y } = point;
 
         // Check if right-clicking on an annotation
         for (const annotation of annotations) {
@@ -3084,6 +3148,9 @@ export function DrawingAnnotationLayer({
       }}
     >
       <canvas ref={canvasRef} className="annotation-canvas" />
+      {currentTool === 'select' && <svg className="annotation-hit-regions" width={dimensions.width} height={dimensions.height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} aria-hidden="true">
+        {annotations.filter(annotation => annotation.id !== editingAnnotationId).map(renderHitRegion)}
+      </svg>}
 
       {/* Snap guide lines */}
       {(snapGuides.vertical.length > 0 || snapGuides.horizontal.length > 0) && (
@@ -3274,6 +3341,9 @@ export function DrawingAnnotationLayer({
       {editingAnnotationId && editingRect && useTipTapEditor && (
         <div
           className="freetext-editor-container"
+          onMouseDown={event => event.stopPropagation()}
+          onClick={event => event.stopPropagation()}
+          onDoubleClick={event => event.stopPropagation()}
           style={{
             position: 'absolute',
             left: editingRect.left,
@@ -3286,23 +3356,37 @@ export function DrawingAnnotationLayer({
             boxSizing: 'border-box',
             zIndex: 1002,
             overflow: 'hidden',
+            pointerEvents: 'auto',
           }}
         >
+          <Suspense fallback={<div role="status">Loading text editor…</div>}>
+          <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: editingRect.width / scale, height: editingRect.height / scale }}>
           <TipTapEditor
+            key={editingSession!.token}
             ref={tiptapEditorRef}
             initialContent={editingContent}
             defaultStyle={editingRect.style}
-            width={editingRect.width - 4}
-            height={editingRect.height - 4}
+            width={(editingRect.width - 4) / scale}
+            height={(editingRect.height - 4) / scale}
             padding={8}
             onContentChange={(html, text) => {
               setEditingContent(text);
-              // Store HTML content in ref for reliable access during finishEditing
               lastHtmlContentRef.current = html;
+              if (!editingSession || activeEditingSession.current !== editingSession) return;
+              const previous = useAnnotationStore.getState().getAnnotationsForPage(pageNumber).find(item => item.id === editingAnnotationId);
+              if (!previous || previous.type !== 'freetext' || (!text && !previous.content)) return;
+              const richContent = parseTipTapHTML(html, getAnnotationStyle(previous));
+              const content = richContent.map(segment => segment.text).join('');
+              if (previous.htmlContent === html && previous.content === content) return;
+              const updated = { ...previous, content, htmlContent: html, richContent };
+              updateAnnotation(previous.id, updated);
+              recordUpdate(updated, previous, `textbox:${previous.id}:${editingSession.token}`);
             }}
             onBlur={finishEditing}
             autoFocus={true}
           />
+          </div>
+          </Suspense>
         </div>
       )}
 
@@ -3342,7 +3426,9 @@ export function DrawingAnnotationLayer({
         />
       )}
 
-      {/* Context menu for text boxes */}
+    </div>
+    {createPortal(<>
+      {/* Fixed menus and property panels stay outside the transformed layer. */}
       {contextMenu && (
         <TextBoxContextMenu
           annotation={contextMenu.annotation}
@@ -3430,6 +3516,7 @@ export function DrawingAnnotationLayer({
           onClose={() => setShowImagePropertiesPanel(false)}
         />
       )}
-    </div>
+    </>, document.body)}
+    </>
   );
 }

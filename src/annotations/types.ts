@@ -184,14 +184,31 @@ export interface LineAnnotation extends BaseAnnotation {
   endArrow?: boolean;
 }
 
+// Plain data only: this metadata survives workspace history and IndexedDB.
+export interface NativeTextMetadata {
+  rectangle: [number, number, number, number];
+  flags: number;
+  subject?: string;
+  hasCreationDate: boolean;
+  hasModifiedDate: boolean;
+  color?: [number, number, number];
+  popup?: {
+    rectangle: [number, number, number, number];
+    flags: number;
+    isOpen: boolean;
+  };
+}
+
 // Sticky note annotation
 export interface StickyNoteAnnotation extends BaseAnnotation {
   type: 'sticky-note';
-  position: { x: number; y: number }; // Position in PDF coordinates
+  position: { x: number; y: number }; // Icon top-left in PDF coordinates
   iconType: 'comment' | 'key' | 'note' | 'help' | 'newparagraph' | 'paragraph' | 'insert';
   content: string;
   isOpen: boolean;
   replies?: StickyNoteReply[];
+  sourceNM?: string;
+  nativeText?: NativeTextMetadata;
 }
 
 export interface StickyNoteReply {
@@ -199,6 +216,13 @@ export interface StickyNoteReply {
   author?: string;
   content: string;
   createdAt: Date;
+  modifiedAt?: Date;
+  color?: string;
+  opacity?: number;
+  iconType?: StickyNoteAnnotation['iconType'];
+  isOpen?: boolean;
+  sourceNM?: string;
+  nativeText?: NativeTextMetadata;
 }
 
 // Stamp annotation

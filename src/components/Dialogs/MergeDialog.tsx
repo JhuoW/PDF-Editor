@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { mergePDFs, downloadPDF, insertPagesFromPDF } from '../../core/PDFManipulator';
 import './MergeDialog.css';
 
@@ -6,7 +6,7 @@ type InsertPosition = 'start' | 'end' | 'before' | 'after';
 
 interface MergeDialogProps {
   onClose: () => void;
-  onMergeComplete?: (data: Uint8Array) => void;
+  onMergeComplete?: (data: Uint8Array, insertionPosition?: number, fileName?: string) => void | Promise<void>;
   currentDocument?: {
     data: ArrayBuffer;
     fileName: string;
@@ -21,6 +21,13 @@ interface FileItem {
 }
 
 export function MergeDialog({ onClose, onMergeComplete, currentDocument }: MergeDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
   // Start with empty files - users add all files manually
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isMerging, setIsMerging] = useState(false);
@@ -90,6 +97,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
 
     try {
       let result: Uint8Array;
+      let usedPosition: number | undefined;
 
       if (currentDocument && files.length >= 1) {
         // Insert files into current document at specified position
@@ -124,6 +132,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
             position = 0;
         }
 
+        usedPosition = position;
         result = await insertPagesFromPDF(currentDocument.data, dataToInsert, position);
       } else {
         // Standard merge of all files
@@ -132,7 +141,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
       }
 
       if (onMergeComplete) {
-        onMergeComplete(result);
+        await onMergeComplete(result, usedPosition, outputName.trim() || 'merged.pdf');
       } else {
         await downloadPDF(result, outputName);
       }
@@ -149,11 +158,13 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
   const canMerge = files.length >= minFilesRequired;
 
   return (
-    <div className="merge-dialog-overlay" onClick={onClose}>
+    <dialog ref={dialogRef} className="merge-dialog-overlay" aria-labelledby="merge-dialog-title"
+      onCancel={event => { event.preventDefault(); if (!isMerging) onClose(); }}
+      onClick={event => { if (event.target === event.currentTarget && !isMerging) onClose(); }}>
       <div className="merge-dialog" onClick={e => e.stopPropagation()}>
         <div className="merge-dialog-header">
-          <h3>{currentDocument ? 'Insert PDF Pages' : 'Merge PDFs'}</h3>
-          <button className="merge-dialog-close" onClick={onClose}>&times;</button>
+          <h3 id="merge-dialog-title">{currentDocument ? 'Insert PDF Pages' : 'Merge PDFs'}</h3>
+          <button className="merge-dialog-close" aria-label="Close merge dialog" disabled={isMerging} onClick={onClose}>&times;</button>
         </div>
 
         <div className="merge-dialog-content">
@@ -165,15 +176,16 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
 
           <div className="merge-file-input-wrapper">
             <input
+              ref={fileInputRef}
               type="file"
               accept=".pdf"
               multiple
               onChange={handleFileSelect}
               id="merge-file-input"
             />
-            <label htmlFor="merge-file-input" className="merge-file-input-label">
+            <button type="button" disabled={isMerging} onClick={() => fileInputRef.current?.click()} className="merge-file-input-label">
               + Add PDF Files
-            </label>
+            </button>
           </div>
 
           {files.length > 0 && (
@@ -295,7 +307,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
             </div>
           )}
 
-          <div className="merge-output-name">
+          {!(currentDocument && onMergeComplete) && <div className="merge-output-name">
             <label htmlFor="output-name">Output filename:</label>
             <input
               type="text"
@@ -304,13 +316,13 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
               onChange={e => setOutputName(e.target.value)}
               placeholder="merged.pdf"
             />
-          </div>
+          </div>}
 
           {error && <div className="merge-error">{error}</div>}
         </div>
 
         <div className="merge-dialog-actions">
-          <button className="merge-cancel" onClick={onClose}>
+          <button className="merge-cancel" disabled={isMerging} onClick={onClose}>
             Cancel
           </button>
           <button
@@ -318,10 +330,10 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
             onClick={handleMerge}
             disabled={isMerging || !canMerge}
           >
-            {isMerging ? 'Processing...' : (currentDocument ? 'Insert & Download' : 'Merge & Download')}
+            {isMerging ? 'Processing...' : onMergeComplete ? (currentDocument ? 'Insert Pages' : 'Merge & Open') : (currentDocument ? 'Insert & Download' : 'Merge & Download')}
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

@@ -41,17 +41,12 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showBgColorPicker, setShowBgColorPicker] = useState(false);
   const [showLineHeightDropdown, setShowLineHeightDropdown] = useState(false);
-  const [customSize, setCustomSize] = useState(style.fontSize?.toString() || '12');
+  const sizeValue = isMixed?.fontSize ? '—' : String(style.fontSize ?? 12);
+  const [sizeDraft, setSizeDraft] = useState({ source: sizeValue, value: sizeValue });
+  if (sizeDraft.source !== sizeValue) setSizeDraft({ source: sizeValue, value: sizeValue });
+  const customSize = sizeDraft.source === sizeValue ? sizeDraft.value : sizeValue;
+  const setCustomSize = (value: string) => setSizeDraft({ source: sizeValue, value });
   const toolbarRef = useRef<HTMLDivElement>(null);
-
-  // Update customSize when style changes
-  useEffect(() => {
-    if (style.fontSize !== undefined && !isMixed?.fontSize) {
-      setCustomSize(style.fontSize.toString());
-    } else if (isMixed?.fontSize) {
-      setCustomSize('—');
-    }
-  }, [style.fontSize, isMixed?.fontSize]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {

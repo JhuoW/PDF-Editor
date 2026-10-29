@@ -1,0 +1,27 @@
+.ocr-dialog { width: min(580px, calc(100vw - 32px)); max-height: calc(100vh - 48px); margin: auto; padding: 24px; overflow: auto; box-sizing: border-box; border: 1px solid #9ca3af; border-radius: 12px; background: #fff; color: #1f2937; box-shadow: 0 16px 60px #0006; font-size: 14px; }
+.ocr-dialog::backdrop { background: #0009; }
+.ocr-dialog header, .ocr-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ocr-dialog h2 { margin: 0; font-size: 22px; }
+.ocr-dialog p { line-height: 1.5; }
+.ocr-dialog fieldset { margin: 20px 0 0; padding: 0; border: 0; min-width: 0; }
+.ocr-dialog label { display: block; margin: 12px 0 6px; font-weight: 500; }
+.ocr-dialog input:not([type=checkbox]), .ocr-dialog select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; border: 1px solid #9ca3af; border-radius: 5px; background: #fff; color: #111827; font: inherit; }
+.ocr-page-range { display: flex; gap: 8px; }
+.ocr-dialog button { padding: 8px 12px; border: 1px solid #9ca3af; border-radius: 5px; background: #f9fafb; color: #111827; cursor: pointer; font: inherit; white-space: nowrap; }
+.ocr-dialog button:disabled { opacity: .55; cursor: default; }
+.ocr-dialog .ocr-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.ocr-dialog :focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.ocr-dialog .ocr-checkbox { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.ocr-checkbox input { width: 17px; height: 17px; }
+.ocr-help { color: #4b5563; font-size: 12px; margin: 8px 0; }
+.ocr-progress { margin-top: 20px; }
+.ocr-progress progress { width: 100%; height: 12px; accent-color: #2563eb; }
+.ocr-progress p { min-height: 42px; }
+.ocr-results { max-height: 240px; overflow: auto; margin: 16px 0; }
+.ocr-results table { width: 100%; border-collapse: collapse; text-align: left; }
+.ocr-results caption { text-align: left; font-weight: 600; margin-bottom: 8px; }
+.ocr-results th, .ocr-results td { border-bottom: 1px solid #e5e7eb; padding: 8px; }
+.ocr-result-message { padding: 10px; border-radius: 5px; background: #eff6ff; color: #1e40af; }
+.ocr-error { padding: 10px; border: 1px solid #fca5a5; border-radius: 5px; background: #fef2f2; color: #991b1b; }
+.ocr-dialog footer { margin-top: 20px; }
+@media (max-width: 500px) { .ocr-dialog { padding: 16px; } .ocr-page-range { flex-wrap: wrap; } }

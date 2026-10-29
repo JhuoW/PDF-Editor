@@ -31,6 +31,9 @@ export interface FormField {
   hidden: boolean;
   // For dropdown/listbox
   options?: FormFieldOption[];
+  /** Native AcroForm MultiSelect flag; optional for older saved workspaces. */
+  multiSelect?: boolean;
+  allowCustomValue?: boolean;
   // For radio buttons - group name
   radioGroup?: string;
   // For text fields
@@ -38,6 +41,8 @@ export interface FormField {
   maxLength?: number;
   // For checkboxes
   exportValue?: string;
+  /** Native widget appearance name for FDF/XFDF button values. */
+  appearanceValue?: string;
   // Appearance
   fontSize?: number;
   fontColor?: string;

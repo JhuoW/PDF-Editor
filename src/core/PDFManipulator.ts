@@ -1,4 +1,9 @@
-import { PDFDocument, degrees } from 'pdf-lib';
+import { PDFDocument, PDFDict, PDFRadioGroup, PDFCheckBox, degrees } from 'pdf-lib';
+import { deletionPageMap, insertionPageMap, reorderedPageMap } from './pageMapping';
+import { copyPagesWithForms } from './copyPagesWithForms';
+import { removePDFLinksToPages, stabilizePDFLinkPageReferences } from './PDFLinkDestinations';
+
+import { removePDFBookmarksToPages, stabilizePDFBookmarkPageReferences } from './PDFBookmarkPageOperations';
 
 export interface PageRange {
   start: number;  // 1-indexed
@@ -27,7 +32,7 @@ export async function mergePDFs(files: ArrayBuffer[]): Promise<Uint8Array> {
 
   for (const file of files) {
     const pdf = await PDFDocument.load(file);
-    const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+    const pages = await copyPagesWithForms(mergedPdf, pdf, pdf.getPageIndices());
     pages.forEach(page => mergedPdf.addPage(page));
   }
 
@@ -56,7 +61,7 @@ export async function splitPDF(
         pageIndices.push(i);
       }
 
-      const pages = await newPdf.copyPages(sourcePdf, pageIndices);
+      const pages = await copyPagesWithForms(newPdf, sourcePdf, pageIndices);
       pages.forEach(page => newPdf.addPage(page));
       results.push(await newPdf.save());
     }
@@ -68,7 +73,7 @@ export async function splitPDF(
       for (let j = i; j < Math.min(i + n, totalPages); j++) {
         pageIndices.push(j);
       }
-      const pages = await newPdf.copyPages(sourcePdf, pageIndices);
+      const pages = await copyPagesWithForms(newPdf, sourcePdf, pageIndices);
       pages.forEach(page => newPdf.addPage(page));
       results.push(await newPdf.save());
     }
@@ -77,7 +82,7 @@ export async function splitPDF(
     const pageIndices = options.pages
       .map(p => p - 1)
       .filter(i => i >= 0 && i < totalPages);
-    const pages = await newPdf.copyPages(sourcePdf, pageIndices);
+    const pages = await copyPagesWithForms(newPdf, sourcePdf, pageIndices);
     pages.forEach(page => newPdf.addPage(page));
     results.push(await newPdf.save());
   }
@@ -92,14 +97,15 @@ export async function reorderPages(
   source: ArrayBuffer,
   newOrder: number[]  // Array of 1-indexed page numbers in new order
 ): Promise<Uint8Array> {
-  const sourcePdf = await PDFDocument.load(source);
-  const newPdf = await PDFDocument.create();
-
-  const pageIndices = newOrder.map(p => p - 1);
-  const pages = await newPdf.copyPages(sourcePdf, pageIndices);
-  pages.forEach(page => newPdf.addPage(page));
-
-  return newPdf.save();
+  const pdf = await PDFDocument.load(source);
+  reorderedPageMap(pdf.getPageCount(), newOrder);
+  stabilizePDFLinkPageReferences(pdf);
+  stabilizePDFBookmarkPageReferences(pdf);
+  const pages = pdf.getPages();
+  // Reuse the original page objects and catalog so forms, links and metadata survive.
+  for (let index = pages.length - 1; index >= 0; index--) pdf.removePage(index);
+  for (const pageNumber of newOrder) pdf.addPage(pages[pageNumber - 1]);
+  return pdf.save();
 }
 
 /**
@@ -132,27 +138,45 @@ export async function deletePages(
   source: ArrayBuffer,
   pageNumbers: number[]  // 1-indexed pages to delete
 ): Promise<Uint8Array> {
-  const sourcePdf = await PDFDocument.load(source);
-  const totalPages = sourcePdf.getPageCount();
-  const newPdf = await PDFDocument.create();
-
-  const pagesToDelete = new Set(pageNumbers.map(p => p - 1));
-  const pageIndicesToKeep: number[] = [];
-
-  for (let i = 0; i < totalPages; i++) {
-    if (!pagesToDelete.has(i)) {
-      pageIndicesToKeep.push(i);
+  const pdf = await PDFDocument.load(source);
+  const pageMap = deletionPageMap(pdf.getPageCount(), pageNumbers);
+  stabilizePDFLinkPageReferences(pdf);
+  stabilizePDFBookmarkPageReferences(pdf);
+  const pages = pdf.getPages();
+  const deletedPages = pages.filter((_, index) => !pageMap.has(index + 1));
+  removePDFBookmarksToPages(pdf, new Set(pages.flatMap((_, index) => pageMap.has(index + 1) ? [] : [index + 1])));
+  removePDFLinksToPages(pdf, new Set(pages.flatMap((_, index) => pageMap.has(index + 1) ? [] : [index + 1])));
+  const deletedRefs = new Set(deletedPages.map(page => page.ref));
+  const deletedAnnotations = new Set<PDFDict>();
+  for (const page of deletedPages) {
+    const annots = page.node.Annots();
+    if (!annots) continue;
+    for (let index = 0; index < annots.size(); index++) {
+      const annotation = annots.lookup(index);
+      if (annotation instanceof PDFDict) deletedAnnotations.add(annotation);
     }
   }
-
-  if (pageIndicesToKeep.length === 0) {
-    throw new Error('Cannot delete all pages');
+  // Remove deleted widgets without removing a shared field's surviving widgets.
+  const form = pdf.getForm();
+  for (const field of form.getFields()) {
+    const selected = field instanceof PDFRadioGroup ? field.getSelected() : undefined;
+    const widgets = field.acroField.getWidgets();
+    for (let index = widgets.length - 1; index >= 0; index--) {
+      const widget = widgets[index];
+      if (deletedRefs.has(widget.P()!) || deletedAnnotations.has(widget.dict)) {
+        if (field instanceof PDFRadioGroup || field instanceof PDFCheckBox) {
+          field.acroField.removeExportValue(index);
+        }
+        field.acroField.removeWidget(index);
+      }
+    }
+    if (field.acroField.getWidgets().length === 0) form.removeField(field);
+    else if (field instanceof PDFRadioGroup && selected && !field.getOptions().includes(selected)) field.clear();
   }
-
-  const pages = await newPdf.copyPages(sourcePdf, pageIndicesToKeep);
-  pages.forEach(page => newPdf.addPage(page));
-
-  return newPdf.save();
+  for (let index = pages.length - 1; index >= 0; index--) {
+    if (!pageMap.has(index + 1)) pdf.removePage(index);
+  }
+  return pdf.save();
 }
 
 /**
@@ -163,7 +187,10 @@ export async function insertBlankPages(
   options: InsertOptions
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(source);
-  const count = options.count || 1;
+  const count = options.count ?? 1;
+  insertionPageMap(pdf.getPageCount(), options.position, count);
+  stabilizePDFLinkPageReferences(pdf);
+  stabilizePDFBookmarkPageReferences(pdf);
   const width = options.width || 612;  // Letter width
   const height = options.height || 792; // Letter height
 
@@ -198,7 +225,10 @@ export async function insertPagesFromPDF(
     ? pageNumbers.map(p => p - 1).filter(i => i >= 0 && i < sourcePdf.getPageCount())
     : sourcePdf.getPageIndices();
 
-  const pages = await targetPdf.copyPages(sourcePdf, pageIndices);
+  insertionPageMap(targetPdf.getPageCount(), position, pageIndices.length);
+  stabilizePDFLinkPageReferences(targetPdf);
+  stabilizePDFBookmarkPageReferences(targetPdf);
+  const pages = await copyPagesWithForms(targetPdf, sourcePdf, pageIndices);
 
   // Insert position (0-indexed)
   let insertIndex = position === 0

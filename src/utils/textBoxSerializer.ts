@@ -181,7 +181,7 @@ function parseFreeTextAnnotation(
     }
 
     // Parse default appearance (DA) for font and color
-    let style: TextStyle = { ...DEFAULT_TEXT_STYLE };
+    const style: TextStyle = { ...DEFAULT_TEXT_STYLE };
     const da = annotDict.get(PDFName.of('DA'));
     if (da instanceof PDFString) {
       const daText = da.decodeText();
@@ -210,7 +210,7 @@ function parseFreeTextAnnotation(
     }
 
     // Parse box style
-    let boxStyle: BoxStyle = { ...DEFAULT_BOX_STYLE };
+    const boxStyle: BoxStyle = { ...DEFAULT_BOX_STYLE };
 
     // Border
     const bs = annotDict.get(PDFName.of('BS'));

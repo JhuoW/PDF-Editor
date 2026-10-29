@@ -57,7 +57,7 @@ export function useTextBoxCreation() {
 
     // Add box style
     if (defaultBoxStyle) {
-      (annotation as any).boxStyle = { ...defaultBoxStyle };
+      annotation.boxStyle = { ...defaultBoxStyle };
     }
 
     // Add to store and record for undo

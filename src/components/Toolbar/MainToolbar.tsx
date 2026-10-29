@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FileUp,
   Download,
@@ -14,6 +14,7 @@ import {
   Files,
   Maximize,
   MoveHorizontal,
+  ChevronDown,
 } from 'lucide-react';
 import type { ZoomMode } from '../../store/documentStore';
 import './MainToolbar.css';
@@ -27,6 +28,8 @@ interface MainToolbarProps {
   sidebarOpen: boolean;
   onOpenFile: (file: File) => void;
   onExport: () => void;
+  onCreatePDF?: () => void;
+  onExportPages?: () => void;
   onPreviousPage: () => void;
   onNextPage: () => void;
   onGoToPage: (page: number) => void;
@@ -53,6 +56,8 @@ export function MainToolbar({
   sidebarOpen,
   onOpenFile,
   onExport,
+  onCreatePDF,
+  onExportPages,
   onPreviousPage,
   onNextPage,
   onGoToPage,
@@ -68,6 +73,54 @@ export function MainToolbar({
   hasDocument,
 }: MainToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileMenuButton = useRef<HTMLButtonElement>(null);
+  const fileMenu = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const [pageDraft, setPageDraft] = useState({ page: currentPage, value: String(currentPage) });
+
+  const openFileMenu = () => {
+    const bounds = fileMenuButton.current?.getBoundingClientRect();
+    if (bounds) setMenuPosition({ top: bounds.bottom + 5, left: Math.max(8, Math.min(bounds.left, window.innerWidth - 252)) });
+  };
+  useEffect(() => {
+    if (!menuPosition) return;
+    fileMenu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (!fileMenu.current?.contains(event.target as Node) && !fileMenuButton.current?.contains(event.target as Node)) setMenuPosition(null);
+    };
+    const reposition = () => setMenuPosition(null);
+    window.addEventListener('pointerdown', dismiss);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('pointerdown', dismiss);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [menuPosition]);
+
+  const selectFileAction = (action?: () => void) => {
+    setMenuPosition(null);
+    fileMenuButton.current?.focus();
+    action?.();
+  };
+
+  // Keep external navigation in sync without replacing an unfinished input on every render.
+  if (pageDraft.page !== currentPage) {
+    setPageDraft({ page: currentPage, value: String(currentPage) });
+  }
+
+  const resetPageDraft = () => {
+    setPageDraft({ page: currentPage, value: String(currentPage) });
+  };
+
+  const commitPageDraft = () => {
+    const page = Number(pageDraft.value);
+    if (Number.isInteger(page) && page >= 1 && page <= totalPages) {
+      setPageDraft({ page: currentPage, value: String(page) });
+      if (page !== currentPage) onGoToPage(page);
+    } else {
+      resetPageDraft();
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -81,6 +134,30 @@ export function MainToolbar({
     <header className="main-toolbar">
       {/* Left section - File operations */}
       <div className="toolbar-group">
+        {(onCreatePDF || onExportPages) && <>
+          <button ref={fileMenuButton} type="button" className="toolbar-btn" aria-expanded={!!menuPosition} aria-controls="toolbar-file-actions"
+            onClick={() => menuPosition ? setMenuPosition(null) : openFileMenu()}
+            onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); openFileMenu(); } }}>
+            File <ChevronDown size={14} />
+          </button>
+          {menuPosition && <div ref={fileMenu} id="toolbar-file-actions" role="group" aria-label="File actions" className="toolbar-file-actions"
+            style={{ ...menuPosition, maxHeight: `calc(100dvh - ${menuPosition.top + 8}px)` }}
+            onBlur={event => {
+              if (!event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== fileMenuButton.current) setMenuPosition(null);
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); selectFileAction(); }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const buttons = [...(fileMenu.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+                const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+              }
+            }}>
+            {onCreatePDF && <button type="button" onClick={() => selectFileAction(onCreatePDF)}>Create PDF from Images…</button>}
+            {onExportPages && <button type="button" disabled={!hasDocument} onClick={() => selectFileAction(onExportPages)}>Export Pages…</button>}
+          </div>}
+        </>}
         <button
           className="toolbar-btn"
           onClick={() => fileInputRef.current?.click()}
@@ -117,6 +194,8 @@ export function MainToolbar({
               className={`toolbar-btn icon-only ${sidebarOpen ? 'active' : ''}`}
               onClick={onToggleSidebar}
               title="Toggle Sidebar"
+              aria-label="Toggle sidebar"
+              aria-pressed={sidebarOpen}
             >
               <PanelLeft size={18} />
             </button>
@@ -135,6 +214,7 @@ export function MainToolbar({
               onClick={onPreviousPage}
               disabled={currentPage <= 1}
               title="Previous Page (←)"
+              aria-label="Previous page"
             >
               <ChevronLeft size={18} />
             </button>
@@ -144,8 +224,20 @@ export function MainToolbar({
                 type="number"
                 min={1}
                 max={totalPages}
-                value={currentPage}
-                onChange={(e) => onGoToPage(parseInt(e.target.value, 10))}
+                value={pageDraft.value}
+                onChange={(e) => setPageDraft({ page: currentPage, value: e.target.value })}
+                onBlur={commitPageDraft}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitPageDraft();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    resetPageDraft();
+                  }
+                }}
+                aria-label="Page number"
+                title="Page number (press Enter to navigate)"
                 className="page-input"
               />
               <span className="page-separator">/</span>
@@ -157,6 +249,7 @@ export function MainToolbar({
               onClick={onNextPage}
               disabled={currentPage >= totalPages}
               title="Next Page (→)"
+              aria-label="Next page"
             >
               <ChevronRight size={18} />
             </button>
@@ -170,6 +263,7 @@ export function MainToolbar({
               className="toolbar-btn icon-only"
               onClick={onZoomOut}
               title="Zoom Out (-)"
+              aria-label="Zoom out"
             >
               <ZoomOut size={18} />
             </button>
@@ -187,6 +281,7 @@ export function MainToolbar({
                 }
               }}
               className="zoom-select"
+              aria-label="Zoom"
             >
               <option value="fit-page">
                 {zoomMode === 'fit-page' ? `Fit Page (${Math.round(zoom * 100)}%)` : 'Fit Page'}
@@ -195,6 +290,9 @@ export function MainToolbar({
                 {zoomMode === 'fit-width' ? `Fit Width (${Math.round(zoom * 100)}%)` : 'Fit Width'}
               </option>
               <optgroup label="Zoom">
+                {zoomMode === 'manual' && !ZOOM_PRESETS.includes(zoom) && (
+                  <option value={zoom}>{Math.round(zoom * 100)}%</option>
+                )}
                 {ZOOM_PRESETS.map((preset) => (
                   <option key={preset} value={preset}>
                     {Math.round(preset * 100)}%
@@ -207,6 +305,7 @@ export function MainToolbar({
               className="toolbar-btn icon-only"
               onClick={onZoomIn}
               title="Zoom In (+)"
+              aria-label="Zoom in"
             >
               <ZoomIn size={18} />
             </button>
@@ -215,6 +314,8 @@ export function MainToolbar({
               className={`toolbar-btn icon-only ${zoomMode === 'fit-page' ? 'active' : ''}`}
               onClick={onFitToPage}
               title="Fit to Page"
+              aria-label="Fit to page"
+              aria-pressed={zoomMode === 'fit-page'}
             >
               <Maximize size={18} />
             </button>
@@ -223,6 +324,8 @@ export function MainToolbar({
               className={`toolbar-btn icon-only ${zoomMode === 'fit-width' ? 'active' : ''}`}
               onClick={onFitToWidth}
               title="Fit to Width"
+              aria-label="Fit to width"
+              aria-pressed={zoomMode === 'fit-width'}
             >
               <MoveHorizontal size={18} />
             </button>
@@ -236,6 +339,8 @@ export function MainToolbar({
               className={`toolbar-btn icon-only ${viewMode === 'single' ? 'active' : ''}`}
               onClick={() => onSetViewMode('single')}
               title="Single Page View"
+              aria-label="Single page view"
+              aria-pressed={viewMode === 'single'}
             >
               <File size={18} />
             </button>
@@ -243,6 +348,8 @@ export function MainToolbar({
               className={`toolbar-btn icon-only ${viewMode === 'continuous' ? 'active' : ''}`}
               onClick={() => onSetViewMode('continuous')}
               title="Continuous View"
+              aria-label="Continuous view"
+              aria-pressed={viewMode === 'continuous'}
             >
               <Files size={18} />
             </button>
@@ -250,6 +357,8 @@ export function MainToolbar({
               className={`toolbar-btn icon-only ${viewMode === 'two-page' ? 'active' : ''}`}
               onClick={() => onSetViewMode('two-page')}
               title="Two Page View"
+              aria-label="Two page view"
+              aria-pressed={viewMode === 'two-page'}
             >
               <Columns size={18} />
             </button>
@@ -263,6 +372,7 @@ export function MainToolbar({
               className="toolbar-btn icon-only"
               onClick={onRotate}
               title="Rotate Clockwise (Ctrl+R)"
+              aria-label="Rotate clockwise"
             >
               <RotateCw size={18} />
             </button>
@@ -276,6 +386,7 @@ export function MainToolbar({
               className="toolbar-btn icon-only"
               onClick={onToggleSearch}
               title="Search (Ctrl+F)"
+              aria-label="Search document"
             >
               <Search size={18} />
             </button>

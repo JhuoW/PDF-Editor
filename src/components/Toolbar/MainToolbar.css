@@ -8,7 +8,20 @@
   flex-shrink: 0;
   height: 48px;
   position: relative;
-  z-index: 100;
+  z-index: 110;
+  overflow-x: auto;
+}
+
+.main-toolbar > .toolbar-group,
+.main-toolbar > .toolbar-divider {
+  flex-shrink: 0;
+}
+
+.main-toolbar .toolbar-btn:focus-visible,
+.main-toolbar .page-input:focus-visible,
+.main-toolbar .zoom-select:focus-visible {
+  outline: 2px solid var(--blue-8);
+  outline-offset: 2px;
 }
 
 .toolbar-group {
@@ -143,3 +156,34 @@
   outline: none;
   border-color: var(--blue-8);
 }
+
+.toolbar-file-actions {
+  position: fixed;
+  z-index: 101;
+  width: 244px;
+  max-width: calc(100vw - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--gray-7);
+  border-radius: 8px;
+  background: var(--gray-3);
+  box-shadow: 0 6px 24px #0005;
+}
+.toolbar-file-actions button {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-12);
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.toolbar-file-actions button:hover:not(:disabled) { background: var(--gray-5); }
+.toolbar-file-actions button:disabled { opacity: .4; cursor: default; }
+.toolbar-file-actions button:focus-visible { outline: 2px solid var(--blue-8); outline-offset: -2px; }

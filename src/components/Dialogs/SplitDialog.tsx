@@ -1,16 +1,22 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { splitPDF, downloadPDF, type SplitOptions, type PageRange } from '../../core/PDFManipulator';
-import { loadCurrentPDF } from '../../utils/pdfStorage';
 import './SplitDialog.css';
 
 interface SplitDialogProps {
+  preparePDF: () => Promise<Uint8Array>;
   totalPages: number;
   onClose: () => void;
 }
 
 type SplitMode = 'ranges' | 'every-n-pages' | 'extract-pages';
 
-export function SplitDialog({ totalPages, onClose }: SplitDialogProps) {
+export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
   const [mode, setMode] = useState<SplitMode>('ranges');
   const [ranges, setRanges] = useState<PageRange[]>([{ start: 1, end: totalPages }]);
   const [everyN, setEveryN] = useState(1);
@@ -36,41 +42,32 @@ export function SplitDialog({ totalPages, onClose }: SplitDialogProps) {
     }));
   }, []);
 
-  const parseExtractPages = (input: string): number[] => {
-    const pages: number[] = [];
+  const parseExtractPages = useCallback((input: string): number[] => {
+    const pages = new Set<number>();
     const parts = input.split(',').map(p => p.trim());
 
     for (const part of parts) {
-      if (part.includes('-')) {
-        const [start, end] = part.split('-').map(n => parseInt(n.trim(), 10));
-        if (!isNaN(start) && !isNaN(end)) {
-          for (let i = start; i <= end; i++) {
-            if (i >= 1 && i <= totalPages && !pages.includes(i)) {
-              pages.push(i);
-            }
-          }
-        }
-      } else {
-        const num = parseInt(part, 10);
-        if (!isNaN(num) && num >= 1 && num <= totalPages && !pages.includes(num)) {
-          pages.push(num);
-        }
+      const range = part.match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+      const start = Number(range?.[1]);
+      const end = Number(range?.[2] ?? range?.[1]);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) {
+        throw new Error('Use whole page numbers and ranges, such as 1, 3-5.');
+      }
+      // Bound work by the document length, even for an enormous requested range.
+      for (let page = start; page <= Math.min(end, totalPages); page++) {
+        pages.add(page);
       }
     }
 
-    return pages.sort((a, b) => a - b);
-  };
+    return [...pages].sort((a, b) => a - b);
+  }, [totalPages]);
 
   const handleSplit = useCallback(async () => {
     setIsSplitting(true);
     setError(null);
 
     try {
-      // Get current PDF from storage
-      const stored = await loadCurrentPDF();
-      if (!stored) {
-        throw new Error('No PDF loaded');
-      }
+      const prepared = await preparePDF();
 
       const options: SplitOptions = { mode };
 
@@ -94,7 +91,7 @@ export function SplitDialog({ totalPages, onClose }: SplitDialogProps) {
         options.pages = pages;
       }
 
-      const results = await splitPDF(stored.data, options);
+      const results = await splitPDF(new Uint8Array(prepared).buffer, options);
 
       // Download each result (using for...of to properly await each download)
       for (let index = 0; index < results.length; index++) {
@@ -111,14 +108,16 @@ export function SplitDialog({ totalPages, onClose }: SplitDialogProps) {
     } finally {
       setIsSplitting(false);
     }
-  }, [mode, ranges, everyN, extractPages, totalPages, outputPrefix, onClose]);
+  }, [mode, ranges, everyN, extractPages, totalPages, outputPrefix, onClose, preparePDF, parseExtractPages]);
 
   return (
-    <div className="split-dialog-overlay" onClick={onClose}>
+    <dialog ref={dialogRef} className="split-dialog-overlay" aria-labelledby="split-dialog-title"
+      onCancel={event => { event.preventDefault(); if (!isSplitting) onClose(); }}
+      onClick={event => { if (event.target === event.currentTarget && !isSplitting) onClose(); }}>
       <div className="split-dialog" onClick={e => e.stopPropagation()}>
         <div className="split-dialog-header">
-          <h3>Split PDF</h3>
-          <button className="split-dialog-close" onClick={onClose}>&times;</button>
+          <h3 id="split-dialog-title">Split PDF</h3>
+          <button className="split-dialog-close" aria-label="Close split dialog" disabled={isSplitting} onClick={onClose}>&times;</button>
         </div>
 
         <div className="split-dialog-content">
@@ -240,11 +239,12 @@ export function SplitDialog({ totalPages, onClose }: SplitDialogProps) {
             </label>
           </div>
 
+          <p className="split-hint">Internal links to pages outside each output file are omitted.</p>
           {error && <div className="split-error">{error}</div>}
         </div>
 
         <div className="split-dialog-actions">
-          <button className="split-cancel" onClick={onClose}>
+          <button className="split-cancel" disabled={isSplitting} onClick={onClose}>
             Cancel
           </button>
           <button
@@ -256,6 +256,6 @@ export function SplitDialog({ totalPages, onClose }: SplitDialogProps) {
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

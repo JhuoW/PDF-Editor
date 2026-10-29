@@ -5,6 +5,8 @@
 
 import { useCallback, useState, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
+import { getEffectiveRotation } from '../../core/PDFRenderer';
+import { mapViewportPoint, mapViewportRect } from '../../utils/viewportMapping';
 import { useEditingStore } from '../../store/editingStore';
 import type { RedactionArea } from '../../editing/types';
 import './RedactionLayer.css';
@@ -40,67 +42,18 @@ export function RedactionLayer({
   // Get redactions for this page
   const pageRedactions = redactions.filter((r) => r.pageNumber === pageNumber);
 
-  // Transform rect based on rotation
-  const transformRect = useCallback(
-    (rect: RedactionArea['rect']) => {
-      const viewport = page.getViewport({ scale: 1, rotation: 0 });
-      const pageWidth = viewport.width;
-      const pageHeight = viewport.height;
+  const transformRect = useCallback((rect: RedactionArea['rect']) => {
+    const unrotated = page.getViewport({ scale: 1, rotation: 0 });
+    const display = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) });
+    const mapped = mapViewportRect(rect, unrotated, display);
+    return { left: mapped.x, top: mapped.y, width: mapped.width, height: mapped.height };
+  }, [page, rotation, scale]);
 
-      let { x, y, width, height } = rect;
-
-      switch (rotation) {
-        case 90:
-          [x, y] = [y, pageWidth - x - width];
-          [width, height] = [height, width];
-          break;
-        case 180:
-          x = pageWidth - x - width;
-          y = pageHeight - y - height;
-          break;
-        case 270:
-          [x, y] = [pageHeight - y - height, x];
-          [width, height] = [height, width];
-          break;
-      }
-
-      return {
-        left: x * scale,
-        top: y * scale,
-        width: width * scale,
-        height: height * scale,
-      };
-    },
-    [page, rotation, scale]
-  );
-
-  // Inverse transform from screen coordinates to PDF coordinates
-  const inverseTransformPoint = useCallback(
-    (screenX: number, screenY: number) => {
-      const viewport = page.getViewport({ scale: 1, rotation: 0 });
-      const pageWidth = viewport.width;
-      const pageHeight = viewport.height;
-
-      let x = screenX / scale;
-      let y = screenY / scale;
-
-      switch (rotation) {
-        case 90:
-          [x, y] = [pageWidth - y, x];
-          break;
-        case 180:
-          x = pageWidth - x;
-          y = pageHeight - y;
-          break;
-        case 270:
-          [x, y] = [y, pageHeight - x];
-          break;
-      }
-
-      return { x, y };
-    },
-    [page, rotation, scale]
-  );
+  const inverseTransformPoint = useCallback((x: number, y: number) => {
+    const unrotated = page.getViewport({ scale: 1, rotation: 0 });
+    const display = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) });
+    return mapViewportPoint(x, y, display, unrotated);
+  }, [page, rotation, scale]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {

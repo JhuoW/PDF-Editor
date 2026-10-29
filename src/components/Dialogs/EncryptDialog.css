@@ -1,0 +1,25 @@
+.encrypt-dialog {
+  width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px);
+  margin: auto; padding: 24px; overflow: auto; box-sizing: border-box;
+  border: 1px solid #9ca3af; border-radius: 12px; background: #fff; color: #1f2937;
+  box-shadow: 0 16px 60px #0006; font-size: 14px;
+}
+.encrypt-dialog::backdrop { background: #0009; }
+.encrypt-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.encrypt-dialog h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.encrypt-dialog p { margin: 10px 0; line-height: 1.45; }
+.encrypt-dialog fieldset { margin: 16px 0; padding: 0; border: 0; }
+.encrypt-passwords label { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; font-weight: 500; }
+.encrypt-passwords input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #9ca3af; border-radius: 5px; background: #fff; color: #111827; font: inherit; }
+.encrypt-passwords p, .encrypt-permissions p { color: #4b5563; font-size: 12px; }
+.encrypt-permissions legend { padding: 0; margin-bottom: 10px; font-weight: 600; }
+.encrypt-permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 16px; }
+.encrypt-permission-grid label { display: flex; gap: 7px; align-items: center; }
+.encrypt-permission-grid input { accent-color: #2563eb; }
+.encrypt-dialog footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.encrypt-dialog button { padding: 8px 14px; border: 1px solid #9ca3af; border-radius: 5px; background: #f9fafb; color: #111827; cursor: pointer; font: inherit; }
+.encrypt-dialog .encrypt-submit { background: #2563eb; border-color: #2563eb; color: white; }
+.encrypt-dialog button:disabled, .encrypt-dialog fieldset:disabled { opacity: .6; cursor: wait; }
+.encrypt-dialog :focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.encrypt-dialog .encrypt-error { padding: 10px; border: 1px solid #fca5a5; border-radius: 5px; color: #991b1b; background: #fef2f2; }
+@media (max-width: 480px) { .encrypt-permission-grid { grid-template-columns: 1fr; } }

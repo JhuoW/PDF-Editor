@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import type { Annotation } from '../annotations/types';
+import { useHistoryStore } from './historyStore';
+import { useAnnotationStore } from './annotationStore';
 
 /**
  * History entry for annotation operations
  */
-interface HistoryEntry {
+export interface HistoryEntry {
   type: 'add' | 'update' | 'delete';
   annotation: Annotation;
   previousState?: Annotation; // For updates, stores the previous state
@@ -17,7 +19,7 @@ interface AnnotationHistoryState {
 
   // Actions
   recordAdd: (annotation: Annotation) => void;
-  recordUpdate: (annotation: Annotation, previousState: Annotation) => void;
+  recordUpdate: (annotation: Annotation, previousState: Annotation, groupKey?: string) => void;
   recordDelete: (annotation: Annotation) => void;
 
   undo: () => HistoryEntry | null;
@@ -33,25 +35,29 @@ export const useAnnotationHistoryStore = create<AnnotationHistoryState>((set, ge
   past: [],
   future: [],
 
-  recordAdd: (annotation) => {
-    set((state) => ({
-      past: [...state.past, { type: 'add', annotation }],
-      future: [], // Clear redo stack on new action
-    }));
+  // Existing annotation controls report semantic operations here. All new
+  // entries join the document timeline; past/future remain for legacy recovery.
+  recordAdd: annotation => {
+    const annotations = new Map(useAnnotationStore.getState().annotations);
+    annotations.set(annotation.pageNumber, (annotations.get(annotation.pageNumber) ?? []).filter(item => item.id !== annotation.id));
+    useHistoryStore.getState().pushWorkspaceState({ annotations }, 'Add annotation');
   },
 
-  recordUpdate: (annotation, previousState) => {
-    set((state) => ({
-      past: [...state.past, { type: 'update', annotation, previousState }],
-      future: [], // Clear redo stack on new action
-    }));
+  recordUpdate: (annotation, previousState, groupKey) => {
+    const withoutDate = (item: Annotation) => ({ ...item, modifiedAt: undefined });
+    if (JSON.stringify(withoutDate(annotation)) === JSON.stringify(withoutDate(previousState))) return;
+    const annotations = new Map(useAnnotationStore.getState().annotations);
+    const page = annotations.get(previousState.pageNumber) ?? [];
+    annotations.set(previousState.pageNumber, page.some(item => item.id === previousState.id)
+      ? page.map(item => item.id === previousState.id ? previousState : item) : [...page, previousState]);
+    useHistoryStore.getState().pushWorkspaceState({ annotations }, 'Edit annotation', groupKey);
   },
 
-  recordDelete: (annotation) => {
-    set((state) => ({
-      past: [...state.past, { type: 'delete', annotation }],
-      future: [], // Clear redo stack on new action
-    }));
+  recordDelete: annotation => {
+    const annotations = new Map(useAnnotationStore.getState().annotations);
+    const page = annotations.get(annotation.pageNumber) ?? [];
+    if (!page.some(item => item.id === annotation.id)) annotations.set(annotation.pageNumber, [...page, annotation]);
+    useHistoryStore.getState().pushWorkspaceState({ annotations }, 'Delete annotation');
   },
 
   undo: () => {

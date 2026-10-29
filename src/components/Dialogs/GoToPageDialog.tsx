@@ -17,30 +17,25 @@ export function GoToPageDialog({
   const [pageInput, setPageInput] = useState(currentPage.toString());
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
-  // Focus input on mount
   useEffect(() => {
+    const opener = document.activeElement;
+    const dialog = dialogRef.current;
+    dialog?.showModal();
     inputRef.current?.focus();
     inputRef.current?.select();
+    return () => {
+      dialog?.close();
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
   }, []);
 
-  // Handle keyboard events
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   const validateAndGo = () => {
-    const pageNum = parseInt(pageInput, 10);
+    const pageNum = Number(pageInput);
 
-    if (isNaN(pageNum)) {
-      setError('Please enter a valid number');
+    if (!pageInput.trim() || !Number.isSafeInteger(pageNum)) {
+      setError('Please enter a whole page number');
       return;
     }
 
@@ -69,16 +64,23 @@ export function GoToPageDialog({
   };
 
   return (
-    <div className="goto-page-overlay" onClick={onClose}>
-      <div className="goto-page-dialog" onClick={(e) => e.stopPropagation()}>
+    <dialog ref={dialogRef} className="goto-page-dialog" aria-labelledby="goto-page-title" onCancel={event => {
+      event.preventDefault();
+      onClose();
+    }} onClick={event => {
+      if (event.target === event.currentTarget) {
+        const rect = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
+      }
+    }}>
         <div className="goto-page-header">
-          <h3>Go to Page</h3>
-          <button className="goto-page-close" onClick={onClose}>
+          <h3 id="goto-page-title">Go to Page</h3>
+          <button className="goto-page-close" onClick={onClose} aria-label="Close go to page">
             &times;
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <div className="goto-page-content">
             <label htmlFor="page-input">
               Enter page number (1 - {totalPages}):
@@ -89,11 +91,14 @@ export function GoToPageDialog({
               type="number"
               min={1}
               max={totalPages}
+              step={1}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? "goto-page-error" : undefined}
               value={pageInput}
               onChange={handleInputChange}
               className={error ? 'error' : ''}
             />
-            {error && <div className="goto-page-error">{error}</div>}
+            {error && <div className="goto-page-error" id="goto-page-error" role="alert">{error}</div>}
           </div>
 
           <div className="goto-page-actions">
@@ -105,7 +110,6 @@ export function GoToPageDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </dialog>
   );
 }

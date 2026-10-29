@@ -4,35 +4,71 @@
  */
 
 import type { PDFPageProxy } from 'pdfjs-dist';
+import { AnnotationMode, OPS } from 'pdfjs-dist';
 import type { TextItem, TextLine, TextBlock } from './types';
+import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON } from './types';
+import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
 
 // Thresholds for grouping text
 const LINE_SPACING_THRESHOLD = 1.5; // Items within this multiple of font height are same line
 const BLOCK_SPACING_THRESHOLD = 2.0; // Lines within this multiple are same block
 const WORD_SPACING_THRESHOLD = 0.3; // Items within this multiple of font width are same word
 
+/** Text extraction includes OCR glyphs that were never painted on the page. */
+export async function getTextEditingRestriction(page: PDFPageProxy): Promise<string | null> {
+  const operators = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
+  let renderingMode = 0;
+  const stack: number[] = [];
+  const containsGlyph = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(containsGlyph);
+    if (typeof value === 'string') return value.trim().length > 0;
+    return !!value && typeof value === 'object' && 'unicode' in value
+      && typeof value.unicode === 'string' && value.unicode.trim().length > 0;
+  };
+  for (const [index, operator] of operators.fnArray.entries()) {
+    const args = operators.argsArray[index];
+    if (operator === OPS.save || operator === OPS.paintFormXObjectBegin || operator === OPS.beginGroup) stack.push(renderingMode);
+    else if (operator === OPS.restore || operator === OPS.paintFormXObjectEnd || operator === OPS.endGroup) renderingMode = stack.pop() ?? 0;
+    else if (operator === OPS.setTextRenderingMode) renderingMode = args[0];
+    else if (renderingMode >= 3 && renderingMode <= 7
+      && [OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText].includes(operator)
+      && containsGlyph(args)) return renderingMode === 3 ? INVISIBLE_TEXT_EDIT_REASON : CLIPPING_TEXT_EDIT_REASON;
+  }
+  return null;
+}
+
 /**
  * Extract and group text from a PDF page into logical blocks
  */
 export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]> {
-  const textContent = await page.getTextContent();
+  const [textContent, restriction] = await Promise.all([page.getTextContent({ includeMarkedContent: true }), getTextEditingRestriction(page)]);
   const viewport = page.getViewport({ scale: 1, rotation: 0 });
-  const pageHeight = viewport.height;
+  const unit = page.userUnit || 1;
 
   // Convert text content items to our TextItem format
   // PDF.js returns TextItem | TextMarkedContent, we only want TextItem (which has 'str')
+  const markedContent: boolean[] = [];
   const items: TextItem[] = textContent.items
-    .filter((item): item is import('pdfjs-dist/types/src/display/api').TextItem =>
-      'str' in item && typeof (item as { str?: string }).str === 'string' && (item as { str: string }).str.trim() !== ''
-    )
+    .filter((item): item is import('pdfjs-dist/types/src/display/api').TextItem => {
+      if ('type' in item) {
+        if (item.type === 'endMarkedContent') markedContent.pop();
+        else if (item.type === 'beginMarkedContent' || item.type === 'beginMarkedContentProps') {
+          markedContent.push(decorationInstanceFromTag('tag' in item ? item.tag : undefined) !== undefined);
+        }
+        return false;
+      }
+      // Keep batch-created page marks separate from original-body text. Their
+      // templates and numbering must be changed in the decorations dialog.
+      return !markedContent.some(Boolean) && typeof item.str === 'string' && item.str.trim() !== '';
+    })
     .map((item) => {
       const tx = item.transform;
-      // PDF coordinates have origin at bottom-left, convert to top-left
-      const x = tx[4];
-      const y = pageHeight - tx[5];
-      const fontSize = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]);
-      const width = item.width ?? 0;
-      const height = item.height ?? fontSize;
+      // The viewport includes CropBox offsets and /UserUnit. Store all editing
+      // coordinates in this unrotated, scale=1 viewport consistently.
+      const [x, y] = viewport.convertToViewportPoint(tx[4], tx[5]);
+      const fontSize = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]) * unit;
+      const width = (item.width ?? 0) * unit;
+      const height = item.height ? item.height * unit : fontSize;
 
       return {
         str: item.str,
@@ -40,7 +76,7 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
         y: y - height, // Adjust y to be top of text
         width,
         height,
-        fontName: item.fontName ?? 'unknown',
+        fontName: textContent.styles[item.fontName]?.fontFamily ?? item.fontName ?? 'unknown',
         fontSize,
         transform: tx,
       };
@@ -64,6 +100,13 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
 
   // Group lines into blocks
   const blocks = groupIntoBlocks(lines, page.pageNumber);
+
+  // Mixed visible/invisible items can be grouped into one block. Conservatively
+  // lock the page: changing OCR glyphs would leave the scanned image underneath.
+  if (restriction) for (const block of blocks) {
+    block.editable = false;
+    block.unsupportedReason = restriction;
+  }
 
   return blocks;
 }
@@ -157,7 +200,6 @@ function groupIntoBlocks(lines: TextLine[], pageNumber: number): TextBlock[] {
 
   const blocks: TextBlock[] = [];
   let currentBlockLines: TextLine[] = [];
-  let blockIdCounter = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -177,7 +219,7 @@ function groupIntoBlocks(lines: TextLine[], pageNumber: number): TextBlock[] {
     } else {
       // Finish current block and start a new one
       if (currentBlockLines.length > 0) {
-        blocks.push(createBlock(currentBlockLines, pageNumber, blockIdCounter++));
+        blocks.push(createBlock(currentBlockLines, pageNumber));
       }
       currentBlockLines = [line];
     }
@@ -185,7 +227,7 @@ function groupIntoBlocks(lines: TextLine[], pageNumber: number): TextBlock[] {
 
   // Don't forget the last block
   if (currentBlockLines.length > 0) {
-    blocks.push(createBlock(currentBlockLines, pageNumber, blockIdCounter++));
+    blocks.push(createBlock(currentBlockLines, pageNumber));
   }
 
   return blocks;
@@ -204,7 +246,7 @@ function hasHorizontalOverlap(line1: TextLine, line2: TextLine): boolean {
 /**
  * Create a TextBlock from a list of lines
  */
-function createBlock(lines: TextLine[], pageNumber: number, id: number): TextBlock {
+function createBlock(lines: TextLine[], pageNumber: number): TextBlock {
   const text = lines.map((l) => l.text).join('\n');
 
   const minX = Math.min(...lines.map((l) => l.x));
@@ -227,7 +269,9 @@ function createBlock(lines: TextLine[], pageNumber: number, id: number): TextBlo
       : 1.2;
 
   return {
-    id: `block-${pageNumber}-${id}`,
+    // Page numbers change during reorder/insert/delete. A fresh detection must
+    // never reuse an ID belonging to a block retained on another page.
+    id: `block-${crypto.randomUUID()}`,
     pageNumber,
     lines,
     text,

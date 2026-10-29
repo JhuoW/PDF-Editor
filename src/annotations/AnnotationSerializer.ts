@@ -1,7 +1,12 @@
 /**
  * Annotation Serializer - Saves annotations to PDF using pdf-lib
  */
-import { PDFDocument, PDFPage, rgb, StandardFonts, degrees } from 'pdf-lib';
+import {
+  AnnotationFlags, PDFDocument, PDFPage, PDFHexString, PDFString, PDFName,
+  rgb, StandardFonts, appendBezierCurve, clip, closePath, concatTransformationMatrix,
+  endPath, lineTo, moveTo, popGraphicsState, pushGraphicsState, setDashPattern,
+  setGraphicsState, setLineWidth, setStrokingColor, stroke,
+} from 'pdf-lib';
 import type {
   Annotation,
   TextMarkupAnnotation,
@@ -10,6 +15,8 @@ import type {
   EllipseAnnotation,
   LineAnnotation,
   StickyNoteAnnotation,
+  StickyNoteReply,
+  NativeTextMetadata,
   StampAnnotation,
   FreeTextAnnotation,
   ImageAnnotation,
@@ -69,7 +76,7 @@ export async function serializeAnnotationsToPDF(
   pdfData: ArrayBuffer,
   annotations: Map<number, Annotation[]>
 ): Promise<Uint8Array> {
-  const pdfDoc = await PDFDocument.load(pdfData);
+  const pdfDoc = await PDFDocument.load(pdfData, { updateMetadata: false });
   const pages = pdfDoc.getPages();
 
   // Embed standard fonts that might be used
@@ -78,12 +85,19 @@ export async function serializeAnnotationsToPDF(
   // Process each page's annotations
   for (const [pageNumber, pageAnnotations] of annotations) {
     const pageIndex = pageNumber - 1;
-    if (pageIndex < 0 || pageIndex >= pages.length) continue;
+    if (!Number.isInteger(pageNumber) || pageIndex < 0 || pageIndex >= pages.length) {
+      if (pageAnnotations.length > 0) throw new Error(`Cannot export annotations on missing page ${pageNumber}`);
+      continue;
+    }
 
     const page = pages[pageIndex];
 
     for (const annotation of pageAnnotations) {
-      await addAnnotationToPage(pdfDoc, page, annotation, embeddedFonts);
+      try {
+        await addAnnotationToPage(pdfDoc, page, annotation, embeddedFonts);
+      } catch (error) {
+        throw new Error(`Failed to export ${annotation.type} annotation "${annotation.id}" on page ${pageNumber}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -119,10 +133,10 @@ async function addAnnotationToPage(
       addLineAnnotation(page, annotation);
       break;
     case 'sticky-note':
-      addStickyNoteAnnotation(page, annotation);
+      addStickyNoteAnnotation(pdfDoc, page, annotation);
       break;
     case 'stamp':
-      addStampAnnotation(page, annotation);
+      await addStampAnnotation(pdfDoc, page, annotation);
       break;
     case 'freetext':
       await addFreeTextAnnotation(pdfDoc, page, annotation, embeddedFonts);
@@ -130,6 +144,8 @@ async function addAnnotationToPage(
     case 'image':
       await addImageAnnotation(pdfDoc, page, annotation);
       break;
+    default:
+      throw new Error('Unsupported annotation type');
   }
 }
 
@@ -292,40 +308,96 @@ function addLineAnnotation(page: PDFPage, annotation: LineAnnotation): void {
 }
 
 /**
- * Add sticky note annotation
- * For now, we draw a simple note icon
+ * Add a native PDF text note. Contents and replies remain readable text in
+ * standard PDF annotation dictionaries; the reader supplies the note icon.
  */
-function addStickyNoteAnnotation(page: PDFPage, annotation: StickyNoteAnnotation): void {
-  const { position, color } = annotation;
-  const { r, g, b } = hexToRgb(color);
-  const size = 20;
+function addStickyNoteAnnotation(pdfDoc: PDFDocument, page: PDFPage, annotation: StickyNoteAnnotation): void {
+  if (!Number.isFinite(annotation.position.x) || !Number.isFinite(annotation.position.y)) {
+    throw new Error('Note position is invalid');
+  }
+  const iconNames: Record<StickyNoteAnnotation['iconType'], string> = {
+    comment: 'Comment', key: 'Key', note: 'Note', help: 'Help',
+    newparagraph: 'NewParagraph', paragraph: 'Paragraph', insert: 'Insert',
+  };
+  const originalRect = annotation.nativeText?.rectangle;
+  const deltaX = originalRect ? annotation.position.x - originalRect[0] : 0;
+  const deltaY = originalRect ? annotation.position.y - originalRect[3] : 0;
+  const translateRect = (rectangle: [number, number, number, number]) => [
+    rectangle[0] + deltaX, rectangle[1] + deltaY, rectangle[2] + deltaX, rectangle[3] + deltaY,
+  ];
+  // DrawingAnnotationLayer positions the icon by its top-left. PDF Rect uses
+  // bottom-left/top-right corners, so extend down from that point.
+  const rectangle = originalRect ? translateRect(originalRect)
+    : [annotation.position.x, annotation.position.y - 24, annotation.position.x + 24, annotation.position.y];
+  const createNote = (item: StickyNoteAnnotation | StickyNoteReply, isReply: boolean) => {
+    const metadata: NativeTextMetadata | undefined = item.nativeText;
+    const color = item.color ?? annotation.color;
+    const { r, g, b } = hexToRgb(color);
+    // Preserve source RGB precision until the user actually changes its color.
+    const originalColor = metadata?.color;
+    const originalHex = originalColor && `#${originalColor.map(channel => Math.round(channel * 255).toString(16).padStart(2, '0')).join('')}`;
+    const note = pdfDoc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Text',
+      P: page.ref,
+      Rect: isReply && metadata ? translateRect(metadata.rectangle) : rectangle,
+      Contents: PDFHexString.fromText(item.content),
+      T: item.author === undefined ? undefined : PDFHexString.fromText(item.author),
+      NM: PDFHexString.fromText(item.sourceNM ?? (isReply ? `${annotation.id}:reply:${item.id}` : item.id)),
+      CreationDate: metadata && !metadata.hasCreationDate ? undefined : annotationDate(item.createdAt),
+      M: metadata && !metadata.hasModifiedDate && (item.modifiedAt?.getTime() ?? 0) === item.createdAt.getTime()
+        ? undefined : annotationDate(item.modifiedAt ?? item.createdAt),
+      Name: iconNames[item.iconType ?? 'comment'],
+      C: metadata && !originalColor && color.toLowerCase() === '#ffff00' ? undefined
+        : originalHex === color.toLowerCase() ? originalColor : [r, g, b],
+      CA: item.opacity ?? annotation.opacity,
+      Open: item.isOpen ?? false,
+      F: metadata?.flags ?? (AnnotationFlags.Print | AnnotationFlags.NoZoom | AnnotationFlags.NoRotate),
+      Subj: metadata?.subject === undefined ? undefined : PDFHexString.fromText(metadata.subject),
+    });
+    const reference = pdfDoc.context.register(note);
+    page.node.addAnnot(reference);
+    if (metadata?.popup) {
+      const popup = pdfDoc.context.register(pdfDoc.context.obj({
+        Type: 'Annot', Subtype: 'Popup', P: page.ref, Parent: reference,
+        Rect: translateRect(metadata.popup.rectangle), F: metadata.popup.flags,
+        Open: metadata.popup.isOpen,
+      }));
+      note.set(PDFName.of('Popup'), popup);
+      page.node.addAnnot(popup);
+    }
+    return { note, reference };
+  };
+  const parent = createNote(annotation, false);
+  for (const reply of annotation.replies ?? []) {
+    const child = createNote(reply, true);
+    child.note.set(PDFName.of('IRT'), parent.reference);
+    child.note.set(PDFName.of('RT'), PDFName.of('R'));
+  }
+}
 
-  // Draw note icon as a rectangle
-  page.drawRectangle({
-    x: position.x,
-    y: position.y,
-    width: size,
-    height: size,
-    color: rgb(r, g, b),
-    borderColor: rgb(0, 0, 0),
-    borderWidth: 1,
-  });
-
-  // Draw corner fold
-  page.drawLine({
-    start: { x: position.x + size - 5, y: position.y + size },
-    end: { x: position.x + size, y: position.y + size - 5 },
-    color: rgb(0, 0, 0),
-    thickness: 1,
-  });
+function annotationDate(date: Date): PDFString {
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) {
+    throw new Error('Annotation contains an invalid date');
+  }
+  return PDFString.fromDate(date);
 }
 
 /**
  * Add stamp annotation
  */
-function addStampAnnotation(page: PDFPage, annotation: StampAnnotation): void {
+async function addStampAnnotation(pdfDoc: PDFDocument, page: PDFPage, annotation: StampAnnotation): Promise<void> {
   const { rect, stampName, color } = annotation;
   const { r, g, b } = hexToRgb(color);
+
+  if (annotation.stampType === 'custom') {
+    if (!annotation.customImageData) throw new Error('Custom stamp image is missing');
+    const image = await embedImageData(pdfDoc, annotation.customImageData);
+    page.drawImage(image, {
+      x: rect[0], y: rect[1], width: rect[2], height: rect[3], opacity: annotation.opacity,
+    });
+    return;
+  }
 
   // Draw stamp border
   page.drawRectangle({
@@ -420,6 +492,7 @@ async function addFreeTextAnnotation(
 
   // Word wrap the text
   const maxWidth = rect[2] - padding * 2;
+  if (fontSize <= 0 || maxWidth <= 0) throw new Error('Text box dimensions or font size are invalid');
   const wrappedLines: string[] = [];
 
   const inputLines = content.split('\n');
@@ -430,6 +503,9 @@ async function addFreeTextAnnotation(
     for (const word of words) {
       const testLine = currentLine ? `${currentLine} ${word}` : word;
       const textWidth = font.widthOfTextAtSize(testLine, fontSize);
+      if (font.widthOfTextAtSize(word, fontSize) > maxWidth) {
+        throw new Error('A word is wider than the text box; enlarge the box or reduce the font size');
+      }
 
       if (textWidth > maxWidth && currentLine) {
         wrappedLines.push(currentLine);
@@ -438,16 +514,16 @@ async function addFreeTextAnnotation(
         currentLine = testLine;
       }
     }
-    if (currentLine) {
-      wrappedLines.push(currentLine);
-    }
+    wrappedLines.push(currentLine);
+  }
+
+  if (fontSize + (wrappedLines.length - 1) * lineHeight > rect[3] - padding * 2) {
+    throw new Error('Text exceeds the text box height; enlarge the box or reduce the font size');
   }
 
   // Draw text lines
   let y = rect[1] + rect[3] - fontSize - padding;
   for (const line of wrappedLines) {
-    if (y < rect[1]) break;
-
     // Calculate x position based on alignment
     let x = rect[0] + padding;
     if (style.textAlign === 'center') {
@@ -489,118 +565,104 @@ async function addImageAnnotation(
   page: PDFPage,
   annotation: ImageAnnotation
 ): Promise<void> {
-  const {
-    rect,
-    imageData,
-    opacity,
-    rotation = 0,
-    cropBounds,
-    borderWidth,
-    borderColor,
-    borderStyle,
-    mimeType,
-  } = annotation;
-  // Note: flipHorizontal, flipVertical, and borderRadius are stored but
-  // would require pre-processing the image or complex PDF operations to apply
-
-  // Extract base64 data from data URL
-  const base64Match = imageData.match(/^data:([^;]+);base64,(.+)$/);
-  if (!base64Match) {
-    console.warn('Invalid image data format');
-    return;
+  const [x, y, width, height] = annotation.rect;
+  const rotation = annotation.rotation ?? 0;
+  const opacity = annotation.opacity ?? 1;
+  const borderWidth = annotation.borderWidth ?? 0;
+  const radius = annotation.borderRadius ?? 0;
+  const crop = annotation.cropBounds ?? { top: 0, right: 0, bottom: 0, left: 0 };
+  if (![x, y, width, height, rotation, opacity, borderWidth, radius].every(Number.isFinite)
+    || width <= 0 || height <= 0 || borderWidth < 0 || radius < 0 || opacity < 0 || opacity > 1) {
+    throw new Error('Invalid image dimensions, rotation, opacity, or border');
   }
-
-  const imageType = base64Match[1];
-  const base64Data = base64Match[2];
-
-  // Convert base64 to Uint8Array
-  const binaryString = atob(base64Data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+  if (![crop.top, crop.right, crop.bottom, crop.left].every(value => Number.isFinite(value) && value >= 0 && value <= 100)
+    || crop.left + crop.right >= 100 || crop.top + crop.bottom >= 100) {
+    throw new Error('Image crop must leave a nonempty visible area');
   }
+  const embeddedImage = await embedImageData(pdfDoc, annotation.imageData);
+  // Canvas uses clockwise screen rotation about the center. PDF coordinates
+  // point upwards, so negate the angle and apply flips in the local image axes.
+  const angle = -(rotation % 360) * Math.PI / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const flipX = annotation.flipHorizontal ? -1 : 1;
+  const flipY = annotation.flipVertical ? -1 : 1;
+  const a = cos * flipX;
+  const b = sin * flipX;
+  const c = -sin * flipY;
+  const d = cos * flipY;
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const cornerRadius = Math.min(radius, width / 2, height / 2);
 
-  // Embed image based on type
-  let embeddedImage;
+  page.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(a, b, c, d,
+      centerX - a * width / 2 - c * height / 2,
+      centerY - b * width / 2 - d * height / 2),
+  );
   try {
-    if (imageType === 'image/png' || mimeType === 'image/png') {
-      embeddedImage = await pdfDoc.embedPng(bytes);
-    } else if (imageType === 'image/jpeg' || imageType === 'image/jpg' || mimeType === 'image/jpeg') {
-      embeddedImage = await pdfDoc.embedJpg(bytes);
-    } else {
-      // Try PNG first, fall back to JPG
-      try {
-        embeddedImage = await pdfDoc.embedPng(bytes);
-      } catch {
-        embeddedImage = await pdfDoc.embedJpg(bytes);
-      }
+    // The editor draws the border first, then the clipped image covers its
+    // inside half. Keep that order and opacity in the exported appearance.
+    if (borderWidth > 0 && annotation.borderStyle !== 'none') {
+      const { r, g, b: blue } = hexToRgb(annotation.borderColor || '#000000');
+      const dash = annotation.borderStyle === 'dashed' ? [6, 3]
+        : annotation.borderStyle === 'dotted' ? [2, 2] : [];
+      const graphicsState = page.node.newExtGState('ImageBorderOpacity', pdfDoc.context.register(
+        pdfDoc.context.obj({ Type: 'ExtGState', CA: opacity }),
+      ));
+      page.pushOperators(setGraphicsState(graphicsState), setStrokingColor(rgb(r, g, blue)),
+        setLineWidth(borderWidth), setDashPattern(dash, 0),
+        ...imageFramePath(width, height, cornerRadius), stroke());
     }
+
+    // A non-destructive crop expands and offsets the image behind a clipping
+    // path. This retains image pixels and applies the same crop as the editor.
+    const fullWidth = width / (1 - (crop.left + crop.right) / 100);
+    const fullHeight = height / (1 - (crop.top + crop.bottom) / 100);
+    page.pushOperators(...imageFramePath(width, height, cornerRadius), clip(), endPath());
+    page.drawImage(embeddedImage, {
+      x: -fullWidth * crop.left / 100,
+      y: -fullHeight * crop.bottom / 100,
+      width: fullWidth,
+      height: fullHeight,
+      opacity,
+    });
+  } finally {
+    page.pushOperators(popGraphicsState());
+  }
+}
+
+function imageFramePath(width: number, height: number, radius: number) {
+  if (radius === 0) {
+    return [moveTo(0, 0), lineTo(width, 0), lineTo(width, height), lineTo(0, height), closePath()];
+  }
+  // Cubic equivalents of the editor canvas's quadratic corner curves.
+  const third = radius / 3;
+  return [
+    moveTo(radius, 0), lineTo(width - radius, 0),
+    appendBezierCurve(width - third, 0, width, third, width, radius),
+    lineTo(width, height - radius),
+    appendBezierCurve(width, height - third, width - third, height, width - radius, height),
+    lineTo(radius, height),
+    appendBezierCurve(third, height, 0, height - third, 0, height - radius),
+    lineTo(0, radius),
+    appendBezierCurve(0, third, third, 0, radius, 0), closePath(),
+  ];
+}
+
+async function embedImageData(pdfDoc: PDFDocument, dataUrl: string) {
+  const match = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(dataUrl);
+  if (!match) throw new Error('Image must be a base64 PNG or JPEG data URL');
+  const mimeType = match[1].toLowerCase();
+  if (!['image/png', 'image/jpeg', 'image/jpg'].includes(mimeType)) {
+    throw new Error(`Unsupported image format "${mimeType}"; use PNG or JPEG`);
+  }
+  try {
+    const binary = atob(match[2]);
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    return mimeType === 'image/png' ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
   } catch (error) {
-    console.warn('Failed to embed image:', error);
-    return;
-  }
-
-  const [x, y, width, height] = rect;
-
-  // Calculate draw position and dimensions
-  const drawX = x;
-  const drawY = y;
-  const drawWidth = width;
-  const drawHeight = height;
-
-  // Handle crop bounds if specified
-  // Crop bounds are percentages (0-100) from each edge
-  if (cropBounds && (cropBounds.top > 0 || cropBounds.right > 0 || cropBounds.bottom > 0 || cropBounds.left > 0)) {
-    // For cropped images, we need to calculate the source portion
-    // pdf-lib doesn't support source rectangles directly, so we'll draw the full image
-    // and use the visible portion based on crop bounds
-    // Note: True clipping would require more complex PDF operations
-    // For now, we save the uncropped image but at the cropped dimensions
-    // This is a limitation - for full crop support, we'd need to pre-process the image
-  }
-
-  // Draw image with optional rotation
-  if (rotation !== 0) {
-    // Draw with rotation
-    page.drawImage(embeddedImage, {
-      x: drawX,
-      y: drawY,
-      width: drawWidth,
-      height: drawHeight,
-      opacity: opacity,
-      rotate: degrees(rotation),
-    });
-  } else {
-    // Draw without rotation
-    page.drawImage(embeddedImage, {
-      x: drawX,
-      y: drawY,
-      width: drawWidth,
-      height: drawHeight,
-      opacity: opacity,
-    });
-  }
-
-  // Draw border if specified
-  if (borderWidth && borderWidth > 0 && borderStyle !== 'none') {
-    const { r, g, b } = hexToRgb(borderColor || '#000000');
-
-    // Set dash pattern based on style
-    let dashArray: number[] | undefined;
-    if (borderStyle === 'dashed') {
-      dashArray = [6, 3];
-    } else if (borderStyle === 'dotted') {
-      dashArray = [2, 2];
-    }
-
-    page.drawRectangle({
-      x: drawX,
-      y: drawY,
-      width: drawWidth,
-      height: drawHeight,
-      borderColor: rgb(r, g, b),
-      borderWidth: borderWidth,
-      borderDashArray: dashArray,
-    });
+    throw new Error(`Unable to embed ${mimeType} image: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

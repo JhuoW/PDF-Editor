@@ -84,6 +84,19 @@
   overflow: auto;
 }
 
+.text-edit-actions { position: absolute; z-index: 102; max-width: 100%; }
+.text-edit-actions button { padding: 6px 10px; border: 1px solid var(--accent-8, #3b82f6); border-radius: 5px; background: var(--gray-2, #fff); color: var(--gray-12, #111827); font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 2px 8px #0002; }
+.text-edit-actions button:focus-visible { outline: 2px solid var(--accent-9, #2563eb); outline-offset: 2px; }
+.text-edit-draft-hint { position: absolute; left: 10px; right: 10px; bottom: 8px; z-index: 101; margin: 0; padding: 7px 10px; border-radius: 5px; background: #fff8df; color: #513d0a; font-size: 12px; line-height: 1.4; pointer-events: none; }
+
+.text-block.readonly { cursor: default; }
+.text-block.readonly:hover { background: transparent; border-color: transparent; }
+.text-block.readonly:hover .text-block-content { color: transparent; }
+.text-edit-readonly { position: absolute; bottom: 12px; left: 12px; right: 12px; z-index: 101; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px; border: 1px solid #d6a632; border-radius: 6px; background: #fff8df; color: #513d0a; font-size: 13px; line-height: 1.5; }
+.text-edit-readonly span { flex: 1; min-width: 160px; }
+.text-edit-readonly button { border: 1px solid #977116; border-radius: 4px; padding: 6px 10px; background: #fff; color: #513d0a; cursor: pointer; }
+.text-edit-readonly button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
 /* Text block info tooltip (shown on hover in future) */
 .text-block-info {
   position: absolute;

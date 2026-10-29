@@ -2,9 +2,10 @@
 export { TextBoxContextMenu } from './TextBoxContextMenu';
 export { TextPropertiesPanel } from './TextPropertiesPanel';
 export { BoxPropertiesPanel } from './BoxPropertiesPanel';
-export { RichTextEditor, useSelectionStyle } from './RichTextEditor';
+export { RichTextEditor } from './RichTextEditor';
+export { useSelectionStyle } from './hooks/useSelectionStyle';
+export { TipTapEditor } from './TipTapEditor';
 export {
-  TipTapEditor,
   getEditorFormattingState,
   applyFormatting,
   toggleBold,
@@ -16,7 +17,7 @@ export {
   setColor,
   setTextAlign,
   setHighlight,
-} from './TipTapEditor';
+} from './tiptapFormatting';
 export type { TipTapEditorRef, TipTapEditorProps } from './TipTapEditor';
 
 // Hooks

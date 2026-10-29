@@ -2,108 +2,35 @@ import { useEffect, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getPDFOutline, type Outline } from '../../core/PDFDocument';
 import './OutlinePanel.css';
-
-interface OutlinePanelProps {
-  document: PDFDocumentProxy;
-  onPageSelect: (page: number) => void;
-}
-
-interface OutlineItemProps {
-  item: Outline;
-  level: number;
-  onPageSelect: (page: number) => void;
-}
-
-function OutlineItem({ item, level, onPageSelect }: OutlineItemProps) {
-  const [expanded, setExpanded] = useState(true);
-  const hasChildren = item.children && item.children.length > 0;
-
-  return (
-    <div className="outline-item-wrapper">
-      <div
-        className="outline-item"
-        style={{ paddingLeft: `${level * 16 + 8}px` }}
-        onClick={() => onPageSelect(item.pageNumber)}
-      >
-        {hasChildren && (
-          <button
-            className="outline-toggle"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded(!expanded);
-            }}
-          >
-            {expanded ? '▼' : '▶'}
-          </button>
-        )}
-        <span className="outline-title">{item.title}</span>
-        <span className="outline-page">{item.pageNumber}</span>
-      </div>
-      {hasChildren && expanded && (
-        <div className="outline-children">
-          {item.children!.map((child, index) => (
-            <OutlineItem
-              key={`${child.title}-${index}`}
-              item={child}
-              level={level + 1}
-              onPageSelect={onPageSelect}
-            />
-          ))}
-        </div>
-      )}
+interface OutlinePanelProps { document: PDFDocumentProxy; onNavigate: (destination: unknown) => void; onManage?: () => void; manageDisabled?: boolean }
+function OutlineItem({ item, level, onNavigate }: { item: Outline; level: number; onNavigate: OutlinePanelProps['onNavigate'] }) {
+  const [expanded, setExpanded] = useState(item.expanded);
+  const hasChildren = item.children.length > 0;
+  const label = <><span className="outline-title" style={{ fontWeight: item.bold ? 700 : 400, fontStyle: item.italic ? 'italic' : 'normal', ...(item.color !== '#000000' ? { color: item.color } : {}) }}>{item.title}</span>{item.pageNumber && <span className="outline-page">{item.pageNumber}</span>}</>;
+  return <li className="outline-item-wrapper">
+    <div className="outline-item" style={{ paddingLeft: `${level * 16 + 8}px` }}>
+      {hasChildren && <button type="button" className="outline-toggle" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.title}`} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? '▼' : '▶'}</button>}
+      {item.url ? <a className="outline-action" href={item.url} target="_blank" rel="noopener noreferrer">{label}</a>
+        : <button type="button" className="outline-action" title={item.unsupportedReason || item.title} disabled={!item.dest && !hasChildren} onClick={() => item.dest ? onNavigate(item.dest) : setExpanded(value => !value)}>{label}</button>}
     </div>
-  );
+    {hasChildren && expanded && <ul className="outline-children">{item.children.map(child => <OutlineItem key={child.id} item={child} level={level + 1} onNavigate={onNavigate} />)}</ul>}
+  </li>;
 }
-
-export function OutlinePanel({ document, onPageSelect }: OutlinePanelProps) {
-  const [outline, setOutline] = useState<Outline[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+export function OutlinePanel({ document, onNavigate, onManage, manageDisabled }: OutlinePanelProps) {
+  const [result, setResult] = useState<{ document: PDFDocumentProxy; items: Outline[]; error?: string } | null>(null);
+  const current = result?.document === document ? result : null;
   useEffect(() => {
-    if (!document) return;
-
-    const loadOutline = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const outlineData = await getPDFOutline(document);
-        setOutline(outlineData);
-      } catch (err) {
-        setError('Failed to load outline');
-        console.error('Error loading outline:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadOutline();
+    const request = new AbortController();
+    void getPDFOutline(document, request.signal).then(items => { if (!request.signal.aborted) setResult({ document, items }); })
+      .catch(error => { if (!request.signal.aborted) setResult({ document, items: [], error: error instanceof Error ? error.message : 'Could not load bookmarks.' }); });
+    return () => request.abort();
   }, [document]);
-
-  return (
-    <div className="outline-panel">
-      <div className="outline-panel-header">
-        <span>Bookmarks</span>
-      </div>
-      <div className="outline-content">
-        {loading && <div className="outline-loading">Loading...</div>}
-        {error && <div className="outline-error">{error}</div>}
-        {!loading && !error && outline.length === 0 && (
-          <div className="outline-empty">No bookmarks available</div>
-        )}
-        {!loading && !error && outline.length > 0 && (
-          <div className="outline-tree">
-            {outline.map((item, index) => (
-              <OutlineItem
-                key={`${item.title}-${index}`}
-                item={item}
-                level={0}
-                onPageSelect={onPageSelect}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+  return <div className="outline-panel">
+    <div className="outline-panel-header"><span>Bookmarks</span>{onManage && <button type="button" disabled={manageDisabled} onClick={onManage}>Manage…</button>}</div>
+    <div className="outline-content">
+      {!current && <div className="outline-loading" role="status">Loading bookmarks…</div>}
+      {current?.error && <div className="outline-error" role="alert">{current.error}</div>}
+      {current && !current.error && (current.items.length ? <ul className="outline-tree" aria-label="Bookmarks">{current.items.map(item => <OutlineItem key={item.id} item={item} level={0} onNavigate={onNavigate} />)}</ul> : <div className="outline-empty">No bookmarks available</div>)}
     </div>
-  );
+  </div>;
 }

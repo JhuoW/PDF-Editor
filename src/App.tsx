@@ -1,60 +1,127 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Theme } from '@radix-ui/themes';
 import '@radix-ui/themes/styles.css';
+import { PDFDocument as PDFLibDocument } from 'pdf-lib';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { useSessionPersistence } from './hooks/useSessionPersistence';
+import { performDocumentOperation, type DocumentOperationContext, type DocumentOperationResult } from './core/DocumentOperations';
+import { deletionPageMap, insertionPageMap, reorderedPageMap } from './core/pageMapping';
+import { captureWorkspace, createWorkspace, remapWorkspacePages } from './store/workspaceSnapshot';
 import { usePDFDocument } from './hooks/usePDFDocument';
+import { useDocumentStore } from './store/documentStore';
 import { useUIStore } from './store/uiStore';
 import { useSearchStore } from './store/searchStore';
-import { useHistoryStore } from './store/historyStore';
+import { useHistoryStore, isWorkspaceEntry } from './store/historyStore';
+import { applyWorkspacePatch, commitPendingEditors } from './store/workspaceHistory';
 import { MainToolbar } from './components/Toolbar/MainToolbar';
 import { CombinedToolbar, type PendingImageData } from './components/Toolbar/CombinedToolbar';
 import { PDFViewer, type LinkDestination } from './components/PDFViewer/PDFViewer';
 import { ThumbnailPanel } from './components/Sidebar/ThumbnailPanel';
 import { OutlinePanel } from './components/Sidebar/OutlinePanel';
+import { StickyNoteEditor } from './components/Annotations/StickyNoteEditor';
 import { SearchDialog } from './components/Dialogs/SearchDialog';
 import { GoToPageDialog } from './components/Dialogs/GoToPageDialog';
 import { MergeDialog } from './components/Dialogs/MergeDialog';
 import { SplitDialog } from './components/Dialogs/SplitDialog';
 import { ConfirmationDialog } from './components/Dialogs/ConfirmationDialog';
+import { EncryptDialog } from './components/Dialogs/EncryptDialog';
+import { PasswordDialog } from './components/Dialogs/PasswordDialog';
 import {
   rotatePages,
+  reorderPages,
   deletePages,
   insertBlankPages,
   insertPagesFromPDF,
   downloadPDF,
 } from './core/PDFManipulator';
-import { loadCurrentPDF, saveCurrentPDF } from './utils/pdfStorage';
+import { readActivePDF } from './core/ActiveDocument';
 import { useAnnotationStore } from './store/annotationStore';
-import { useAnnotationHistoryStore } from './store/annotationHistoryStore';
 import { useTiptapEditor } from './store/textBoxStore';
 import { TipTapToolbar } from './components/Toolbar/TipTapToolbar';
 import { ImageToolbar } from './components/ImageToolbar';
 import type { ImageAnnotation } from './annotations/types';
-import { useFormStore } from './store/formStore';
 import { serializeAnnotationsToPDF } from './annotations/AnnotationSerializer';
+import { useFormStore } from './store/formStore';
 import { extractFormFields, updateFormFieldValues } from './forms/FormFieldExtractor';
-import { exportToJSON, exportToFDF, exportToXFDF, importFromJSON, importFromFDF, importFromXFDF, downloadFormData, readFileAsText } from './forms/FormDataIO';
-import { flattenForm } from './forms/FormFlattener';
+import { applyWorkspaceContent, exportWorkspacePDF, flattenWorkspaceForm } from './core/PDFExport';
+import { exportToJSON, exportToFDF, exportToXFDF, importFromJSON, importFromFDF, importFromXFDF, normalizeImportedFormValues, downloadFormData, readFileAsText } from './forms/FormDataIO';
 import { useEditingStore } from './store/editingStore';
 import { applyRedactions } from './editing/RedactionApplier';
+import { applySecureRedactions } from './editing/SecureRedaction';
 import './App.css';
+import type { OCRDialogProgress, OCRRunOptions } from './components/Dialogs/OCRDialog';
+import type { OCRPageResult } from './ocr/recognizePDF';
+import type { FormDesignOperation } from './forms/FormDesignerTypes';
+import type { PageDecorationOperation } from './core/PageDecorationTypes';
+import type { CleanupControl, CleanupOptions } from './core/DocumentCleanupTypes';
+import type { WorkspaceSnapshot } from './store/workspaceSnapshot';
+import type { TextEditOperation } from './editing/types';
+import type { PDFLinkOperation } from './core/PDFLinkTypes';
+import type { PDFBookmarkDraft } from './core/PDFBookmarksTypes';
+import { PDF_LINK_SCROLL_INSET, pdfLinkCurrentPosition, pdfLinkNavigationScale, resolvePDFLinkNavigation, retainPDFLinkCoordinates } from './core/PDFLinkNavigation';
+import { hasOpenModal, isTextInput } from './utils/keyboard';
+
+const DocumentPropertiesDialog = lazy(() => import('./components/Dialogs/DocumentPropertiesDialog').then(module => ({ default: module.DocumentPropertiesDialog })));
+const OCRDialog = lazy(() => import('./components/Dialogs/OCRDialog'));
+const CreatePDFDialog = lazy(() => import('./components/Dialogs/CreatePDFDialog'));
+const ExportPagesDialog = lazy(() => import('./components/Dialogs/ExportPagesDialog'));
+const FormDesignerDialog = lazy(() => import('./components/Dialogs/FormDesignerDialog'));
+const PageDecorationsDialog = lazy(() => import('./components/Dialogs/PageDecorationsDialog'));
+const CleanDocumentDialog = lazy(() => import('./components/Dialogs/CleanDocumentDialog'));
+const CompressPDFDialog = lazy(() => import('./components/Dialogs/CompressPDFDialog'));
+const TextLayoutDialog = lazy(() => import('./components/Dialogs/TextLayoutDialog'));
+const PDFLinksDialog = lazy(() => import('./components/Dialogs/PDFLinksDialog'));
+const PDFBookmarksDialog = lazy(() => import('./components/Dialogs/PDFBookmarksDialog'));
+const SignatureDialog = lazy(() => import('./components/Dialogs/SignatureDialog'));
+
+async function prepareFormDesignPDF(data: ArrayBuffer, workspace: WorkspaceSnapshot) {
+  const content = await applyWorkspaceContent(data, workspace);
+  return applyWorkspaceFormValues(new Uint8Array(content).buffer, workspace);
+}
+
+async function applyWorkspaceFormValues(data: ArrayBuffer, workspace: WorkspaceSnapshot) {
+  const fields = workspace.form.fields.filter(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature'
+    && JSON.stringify(field.value) !== JSON.stringify(workspace.form.originalValues.get(field.id)));
+  if (!fields.length) return data;
+  return new Uint8Array(await updateFormFieldValues(data, new Map(fields.map(field => [field.name, field.value])))).buffer;
+}
 
 type SidebarTab = 'thumbnails' | 'outline';
 
 function App() {
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('thumbnails');
-  const [highlightDest, setHighlightDest] = useState<LinkDestination | null>(null);
+  const [narrowViewport, setNarrowViewport] = useState(() => window.matchMedia('(max-width: 768px)').matches);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [highlightDest, setHighlightDest] = useState<{ document: PDFDocumentProxy; version: number; destination: LinkDestination } | null>(null);
   const [goToPageOpen, setGoToPageOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [mergeDialogKey, setMergeDialogKey] = useState(0);  // Key to force remount
-  const [mergeDocumentData, setMergeDocumentData] = useState<{ data: ArrayBuffer; fileName: string; totalPages: number } | null>(null);
+  const pendingMergeOpen = useRef<symbol | null>(null);
+  const [mergeDocumentData, setMergeDocumentData] = useState<{ data: ArrayBuffer; fileName: string; totalPages: number; documentVersion: number } | null>(null);
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [encryptDialogOpen, setEncryptDialogOpen] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [ocrOpen, setOCROpen] = useState(false);
+  const [createPDFOpen, setCreatePDFOpen] = useState(false);
+  const [exportPagesOpen, setExportPagesOpen] = useState(false);
+  const [formDesignerOpen, setFormDesignerOpen] = useState(false);
+  const [pageDecorationsOpen, setPageDecorationsOpen] = useState(false);
+  const [cleanDocumentOpen, setCleanDocumentOpen] = useState(false);
+  const [compressPDFOpen, setCompressPDFOpen] = useState(false);
+  const [textLayoutBlockId, setTextLayoutBlockId] = useState<string | null>(null);
+  const textLayoutCommit = useRef<((edit: TextEditOperation, signal: AbortSignal) => void) | null>(null);
+  const [linksOpen, setLinksOpen] = useState(false);
+  const linksApply = useRef<((operations: PDFLinkOperation[], signal: AbortSignal, onCommit: () => void) => Promise<void>) | null>(null);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const bookmarksApply = useRef<((tree: PDFBookmarkDraft[], signal: AbortSignal, onCommit: () => void) => Promise<void>) | null>(null);
+  const [signatureSession, setSignatureSession] = useState<{ document: object; version: number } | null>(null);
   // Pending images waiting to be placed on the PDF
   const [pendingImages, setPendingImages] = useState<PendingImageData[]>([]);
   const mainRef = useRef<HTMLElement>(null);
-  const isInitialLoad = useRef(true);
+  const historyBusy = useRef(false);
 
   const {
     document,
@@ -63,6 +130,10 @@ function App() {
     error,
     navigation,
     loadFromFile,
+    closeDocument,
+    passwordRequest,
+    submitPassword,
+    cancelPasswordRequest,
     goToPage,
     nextPage,
     previousPage,
@@ -76,31 +147,36 @@ function App() {
     setCurrentPage,
   } = usePDFDocument();
 
-  const { sidebarOpen, searchOpen, toggleSidebar, toggleSearch } = useUIStore();
+  const persistence = useSessionPersistence();
+
+  const { sidebarOpen: desktopSidebarOpen, searchOpen, toggleSidebar: toggleDesktopSidebar, toggleSearch } = useUIStore();
+  const sidebarOpen = narrowViewport ? mobileSidebarOpen : desktopSidebarOpen;
+  const toggleSidebar = useCallback(() => {
+    if (narrowViewport) setMobileSidebarOpen(open => !open);
+    else toggleDesktopSidebar();
+  }, [narrowViewport, toggleDesktopSidebar]);
   const { query: searchQuery, clearSearch, getCurrentResult } = useSearchStore();
-  const { annotations: annotationMap, addAnnotation, deleteAnnotation, updateAnnotation, currentTool, setCurrentTool, selectedAnnotationId, selectAnnotation, getAllAnnotations } = useAnnotationStore();
+  const { annotations: annotationMap, currentTool, setCurrentTool, selectedAnnotationId, selectAnnotation, getAllAnnotations } = useAnnotationStore();
+  const { fields: formFields, resetToOriginal: resetFormToOriginal } = useFormStore();
+  const { redactions } = useEditingStore();
   const {
-    undo: annotationUndo,
-    redo: annotationRedo,
-    canUndo: canUndoAnnotation,
-    canRedo: canRedoAnnotation,
-    clear: clearAnnotationHistory,
-  } = useAnnotationHistoryStore();
-  const { fields: formFields, setFields: setFormFields, resetToOriginal: resetFormToOriginal, clearForm } = useFormStore();
-  const { redactions, markRedactionApplied } = useEditingStore();
-  const {
-    pushState,
     undo: historyUndo,
     redo: historyRedo,
     canUndo,
     canRedo,
-    clearHistory,
     getUndoActionName,
     getRedoActionName,
-    setOriginalDocument,
     getOriginalDocument,
     setUndoRedoInProgress,
   } = useHistoryStore();
+
+  // Keep the mobile drawer independent of the user's desktop sidebar preference.
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 768px)');
+    const handleChange = (event: MediaQueryListEvent) => setNarrowViewport(event.matches);
+    query.addEventListener('change', handleChange);
+    return () => query.removeEventListener('change', handleChange);
+  }, []);
 
   // Get current active search result
   const currentResult = getCurrentResult();
@@ -129,340 +205,548 @@ function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [document]);
 
-  // Initialize history when a NEW document is loaded (not on undo/redo reloads)
+  const handleOpenFile = useCallback(async (file: File) => {
+    pendingMergeOpen.current = null;
+    if (await loadFromFile(file)) {
+      setSelectedPages([]);
+      setPendingImages([]);
+      setHighlightDest(null);
+      setMergeDialogOpen(false);
+      setSplitDialogOpen(false);
+      setEncryptDialogOpen(false);
+      setPropertiesOpen(false);
+      setOCROpen(false);
+      setCreatePDFOpen(false);
+      setExportPagesOpen(false);
+      setFormDesignerOpen(false);
+      setPageDecorationsOpen(false);
+      setCompressPDFOpen(false);
+      setTextLayoutBlockId(null);
+      textLayoutCommit.current = null;
+      setLinksOpen(false);
+      setBookmarksOpen(false); bookmarksApply.current = null; setSignatureSession(null);
+      linksApply.current = null;
+      setCleanDocumentOpen(false);
+      return true;
+    }
+    return false;
+  }, [loadFromFile]);
+
+  const linkNavigationRequest = useRef(0);
+  const linkNavigationMounted = useRef(false);
+  const linkHighlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!document) {
-      clearHistory();
-      clearAnnotationHistory();
-      isInitialLoad.current = true;
-      return;
+    linkNavigationMounted.current = true;
+    return () => { linkNavigationMounted.current = false; if (linkHighlightTimer.current) clearTimeout(linkHighlightTimer.current); };
+  }, []);
+  useEffect(() => { linkNavigationRequest.current++; }, [document, documentVersion]);
+
+  const handleLinkClick = useCallback(async (destination: unknown) => {
+    const initial = useDocumentStore.getState();
+    if (!document || initial.document !== document || initial.isLoading) return;
+    const request = ++linkNavigationRequest.current;
+    if (linkHighlightTimer.current) clearTimeout(linkHighlightTimer.current);
+    setHighlightDest(null);
+    // Save the currently displayed reference point before any async destination
+    // lookup, page jump, or zoom can move it. Match the viewer's scroll insets.
+    const container = mainRef.current?.querySelector<HTMLElement>('.pdf-viewer-container');
+    const currentElement = container?.querySelector<HTMLElement>(`.page-wrapper[data-page="${initial.navigation.currentPage}"]`);
+    const containerBounds = container?.getBoundingClientRect(), pageBounds = currentElement?.getBoundingClientRect();
+    const visiblePosition = containerBounds && pageBounds ? {
+      x: containerBounds.left + PDF_LINK_SCROLL_INSET.left - pageBounds.left,
+      y: containerBounds.top + PDF_LINK_SCROLL_INSET.top - pageBounds.top, pageWidth: pageBounds.width,
+    } : undefined;
+    const isCurrent = () => {
+      const current = useDocumentStore.getState();
+      return linkNavigationMounted.current && request === linkNavigationRequest.current && current.document === document && current.documentVersion === initial.documentVersion
+        && current.loadRequestId === initial.loadRequestId && !current.isLoading;
+    };
+    try {
+      if (!isCurrent()) return;
+      let resolved = await resolvePDFLinkNavigation(document, destination, isCurrent);
+      if (!isCurrent()) return;
+      if (!resolved) { initial.setError('This link does not point to an available page.'); return; }
+      const page = await document.getPage(resolved.pageNumber);
+      if (!isCurrent()) return;
+      let currentScale = initial.navigation.zoom;
+      if (visiblePosition) {
+        const currentPage = resolved.pageNumber === initial.navigation.currentPage ? page : await document.getPage(initial.navigation.currentPage);
+        if (!isCurrent()) return;
+        const currentPosition = pdfLinkCurrentPosition(currentPage, initial.navigation.rotation, currentScale, visiblePosition);
+        resolved = retainPDFLinkCoordinates(resolved, currentPosition); currentScale = currentPosition.scale;
+      }
+      if (container) setZoom(pdfLinkNavigationScale(resolved, page, initial.navigation.rotation,
+        { width: container.clientWidth, height: container.clientHeight }, currentScale), 'manual');
+      const highlight = { document, version: initial.documentVersion, destination: resolved };
+      setHighlightDest(highlight); goToPage(resolved.pageNumber);
+      linkHighlightTimer.current = setTimeout(() => {
+        if (linkNavigationMounted.current) setHighlightDest(current => current === highlight ? null : current);
+      }, 2500);
+    } catch (cause) {
+      if (isCurrent()) useDocumentStore.getState().setError(cause instanceof Error ? `Could not follow this link: ${cause.message}` : 'Could not follow this PDF link.');
     }
+  }, [document, goToPage, setZoom]);
 
-    // Only set original document on initial load, not on subsequent reloads
-    if (isInitialLoad.current) {
-      const initHistory = async () => {
-        try {
-          const stored = await loadCurrentPDF();
-          if (stored) {
-            // Store the original document for "Reset to Original" feature
-            setOriginalDocument(stored.data, stored.fileName);
-          }
-        } catch (err) {
-          console.error('Failed to initialize history:', err);
-        }
-      };
+  const runOperation = useCallback((
+    actionName: string,
+    transform: (context: DocumentOperationContext) => Promise<DocumentOperationResult | null>,
+  ) => performDocumentOperation(actionName, transform, loadFromFile), [loadFromFile]);
 
-      initHistory();
-      isInitialLoad.current = false;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document]); // Only run when document object changes
-
-  // Extract form fields when a document is loaded
-  useEffect(() => {
-    if (!document) {
-      clearForm();
-      return;
-    }
-
-    const extractFields = async () => {
-      try {
-        const stored = await loadCurrentPDF();
-        if (stored) {
-          const fields = await extractFormFields(stored.data);
-          setFormFields(fields);
-        }
-      } catch (err) {
-        console.error('Failed to extract form fields:', err);
+  const readLinksPDF = useCallback(async (signal: AbortSignal) => {
+    signal.throwIfAborted(); linksApply.current = null;
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading.');
+    commitPendingEditors();
+    const history = useHistoryStore.getState(), workspace = captureWorkspace();
+    const checkCurrent = (duringCommit = false) => {
+      signal.throwIfAborted();
+      const current = useDocumentStore.getState(), currentHistory = useHistoryStore.getState();
+      if ((!duringCommit && current.isLoading) || current.document !== initial.document || current.documentVersion !== initial.documentVersion
+        || current.loadRequestId !== initial.loadRequestId || currentHistory.undoStack !== history.undoStack || currentHistory.redoStack !== history.redoStack) {
+        throw new Error('The document or its drafts changed. Reopen Links.');
       }
     };
+    const stored = await readActivePDF(); checkCurrent();
+    const client = await import('./core/PDFLinksClient'); checkCurrent();
+    const prepared = await client.preparePDFLinksWorkspaceInWorker(stored.data, workspace, { signal }); checkCurrent();
+    linksApply.current = async (operations, saveSignal, onCommit) => {
+      saveSignal.throwIfAborted(); checkCurrent();
+      if (!operations.length) return;
+      await runOperation('Edit links', async () => {
+        saveSignal.throwIfAborted(); checkCurrent(true);
+        const result = await client.applyPDFLinksWorkspaceInWorker(prepared.data, workspace, operations, { signal: saveSignal, expectedRevision: prepared.report.revision });
+        saveSignal.throwIfAborted(); checkCurrent(true);
+        onCommit(); return result;
+      });
+    };
+    return { ...prepared, preview: async (operations: PDFLinkOperation[], previewSignal: AbortSignal) => {
+      previewSignal.throwIfAborted(); checkCurrent();
+      const result = await client.previewPDFLinksInWorker(prepared.data, workspace, operations, { signal: previewSignal, expectedRevision: prepared.report.revision });
+      checkCurrent(); return result;
+    } };
+  }, [runOperation]);
 
-    extractFields();
-  }, [document, documentVersion, setFormFields, clearForm]);
+  const applyLinks = useCallback(async (operations: PDFLinkOperation[], signal: AbortSignal, onCommit: () => void) => {
+    if (!linksApply.current) throw new Error('Reopen Links before applying changes.');
+    await linksApply.current(operations, signal, onCommit);
+  }, []);
 
-  // Handle internal PDF link clicks (citations, etc.)
-  const handleLinkClick = useCallback(
-    async (dest: unknown) => {
-      if (!document) return;
+  const closeLinks = useCallback(() => { linksApply.current = null; setLinksOpen(false); }, []);
 
-      try {
-        let pageNumber: number | null = null;
-        let destArray: unknown[] | null = null;
-
-        if (typeof dest === 'string') {
-          // Named destination - resolve it
-          const destination = await document.getDestination(dest);
-          if (destination) {
-            destArray = destination;
-            const ref = destination[0];
-            pageNumber = await document.getPageIndex(ref) + 1;
-          }
-        } else if (Array.isArray(dest)) {
-          // Explicit destination array [ref, /XYZ, left, top, zoom] or similar
-          destArray = dest;
-          const ref = dest[0];
-          if (ref && typeof ref === 'object' && 'num' in ref) {
-            pageNumber = await document.getPageIndex(ref) + 1;
-          }
-        }
-
-        if (pageNumber && pageNumber >= 1 && pageNumber <= navigation.totalPages) {
-          // Extract coordinates from destination array
-          // Format: [pageRef, /XYZ, left, top, zoom] or [pageRef, /FitH, top] etc.
-          let top: number | undefined;
-          let left: number | undefined;
-
-          if (destArray && destArray.length > 2) {
-            const destType = destArray[1];
-            if (destType && typeof destType === 'object' && 'name' in destType) {
-              const typeName = (destType as { name: string }).name;
-              if (typeName === 'XYZ' && destArray.length >= 4) {
-                // [ref, /XYZ, left, top, zoom]
-                left = typeof destArray[2] === 'number' ? destArray[2] : undefined;
-                top = typeof destArray[3] === 'number' ? destArray[3] : undefined;
-              } else if (typeName === 'FitH' || typeName === 'FitBH') {
-                // [ref, /FitH, top] or [ref, /FitBH, top]
-                top = typeof destArray[2] === 'number' ? destArray[2] : undefined;
-              } else if (typeName === 'FitR' && destArray.length >= 6) {
-                // [ref, /FitR, left, bottom, right, top]
-                left = typeof destArray[2] === 'number' ? destArray[2] : undefined;
-                top = typeof destArray[5] === 'number' ? destArray[5] : undefined;
-              }
-            }
-          }
-
-          // Set highlight destination (will trigger highlight animation)
-          setHighlightDest({ pageNumber, top, left });
-
-          // Clear highlight after animation
-          setTimeout(() => setHighlightDest(null), 2500);
-
-          goToPage(pageNumber);
-        }
-      } catch (error) {
-        console.error('Error navigating to link destination:', error);
+  const readBookmarksPDF = useCallback(async (signal: AbortSignal) => {
+    signal.throwIfAborted(); bookmarksApply.current = null;
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading.');
+    commitPendingEditors();
+    const history = useHistoryStore.getState(), workspace = captureWorkspace();
+    const checkCurrent = (duringCommit = false) => {
+      signal.throwIfAborted();
+      const current = useDocumentStore.getState(), currentHistory = useHistoryStore.getState();
+      if ((!duringCommit && current.isLoading) || current.document !== initial.document || current.documentVersion !== initial.documentVersion
+        || current.loadRequestId !== initial.loadRequestId || currentHistory.undoStack !== history.undoStack || currentHistory.redoStack !== history.redoStack) {
+        throw new Error('The document or its drafts changed. Reopen Bookmarks.');
       }
-    },
-    [document, goToPage, navigation.totalPages]
-  );
+    };
+    const stored = await readActivePDF(); checkCurrent();
+    const client = await import('./core/PDFBookmarksClient'); checkCurrent();
+    const prepared = await client.preparePDFBookmarksWorkspaceInWorker(stored.data, workspace, { signal }); checkCurrent();
+    bookmarksApply.current = async (tree, saveSignal, onCommit) => {
+      saveSignal.throwIfAborted(); checkCurrent();
+      await runOperation('Edit bookmarks', async () => {
+        saveSignal.throwIfAborted(); checkCurrent(true);
+        const result = await client.applyPDFBookmarksWorkspaceInWorker(prepared.data, workspace, tree, { signal: saveSignal, expectedRevision: prepared.report.revision });
+        saveSignal.throwIfAborted(); checkCurrent(true);
+        onCommit(); return result;
+      });
+    };
+    return { ...prepared, preview: async (tree: PDFBookmarkDraft[], previewSignal: AbortSignal) => {
+      previewSignal.throwIfAborted(); checkCurrent();
+      const result = await client.previewPDFBookmarksInWorker(prepared.data, workspace, tree, { signal: previewSignal, expectedRevision: prepared.report.revision });
+      checkCurrent(); return result;
+    } };
+  }, [runOperation]);
 
-  // Helper to reload PDF after modification
-  const reloadModifiedPDF = useCallback(async (data: Uint8Array, actionName?: string) => {
-    // Save current state to history before modification
-    const stored = await loadCurrentPDF();
-    if (stored && actionName) {
-      pushState(stored.data, stored.fileName, actionName);
+  const applyBookmarks = useCallback(async (tree: PDFBookmarkDraft[], signal: AbortSignal, onCommit: () => void) => {
+    if (!bookmarksApply.current) throw new Error('Reopen Bookmarks before applying changes.');
+    await bookmarksApply.current(tree, signal, onCommit);
+  }, []);
+
+  const closeBookmarks = useCallback(() => { bookmarksApply.current = null; setBookmarksOpen(false); }, []);
+
+  const restoreHistory = useCallback(async (direction: 'undo' | 'redo') => {
+    if (historyBusy.current || useDocumentStore.getState().isLoading) return;
+    commitPendingEditors();
+    const beforeHistory = useHistoryStore.getState();
+    const target = (direction === 'undo' ? beforeHistory.undoStack : beforeHistory.redoStack).at(-1);
+    if (!target) return;
+    if (isWorkspaceEntry(target)) {
+      const patch = beforeHistory.restoreWorkspaceStep(direction, captureWorkspace());
+      if (patch) applyWorkspacePatch(patch);
+      return;
     }
-
-    // Save to storage
-    await saveCurrentPDF(data.buffer as ArrayBuffer, stored?.fileName || 'document.pdf');
-
-    // Create a file and reload
-    const blob = new Blob([new Uint8Array(data)], { type: 'application/pdf' });
-    const file = new File([blob], stored?.fileName || 'document.pdf', { type: 'application/pdf' });
-    await loadFromFile(file);
-  }, [loadFromFile, pushState]);
-
-  // Handle undo action
-  const handleUndo = useCallback(async () => {
-    // First check if there's an annotation operation to undo
-    if (canUndoAnnotation()) {
-      const entry = annotationUndo();
-      if (entry) {
-        switch (entry.type) {
-          case 'add':
-            // Undo add = delete the annotation
-            deleteAnnotation(entry.annotation.id);
-            break;
-          case 'update':
-            // Undo update = restore previous state
-            if (entry.previousState) {
-              updateAnnotation(entry.annotation.id, entry.previousState);
-            }
-            break;
-          case 'delete':
-            // Undo delete = re-add the annotation
-            addAnnotation(entry.annotation);
-            break;
-        }
-        return;
-      }
-    }
-
-    // Fall back to document history
-    const snapshot = historyUndo();
-    if (!snapshot) return;
-
+    historyBusy.current = true;
+    const initial = useDocumentStore.getState();
+    const isSameSession = () => useHistoryStore.getState().originalDocument === beforeHistory.originalDocument;
+    let snapshotTaken = false;
+    initial.setLoading(true);
     try {
-      // Mark that we're in undo/redo to prevent history recording
+      const stored = await readActivePDF();
+      if (!stored || !isSameSession() || useDocumentStore.getState().loadRequestId !== initial.loadRequestId) return;
+      const snapshot = direction === 'undo'
+        ? historyUndo(stored.data, stored.fileName, captureWorkspace())
+        : historyRedo(stored.data, stored.fileName, captureWorkspace());
+      if (!snapshot) return;
+      snapshotTaken = true;
       setUndoRedoInProgress(true);
-
-      // Save to storage and reload
-      await saveCurrentPDF(snapshot.data, snapshot.fileName);
-      const blob = new Blob([snapshot.data], { type: 'application/pdf' });
-      const file = new File([blob], snapshot.fileName, { type: 'application/pdf' });
-      await loadFromFile(file);
-
-      // Clear the flag after reload
-      setUndoRedoInProgress(false);
-    } catch (err) {
-      console.error('Failed to undo:', err);
-      setUndoRedoInProgress(false);
-    }
-  }, [historyUndo, loadFromFile, setUndoRedoInProgress, canUndoAnnotation, annotationUndo, deleteAnnotation, updateAnnotation, addAnnotation]);
-
-  // Handle redo action
-  const handleRedo = useCallback(async () => {
-    // First check if there's an annotation operation to redo
-    if (canRedoAnnotation()) {
-      const entry = annotationRedo();
-      if (entry) {
-        switch (entry.type) {
-          case 'add':
-            // Redo add = re-add the annotation
-            addAnnotation(entry.annotation);
-            break;
-          case 'update':
-            // Redo update = apply the updated state
-            updateAnnotation(entry.annotation.id, entry.annotation);
-            break;
-          case 'delete':
-            // Redo delete = delete the annotation again
-            deleteAnnotation(entry.annotation.id);
-            break;
-        }
-        return;
+      const history = useHistoryStore.getState();
+      const file = new File([snapshot.data], snapshot.fileName, { type: 'application/pdf' });
+      if (!await loadFromFile(file, { preserveState: true, workspace: snapshot.workspace,
+        history: { undoStack: history.undoStack, redoStack: history.redoStack } })) {
+        throw new Error(`Could not ${direction} the document change`);
       }
-    }
-
-    // Fall back to document history
-    const snapshot = historyRedo();
-    if (!snapshot) return;
-
-    try {
-      // Mark that we're in undo/redo to prevent history recording
-      setUndoRedoInProgress(true);
-
-      // Save to storage and reload
-      await saveCurrentPDF(snapshot.data, snapshot.fileName);
-      const blob = new Blob([snapshot.data], { type: 'application/pdf' });
-      const file = new File([blob], snapshot.fileName, { type: 'application/pdf' });
-      await loadFromFile(file);
-
-      // Clear the flag after reload
-      setUndoRedoInProgress(false);
     } catch (err) {
-      console.error('Failed to redo:', err);
+      if (!isSameSession()) return;
+      if (snapshotTaken) useHistoryStore.setState({ undoStack: beforeHistory.undoStack, redoStack: beforeHistory.redoStack });
+      useDocumentStore.getState().setError(err instanceof Error ? err.message : 'Could not restore document');
+    } finally {
       setUndoRedoInProgress(false);
+      if (useDocumentStore.getState().loadRequestId === initial.loadRequestId) initial.setLoading(false);
+      historyBusy.current = false;
     }
-  }, [historyRedo, loadFromFile, setUndoRedoInProgress, canRedoAnnotation, annotationRedo, addAnnotation, updateAnnotation, deleteAnnotation]);
+  }, [historyUndo, historyRedo, loadFromFile, setUndoRedoInProgress]);
 
-  // Handle page rotation
+  const handleUndo = useCallback(() => restoreHistory('undo'), [restoreHistory]);
+  const handleRedo = useCallback(() => restoreHistory('redo'), [restoreHistory]);
+
+  const readPropertiesPDF = useCallback(async () => {
+    const stored = await readActivePDF();
+    if (!stored) throw new Error('No document is open');
+    return stored.data;
+  }, []);
+  const applyProperties = useCallback((label: string, transform: (data: ArrayBuffer) => Promise<Uint8Array>) =>
+    runOperation(label, async ({ data }) => ({ data: await transform(data) })), [runOperation]);
+
+  const readOptimizationPDF = useCallback(async (signal: AbortSignal) => {
+    signal.throwIfAborted();
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading.');
+    commitPendingEditors();
+    const workspace = captureWorkspace(), stored = await readActivePDF();
+    const checkCurrent = () => {
+      signal.throwIfAborted();
+      const current = useDocumentStore.getState();
+      if (current.document !== initial.document || current.documentVersion !== initial.documentVersion || current.loadRequestId !== initial.loadRequestId) {
+        throw new Error('The document changed. Reopen PDF compression.');
+      }
+    };
+    checkCurrent();
+    if (!stored) throw new Error('The current PDF is unavailable.');
+    const { prepareOptimizationPDF } = await import('./core/PDFOptimizationWorkspace');
+    checkCurrent();
+    const data = await prepareOptimizationPDF(stored.data, workspace, signal);
+    checkCurrent();
+    return { data, fileName: stored.fileName };
+  }, []);
+
+  const readTextLayoutPDF = useCallback(async (signal: AbortSignal) => {
+    signal.throwIfAborted();
+    textLayoutCommit.current = null;
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading.');
+    commitPendingEditors();
+    const history = useHistoryStore.getState(), workspace = captureWorkspace();
+    const block = [...workspace.editing.textBlocks.values()].flat().find(item => item.id === textLayoutBlockId);
+    if (!block?.editable) throw new Error('The selected text block is unavailable or cannot be edited.');
+    const checkCurrent = () => {
+      signal.throwIfAborted();
+      const current = useDocumentStore.getState(), currentHistory = useHistoryStore.getState();
+      if (current.isLoading || current.document !== initial.document || current.documentVersion !== initial.documentVersion
+        || current.loadRequestId !== initial.loadRequestId || currentHistory.undoStack !== history.undoStack || currentHistory.redoStack !== history.redoStack) {
+        throw new Error('The document or its drafts changed. Reopen text layout.');
+      }
+    };
+    const stored = await readActivePDF();
+    checkCurrent();
+    const { previewTextEditInWorker } = await import('./editing/TextLayoutClient');
+    checkCurrent();
+    textLayoutCommit.current = (edit, saveSignal) => {
+      saveSignal.throwIfAborted(); checkCurrent();
+      if (edit.blockId !== block.id || !useEditingStore.getState().getBlock(block.id)?.editable) {
+        throw new Error('The selected text block changed. Reopen text layout.');
+      }
+      useEditingStore.getState().updateBlockLayout(edit);
+    };
+    return {
+      data: stored.data, block, edit: workspace.editing.textEdits.find(item => item.blockId === block.id),
+      preview: async (edit: TextEditOperation, previewSignal: AbortSignal) => {
+        previewSignal.throwIfAborted(); checkCurrent();
+        const result = await previewTextEditInWorker(stored.data, workspace, edit, { signal: previewSignal });
+        checkCurrent(); return result;
+      },
+    };
+  }, [textLayoutBlockId]);
+
+  const saveTextLayout = useCallback((edit: TextEditOperation, signal: AbortSignal) => {
+    if (!textLayoutCommit.current) throw new Error('Reopen text layout before saving.');
+    textLayoutCommit.current(edit, signal);
+  }, []);
+
+  const closeTextLayout = useCallback(() => {
+    textLayoutCommit.current = null; setTextLayoutBlockId(null);
+  }, []);
+
+  const readCleanupPDF = useCallback(async (signal: AbortSignal) => {
+    signal.throwIfAborted();
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading.');
+    commitPendingEditors();
+    const workspace = captureWorkspace(), stored = await readActivePDF();
+    const checkCurrent = () => {
+      signal.throwIfAborted();
+      const current = useDocumentStore.getState();
+      if (current.document !== initial.document || current.documentVersion !== initial.documentVersion || current.loadRequestId !== initial.loadRequestId) {
+        throw new Error('The document changed. Reopen document cleanup.');
+      }
+    };
+    checkCurrent();
+    if (!stored) throw new Error('The current PDF is unavailable.');
+    const { prepareCleanupPDF, previewCleanupWorkspace, prepareVisibleWorkspacePDF } = await import('./core/DocumentCleanupWorkspace');
+    const prepared = await prepareCleanupPDF(stored.data, workspace, signal);
+    checkCurrent();
+    const annotationPages = [...workspace.annotations].filter(([, items]) => items.length > 0);
+    return {
+      ...prepared, fileName: stored.fileName,
+      workspaceAnnotations: { count: annotationPages.reduce((total, [, items]) => total + items.length, 0), pages: annotationPages.map(([page]) => page) },
+      pendingRedactions: workspace.editing.redactions.filter(area => !area.applied).length,
+      preparePreview: async (data: Uint8Array, options: CleanupOptions, previewSignal: AbortSignal) => {
+        checkCurrent(); previewSignal.throwIfAborted();
+        const result = await previewCleanupWorkspace(data, workspace, options, previewSignal);
+        checkCurrent(); return result;
+      },
+      readVisiblePDF: async (copySignal: AbortSignal) => {
+        checkCurrent(); copySignal.throwIfAborted();
+        const result = await prepareVisibleWorkspacePDF(stored.data, workspace, copySignal);
+        checkCurrent(); return result;
+      },
+    };
+  }, []);
+
+  const applyCleanup = useCallback(async (options: CleanupOptions, signal: AbortSignal, onCommit: () => void, onProgress?: CleanupControl['onProgress']) => {
+    await runOperation('Clean document', async ({ data, workspace }) => {
+      signal.throwIfAborted();
+      const { cleanWorkspacePDF } = await import('./core/DocumentCleanupWorkspace');
+      const cleaned = await cleanWorkspacePDF(data, workspace, options, { signal, onProgress });
+      signal.throwIfAborted();
+      onCommit();
+      return { data: cleaned.data, workspace: cleaned.workspace };
+    });
+  }, [runOperation]);
+
+  const handleOCR = useCallback(async (options: OCRRunOptions, signal: AbortSignal, onProgress: (progress: OCRDialogProgress) => void) => {
+    let results: OCRPageResult[] = [];
+    await runOperation('Scan OCR', async ({ data, workspace }) => {
+      signal.throwIfAborted();
+      const prepared = await applyWorkspaceContent(data, workspace);
+      signal.throwIfAborted();
+      const { recognizePDF } = await import('./ocr/recognizePDF');
+      signal.throwIfAborted();
+      const recognized = await recognizePDF(new Uint8Array(prepared).buffer, { ...options, signal, onProgress });
+      signal.throwIfAborted();
+      results = recognized.pages;
+      if (!results.some(page => page.status === 'recognized')) return null;
+      workspace.editing.textBlocks.clear();
+      workspace.editing.images.clear();
+      workspace.editing.textEdits = [];
+      workspace.editing.imageEdits = [];
+      workspace.editing.isDirty = workspace.editing.redactions.some(area => !area.applied);
+      // Cancellation ends before the atomic PDF/history/cache commit starts.
+      onProgress({ phase: 'committing', pageNumber: null, completedPages: options.pages.length,
+        totalPages: options.pages.length, progress: 1, status: 'Saving recognized text…' });
+      return { data: recognized.data, workspace };
+    });
+    return results;
+  }, [runOperation]);
+
+  const readFormDesignPDF = useCallback(async () => {
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading.');
+    commitPendingEditors();
+    const workspace = captureWorkspace();
+    const stored = await readActivePDF();
+    const isCurrent = () => {
+      const current = useDocumentStore.getState();
+      return current.document === initial.document && current.documentVersion === initial.documentVersion && current.loadRequestId === initial.loadRequestId;
+    };
+    if (!stored || !isCurrent()) throw new Error('The document changed. Reopen the form designer.');
+    const { inspectFormDesign } = await import('./forms/FormDesigner');
+    const inspection = await inspectFormDesign(stored.data);
+    if (!isCurrent()) throw new Error('The document changed. Reopen the form designer.');
+    if (!inspection.canEdit) return stored.data;
+    const prepared = await prepareFormDesignPDF(stored.data, workspace);
+    if (!isCurrent()) throw new Error('The document changed. Reopen the form designer.');
+    return prepared;
+  }, []);
+
+  const saveFormDesign = useCallback(async (operations: FormDesignOperation[], signal: AbortSignal, onCommit: () => void) => {
+    await runOperation('Design form', async ({ data, workspace }) => {
+      signal.throwIfAborted();
+      const { applyFormDesign, inspectFormDesign } = await import('./forms/FormDesigner');
+      const inspection = await inspectFormDesign(data);
+      signal.throwIfAborted();
+      if (!inspection.canEdit) throw new Error(inspection.unsupportedReason || 'This PDF cannot be redesigned safely.');
+      const prepared = await prepareFormDesignPDF(data, workspace);
+      signal.throwIfAborted();
+      const changed = await applyFormDesign(prepared, operations);
+      signal.throwIfAborted();
+      const fields = await extractFormFields(new Uint8Array(changed).buffer);
+      signal.throwIfAborted();
+      workspace.form = createWorkspace(fields).form;
+      workspace.editing.textBlocks.clear(); workspace.editing.images.clear();
+      workspace.editing.textEdits = []; workspace.editing.imageEdits = [];
+      workspace.editing.isDirty = workspace.editing.redactions.some(area => !area.applied);
+      onCommit();
+      return { data: changed, workspace };
+    });
+  }, [runOperation]);
+
+  const readDecorationsPDF = useCallback(async () => {
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading.');
+    commitPendingEditors();
+    const workspace = captureWorkspace(), stored = await readActivePDF();
+    const isCurrent = () => {
+      const current = useDocumentStore.getState();
+      return current.document === initial.document && current.documentVersion === initial.documentVersion && current.loadRequestId === initial.loadRequestId;
+    };
+    if (!stored || !isCurrent()) throw new Error('The document changed. Reopen page decorations.');
+    const { inspectPageDecorations } = await import('./core/PageDecorations');
+    const inspection = await inspectPageDecorations(stored.data);
+    if (!isCurrent()) throw new Error('The document changed. Reopen page decorations.');
+    if (!inspection.canEdit) return stored.data;
+    const prepared = await applyWorkspaceContent(stored.data, workspace);
+    if (!isCurrent()) throw new Error('The document changed. Reopen page decorations.');
+    return {
+      data: new Uint8Array(prepared).buffer,
+      // Apply overlays after decorations, matching the final export's layer order.
+      preparePreview: async (decorated: Uint8Array) => {
+        if (!isCurrent()) throw new Error('The document changed. Reopen page decorations.');
+        let result = await applyWorkspaceFormValues(new Uint8Array(decorated).buffer, workspace);
+        if (!isCurrent()) throw new Error('The document changed. Reopen page decorations.');
+        if (workspace.annotations.size) result = new Uint8Array(await serializeAnnotationsToPDF(result, workspace.annotations)).buffer;
+        if (!isCurrent()) throw new Error('The document changed. Reopen page decorations.');
+        return new Uint8Array(result);
+      },
+    };
+  }, []);
+
+  const applyDecorations = useCallback(async (operations: PageDecorationOperation[], signal: AbortSignal, onCommit: () => void) => {
+    await runOperation('Update page decorations', async ({ data, workspace }) => {
+      signal.throwIfAborted();
+      const { applyPageDecorations, inspectPageDecorations } = await import('./core/PageDecorations');
+      const inspection = await inspectPageDecorations(data);
+      signal.throwIfAborted();
+      if (!inspection.canEdit) throw new Error(inspection.unsupportedReason || 'This PDF cannot be modified safely.');
+      const prepared = await applyWorkspaceContent(data, workspace);
+      signal.throwIfAborted();
+      const changed = await applyPageDecorations(new Uint8Array(prepared).buffer, operations, { signal });
+      signal.throwIfAborted();
+      workspace.editing.textBlocks.clear(); workspace.editing.images.clear();
+      workspace.editing.textEdits = []; workspace.editing.imageEdits = [];
+      workspace.editing.isDirty = workspace.editing.redactions.some(area => !area.applied);
+      onCommit();
+      return { data: changed, workspace };
+    });
+  }, [runOperation]);
+
   const handleRotatePages = useCallback(async (pages: number[], degrees: 90 | -90 | 180) => {
     try {
-      const stored = await loadCurrentPDF();
-      if (!stored) return;
-
-      const rotated = await rotatePages(stored.data, pages, degrees);
-      const actionName = `Rotate ${pages.length > 1 ? `${pages.length} pages` : `page ${pages[0]}`} ${degrees}°`;
-      await reloadModifiedPDF(rotated, actionName);
+      await runOperation(`Rotate ${pages.length > 1 ? `${pages.length} pages` : `page ${pages[0]}`} ${degrees}°`, async ({ data }) => ({
+        data: await rotatePages(data, pages, degrees),
+      }));
       setSelectedPages([]);
-    } catch (err) {
-      console.error('Failed to rotate pages:', err);
-    }
-  }, [reloadModifiedPDF]);
+    } catch (err) { console.error('Failed to rotate pages:', err); }
+  }, [runOperation]);
 
-  // Handle page deletion
   const handleDeletePages = useCallback(async (pages: number[]) => {
     try {
-      const stored = await loadCurrentPDF();
-      if (!stored) return;
-
-      const modified = await deletePages(stored.data, pages);
-      const actionName = `Delete ${pages.length > 1 ? `${pages.length} pages` : `page ${pages[0]}`}`;
-      await reloadModifiedPDF(modified, actionName);
+      await runOperation(`Delete ${pages.length > 1 ? `${pages.length} pages` : `page ${pages[0]}`}`, async ({ data, totalPages }) => ({
+        data: await deletePages(data, pages),
+        pageMap: deletionPageMap(totalPages, pages),
+      }));
       setSelectedPages([]);
+    } catch (err) { console.error('Failed to delete pages:', err); }
+  }, [runOperation]);
 
-      // Adjust current page if needed
-      if (navigation.currentPage > navigation.totalPages - pages.length) {
-        goToPage(Math.max(1, navigation.totalPages - pages.length));
-      }
-    } catch (err) {
-      console.error('Failed to delete pages:', err);
-    }
-  }, [reloadModifiedPDF, navigation.currentPage, navigation.totalPages, goToPage]);
+  const handleReorderPages = useCallback(async (order: number[]) => {
+    try {
+      await runOperation('Reorder pages', async ({ data, totalPages }) => ({
+        data: await reorderPages(data, order), pageMap: reorderedPageMap(totalPages, order),
+      }));
+      setSelectedPages([]);
+    } catch (err) { console.error('Failed to reorder pages:', err); }
+  }, [runOperation]);
 
-  // Handle insert blank page
   const handleInsertBlankPage = useCallback(async (position: number) => {
     try {
-      const stored = await loadCurrentPDF();
-      if (!stored) return;
+      await runOperation('Insert blank page', async ({ data, totalPages }) => ({
+        data: await insertBlankPages(data, { position }),
+        pageMap: insertionPageMap(totalPages, position, 1),
+      }));
+    } catch (err) { console.error('Failed to insert blank page:', err); }
+  }, [runOperation]);
 
-      const modified = await insertBlankPages(stored.data, { position });
-      await reloadModifiedPDF(modified, 'Insert blank page');
-    } catch (err) {
-      console.error('Failed to insert blank page:', err);
-    }
-  }, [reloadModifiedPDF]);
-
-  // Handle insert pages from file
-  const handleInsertFromFile = useCallback(async (position: number) => {
+  const handleInsertFromFile = useCallback((position: number) => {
+    const initialDocument = useDocumentStore.getState().document;
     const input = window.document.createElement('input');
     input.type = 'file';
     input.accept = '.pdf';
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
+      if (!file || useDocumentStore.getState().document !== initialDocument) return;
       try {
-        const stored = await loadCurrentPDF();
-        if (!stored) return;
-
-        const insertData = await file.arrayBuffer();
-        const modified = await insertPagesFromPDF(stored.data, insertData, position);
-        await reloadModifiedPDF(modified, `Insert pages from ${file.name}`);
-      } catch (err) {
-        console.error('Failed to insert pages from file:', err);
-      }
+        await runOperation(`Insert pages from ${file.name}`, async ({ data, totalPages }) => {
+          const insertedData = await file.arrayBuffer();
+          const inserted = await PDFLibDocument.load(insertedData);
+          return {
+            data: await insertPagesFromPDF(data, insertedData, position),
+            pageMap: insertionPageMap(totalPages, position, inserted.getPageCount()),
+          };
+        });
+      } catch (err) { console.error('Failed to insert pages:', err); }
     };
     input.click();
-  }, [reloadModifiedPDF]);
+  }, [runOperation]);
 
-  // Handle export/download
+  const prepareExport = useCallback(async () => {
+    const initial = useDocumentStore.getState();
+    if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading');
+    commitPendingEditors();
+    const workspace = captureWorkspace();
+    const stored = await readActivePDF();
+    const isCurrent = () => {
+      const current = useDocumentStore.getState();
+      return current.document === initial.document && current.documentVersion === initial.documentVersion
+        && current.loadRequestId === initial.loadRequestId;
+    };
+    if (!stored || !isCurrent()) throw new Error('Document changed during export');
+    const data = await exportWorkspacePDF(stored.data, workspace);
+    if (!isCurrent()) throw new Error('Document changed during export');
+    return { data, fileName: stored.fileName };
+  }, []);
+
   const handleExport = useCallback(async () => {
     try {
-      const stored = await loadCurrentPDF();
-      if (!stored) return;
-
-      // Update form field values in the PDF
-      let pdfData: ArrayBuffer = stored.data;
-      if (formFields.length > 0) {
-        const fieldValues = new Map<string, string | boolean | string[]>();
-        formFields.forEach(field => {
-          fieldValues.set(field.name, field.value);
-        });
-        const updatedPdf = await updateFormFieldValues(stored.data, fieldValues);
-        pdfData = updatedPdf.buffer as ArrayBuffer;
-      }
-
-      // Serialize annotations to the PDF before exporting
-      let finalData: Uint8Array;
-      if (annotationMap.size > 0) {
-        finalData = await serializeAnnotationsToPDF(pdfData, annotationMap);
-      } else {
-        finalData = new Uint8Array(pdfData);
-      }
-
-      await downloadPDF(finalData, stored.fileName || 'document.pdf');
+      const { data, fileName } = await prepareExport();
+      await downloadPDF(data, fileName);
     } catch (err) {
-      console.error('Failed to export PDF:', err);
+      useDocumentStore.getState().setError(`Failed to export PDF: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  }, [annotationMap, formFields]);
+  }, [prepareExport]);
 
   // Handle form data export
   const handleExportFormData = useCallback(async (format: 'json' | 'fdf' | 'xfdf') => {
     try {
-      const stored = await loadCurrentPDF();
+      const stored = await readActivePDF();
       const fileName = stored?.fileName?.replace('.pdf', '') || 'form-data';
 
       let content: string;
@@ -490,11 +774,13 @@ function App() {
       downloadFormData(content, `${fileName}.${extension}`, mimeType);
     } catch (err) {
       console.error('Failed to export form data:', err);
+      useDocumentStore.getState().setError(`Failed to export form data: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [formFields]);
 
   // Handle form data import
   const handleImportFormData = useCallback(async () => {
+    const target = useDocumentStore.getState();
     const input = window.document.createElement('input');
     input.type = 'file';
     input.accept = '.json,.fdf,.xfdf';
@@ -503,196 +789,171 @@ function App() {
       if (!file) return;
 
       try {
-        const content = await readFileAsText(file);
+        const extension = file.name.split('.').at(-1)?.toLowerCase();
+        const content = extension === 'fdf' ? '' : await readFileAsText(file);
         let fieldValues: Map<string, string | boolean | string[]>;
 
-        if (file.name.endsWith('.json')) {
+        if (extension === 'json') {
           fieldValues = importFromJSON(content);
-        } else if (file.name.endsWith('.fdf')) {
-          fieldValues = importFromFDF(content);
-        } else if (file.name.endsWith('.xfdf')) {
+        } else if (extension === 'fdf') {
+          fieldValues = await importFromFDF(await file.arrayBuffer());
+        } else if (extension === 'xfdf') {
           fieldValues = importFromXFDF(content);
         } else {
           throw new Error('Unsupported file format');
         }
 
-        // Update form fields with imported values
-        const updatedFields = formFields.map(field => {
-          const newValue = fieldValues.get(field.name);
-          return newValue !== undefined ? { ...field, value: newValue } : field;
-        });
-        setFormFields(updatedFields);
-
-        alert(`Imported ${fieldValues.size} field values`);
+        const current = useDocumentStore.getState();
+        if (current.document !== target.document || current.loadRequestId !== target.loadRequestId) {
+          throw new Error('Document changed. Reopen form data import for the current PDF.');
+        }
+        const validated = normalizeImportedFormValues(formFields, fieldValues, extension !== 'json');
+        useFormStore.getState().setFieldValues(validated, 'Import form data');
+        alert(`Imported ${validated.size} field values`);
       } catch (err) {
         console.error('Failed to import form data:', err);
         alert('Failed to import form data: ' + (err as Error).message);
       }
     };
     input.click();
-  }, [formFields, setFormFields]);
+  }, [formFields]);
 
-  // Handle form flatten
   const handleFlattenForm = useCallback(async () => {
-    if (!confirm('Flatten form? This will convert all form fields to static content and cannot be undone.')) {
-      return;
-    }
-
+    if (!confirm('Convert all form fields to static page content? You can undo this operation.')) return;
     try {
-      const stored = await loadCurrentPDF();
-      if (!stored) return;
+      await runOperation('Flatten form', ({ data, workspace }) => flattenWorkspaceForm(data, workspace));
+    } catch (err) { console.error('Failed to flatten form:', err); }
+  }, [runOperation]);
 
-      // First update form values
-      let pdfData: ArrayBuffer = stored.data;
-      if (formFields.length > 0) {
-        const fieldValues = new Map<string, string | boolean | string[]>();
-        formFields.forEach(field => {
-          fieldValues.set(field.name, field.value);
-        });
-        const updatedPdf = await updateFormFieldValues(stored.data, fieldValues);
-        pdfData = updatedPdf.buffer as ArrayBuffer;
-      }
-
-      // Then flatten
-      const flattenedPdf = await flattenForm(pdfData);
-      await reloadModifiedPDF(flattenedPdf, 'Flatten form');
-
-      // Clear form fields since they're now static
-      clearForm();
-    } catch (err) {
-      console.error('Failed to flatten form:', err);
-      alert('Failed to flatten form: ' + (err as Error).message);
-    }
-  }, [formFields, reloadModifiedPDF, clearForm]);
-
-  // Handle form reset
   const handleResetForm = useCallback(() => {
     resetFormToOriginal();
   }, [resetFormToOriginal]);
 
-  // Handle apply redactions
   const handleApplyRedactions = useCallback(async () => {
-    const pendingRedactions = redactions.filter(r => !r.applied);
-    if (pendingRedactions.length === 0) return;
-
-    const confirmMsg = `Apply ${pendingRedactions.length} redaction${pendingRedactions.length !== 1 ? 's' : ''}? This will permanently remove the content underneath and cannot be undone.`;
-    if (!confirm(confirmMsg)) return;
-
+    const pending = redactions.filter(area => !area.applied);
+    if (pending.length === 0) return;
+    if (!confirm(`Apply ${pending.length} visual cover(s)? Underlying text and images remain recoverable. This does not remove sensitive information.`)) return;
     try {
-      const stored = await loadCurrentPDF();
-      if (!stored) return;
+      await runOperation(`Apply ${pending.length} visual cover(s)`, async ({ data, workspace }) => {
+        const result = await applyRedactions(data, pending);
+        if (!result.success || !result.modifiedPdf) throw new Error(result.errors.join('\n'));
+        const applied = new Set(pending.map(area => area.id));
+        workspace.editing.redactions = workspace.editing.redactions.map(area => applied.has(area.id) ? { ...area, applied: true } : area);
+        return { data: result.modifiedPdf, workspace };
+      });
+    } catch (err) { console.error('Failed to apply visual covers:', err); }
+  }, [redactions, runOperation]);
 
-      const result = await applyRedactions(stored.data, pendingRedactions);
+  const handleRemoveContent = useCallback(async () => {
+    const areas = redactions.filter(area => !area.applied);
+    if (!areas.length) return;
+    if (!confirm(`Remove content from ${areas.length} marked area(s)? Forms and annotations become static page content. Selected text, graphics and image pixels are removed from the resulting PDF. Metadata and attachments are not cleaned. Local undo history retains the original.`)) return;
+    try {
+      await runOperation('Remove selected page content', async ({ data, workspace }) => {
+        const prepared = await exportWorkspacePDF(data, workspace);
+        const removed = await applySecureRedactions(new Uint8Array(prepared).buffer, areas, { flattenInteractive: true });
+        return { data: removed, workspace: createWorkspace() };
+      });
+    } catch (err) { console.error('Failed to remove selected content:', err); }
+  }, [redactions, runOperation]);
 
-      if (!result.success || !result.modifiedPdf) {
-        alert('Failed to apply redactions:\n' + result.errors.join('\n'));
-        return;
-      }
-
-      // Mark all redactions as applied
-      pendingRedactions.forEach(r => markRedactionApplied(r.id));
-
-      // Save and reload
-      await saveCurrentPDF(result.modifiedPdf.buffer as ArrayBuffer, stored.fileName);
-      await reloadModifiedPDF(result.modifiedPdf, `apply ${result.appliedCount} redaction(s)`);
-
-      alert(`Successfully applied ${result.appliedCount} redaction(s)`);
-    } catch (err) {
-      console.error('Failed to apply redactions:', err);
-      alert('Failed to apply redactions: ' + (err as Error).message);
-    }
-  }, [redactions, markRedactionApplied, reloadModifiedPDF]);
+  const handleApplyContent = useCallback(async () => {
+    const editing = useEditingStore.getState();
+    if (!editing.textEdits.length && !editing.imageEdits.length) return;
+    try {
+      await runOperation('Apply text and image changes', async ({ data, workspace }) => {
+        const updated = await applyWorkspaceContent(data, workspace);
+        workspace.editing.textBlocks.clear();
+        workspace.editing.images.clear();
+        workspace.editing.textEdits = [];
+        workspace.editing.imageEdits = [];
+        workspace.editing.isDirty = workspace.editing.redactions.some(area => !area.applied);
+        return { data: updated, workspace };
+      });
+    } catch (err) { console.error('Failed to apply content changes:', err); }
+  }, [runOperation]);
 
   // Handle image insertion - set pending images and switch to image tool
   const handleInsertImage = useCallback((images: PendingImageData[]) => {
     if (images.length === 0) return;
+    commitPendingEditors();
+    useEditingStore.getState().setMode('none');
+    selectAnnotation(null);
     setPendingImages(images);
     // Switch to image placement mode
     setCurrentTool('image');
-  }, [setCurrentTool]);
+  }, [setCurrentTool, selectAnnotation]);
 
-  // Handle reset to original - restore original PDF state
+  // A reset starts a clean session, including annotations and editing overlays.
   const handleResetToOriginal = useCallback(async () => {
     const original = getOriginalDocument();
     if (!original) return;
+    const file = new File([original.data], original.fileName, { type: 'application/pdf' });
+    await handleOpenFile(file);
+    setResetDialogOpen(false);
+  }, [getOriginalDocument, handleOpenFile]);
 
-    try {
-      // Mark as undo/redo to prevent history recording
-      setUndoRedoInProgress(true);
-
-      // Save original to storage and reload
-      await saveCurrentPDF(original.data, original.fileName);
-      const blob = new Blob([original.data], { type: 'application/pdf' });
-      const file = new File([blob], original.fileName, { type: 'application/pdf' });
-      await loadFromFile(file);
-
-      // Clear all history stacks but keep original
-      clearHistory();
-      clearAnnotationHistory();
-      setOriginalDocument(original.data, original.fileName);
-
-      setUndoRedoInProgress(false);
-      setResetDialogOpen(false);
-    } catch (err) {
-      console.error('Failed to reset to original:', err);
-      setUndoRedoInProgress(false);
-    }
-  }, [getOriginalDocument, loadFromFile, clearHistory, clearAnnotationHistory, setOriginalDocument, setUndoRedoInProgress]);
-
-  // Handle close document - clear everything and return to empty state
   const handleCloseDocument = useCallback(async () => {
-    try {
-      // Clear storage
-      const { clearCurrentPDF } = await import('./utils/pdfStorage');
-      await clearCurrentPDF();
-
-      // Clear all state
-      clearHistory();
-      clearAnnotationHistory();
-
-      // Reset to initial load state
-      isInitialLoad.current = true;
-
-      // Reload to clear document (this will trigger the empty state)
-      window.location.reload();
-    } catch (err) {
-      console.error('Failed to close document:', err);
+    pendingMergeOpen.current = null;
+    if (await closeDocument()) {
+      setSelectedPages([]);
+      setPendingImages([]);
+      setCloseDialogOpen(false);
+      setEncryptDialogOpen(false);
+      setPropertiesOpen(false);
+      setOCROpen(false);
+      setCreatePDFOpen(false);
+      setExportPagesOpen(false);
+      setFormDesignerOpen(false);
+      setPageDecorationsOpen(false);
+      setCleanDocumentOpen(false);
+      setCompressPDFOpen(false);
+      setTextLayoutBlockId(null);
+      textLayoutCommit.current = null;
+      setHighlightDest(null);
+      setLinksOpen(false);
+      setBookmarksOpen(false); bookmarksApply.current = null; setSignatureSession(null);
+      linksApply.current = null;
     }
-  }, [clearHistory, clearAnnotationHistory]);
+  }, [closeDocument]);
 
   // Check if we can reset to original (has original and has made changes)
   const canResetToOriginal = useCallback(() => {
-    return getOriginalDocument() !== null && canUndo();
-  }, [getOriginalDocument, canUndo]);
+    return getOriginalDocument() !== null && (canUndo() || annotationMap.size > 0 || useFormStore.getState().isDirty || useEditingStore.getState().hasChanges());
+  }, [getOriginalDocument, canUndo, annotationMap]);
 
   // Handle opening merge dialog
   const handleOpenMergeDialog = useCallback(async () => {
+    const request = Symbol('merge-dialog');
+    const loadRequest = useDocumentStore.getState().loadRequestId;
+    pendingMergeOpen.current = request;
+    const isCurrent = () => pendingMergeOpen.current === request
+      && useDocumentStore.getState().document === document
+      && useDocumentStore.getState().documentVersion === documentVersion
+      && useDocumentStore.getState().loadRequestId === loadRequest
+      && !useDocumentStore.getState().isLoading;
     // Increment key to force fresh dialog state (empty file list)
     setMergeDialogKey(k => k + 1);
 
     // Load current document data if available (for insert position options)
-    if (document) {
-      try {
-        const stored = await loadCurrentPDF();
-        if (stored) {
-          setMergeDocumentData({
-            data: stored.data,
-            fileName: stored.fileName,
-            totalPages: document.numPages,
-          });
-        } else {
-          setMergeDocumentData(null);
-        }
-      } catch (err) {
-        console.error('Failed to load current PDF for merge:', err);
-        setMergeDocumentData(null);
-      }
-    } else {
-      setMergeDocumentData(null);
+    try {
+      const stored = document ? await readActivePDF() : null;
+      if (!isCurrent()) return;
+      setMergeDocumentData(stored && document ? {
+        data: stored.data,
+        fileName: stored.fileName,
+        totalPages: document.numPages,
+        documentVersion,
+      } : null);
+      setMergeDialogOpen(true);
+    } catch (err) {
+      if (!isCurrent()) return;
+      console.error('Failed to load current PDF for merge:', err);
+      useDocumentStore.getState().setError(err instanceof Error ? err.message : 'Could not prepare the PDF for merging');
+    } finally {
+      if (pendingMergeOpen.current === request) pendingMergeOpen.current = null;
     }
-
-    setMergeDialogOpen(true);
-  }, [document]);
+  }, [document, documentVersion]);
 
   // Handle page selection (from thumbnail panel)
   const handlePageSelection = useCallback((pageNum: number, multiSelect: boolean) => {
@@ -715,11 +976,11 @@ function App() {
       event.preventDefault();
       event.currentTarget.classList.remove('drag-over');
       const file = event.dataTransfer.files[0];
-      if (file && file.type === 'application/pdf') {
-        await loadFromFile(file);
+      if (file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) {
+        await handleOpenFile(file);
       }
     },
-    [loadFromFile]
+    [handleOpenFile]
   );
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLElement>) => {
@@ -734,16 +995,20 @@ function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Don't trigger if typing in an input
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      if (hasOpenModal() || isTextInput(event.target)) return;
+      if (event.key === 'Escape' && pendingMergeOpen.current) {
+        pendingMergeOpen.current = null;
+        event.preventDefault();
         return;
       }
-
-      // Also check if the target has contenteditable or is within a text editor
-      const target = event.target as HTMLElement;
-      if (target.isContentEditable || target.closest('.rich-text-editor') || target.closest('.freetext-editor-container')) {
+      // Escape cancels the entire placement queue, including after placing its first image.
+      if (event.key === 'Escape' && pendingImages.length > 0) {
+        event.preventDefault();
+        setPendingImages([]);
+        setCurrentTool('select');
         return;
       }
+      if (event.defaultPrevented || isLoading) return;
 
       const isMod = event.ctrlKey || event.metaKey;
 
@@ -756,7 +1021,7 @@ function App() {
         input.accept = '.pdf';
         input.onchange = async (e) => {
           const file = (e.target as HTMLInputElement).files?.[0];
-          if (file) await loadFromFile(file);
+          if (file) await handleOpenFile(file);
         };
         input.click();
         return;
@@ -777,7 +1042,7 @@ function App() {
       }
 
       // Undo: Ctrl+Z / Cmd+Z
-      if (isMod && event.key === 'z' && !event.shiftKey) {
+      if (isMod && event.key.toLowerCase() === 'z' && !event.shiftKey) {
         event.preventDefault();
         if (canUndo()) {
           handleUndo();
@@ -786,7 +1051,7 @@ function App() {
       }
 
       // Redo: Ctrl+Shift+Z / Cmd+Shift+Z or Ctrl+Y
-      if ((isMod && event.key === 'z' && event.shiftKey) || (isMod && event.key === 'y')) {
+      if ((isMod && event.key.toLowerCase() === 'z' && event.shiftKey) || (isMod && event.key.toLowerCase() === 'y')) {
         event.preventDefault();
         if (canRedo()) {
           handleRedo();
@@ -800,14 +1065,14 @@ function App() {
       switch (event.key) {
         case 'ArrowLeft':
         case 'ArrowUp':
-          if (!isMod) {
+          if (!isMod && !useAnnotationStore.getState().selectedAnnotationId) {
             event.preventDefault();
             previousPage();
           }
           break;
         case 'ArrowRight':
         case 'ArrowDown':
-          if (!isMod) {
+          if (!isMod && !useAnnotationStore.getState().selectedAnnotationId) {
             event.preventDefault();
             nextPage();
           }
@@ -836,6 +1101,7 @@ function App() {
           goToPage(navigation.totalPages);
           break;
         case 'Escape':
+          setPendingImages([]);
           if (goToPageOpen) {
             setGoToPageOpen(false);
           } else if (searchOpen) {
@@ -887,7 +1153,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     document,
-    loadFromFile,
+    handleOpenFile,
     previousPage,
     nextPage,
     zoomIn,
@@ -907,15 +1173,18 @@ function App() {
     canUndo,
     canRedo,
     setCurrentTool,
+    pendingImages.length,
+    isLoading,
   ]);
 
   // Mouse wheel: zoom (with Ctrl) or page navigation (single/two-page mode)
   useEffect(() => {
-    const wheelTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastWheelTime = 0;
 
     const handleWheel = (event: WheelEvent) => {
-      if (!document) return;
+      if (!document || isLoading || event.defaultPrevented || hasOpenModal() || isTextInput(event.target)) return;
+      const viewer = event.target instanceof Element ? event.target.closest('.pdf-viewer-container') : null;
+      if (!viewer || event.deltaY === 0) return;
 
       // Ctrl + wheel = zoom
       if (event.ctrlKey) {
@@ -930,6 +1199,8 @@ function App() {
 
       // In single or two-page mode, wheel turns pages
       if (navigation.viewMode === 'single' || navigation.viewMode === 'two-page') {
+        // Enlarged pages must remain scrollable; horizontal gestures also retain native scrolling.
+        if (viewer.scrollHeight > viewer.clientHeight + 1 || event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
         event.preventDefault();
 
         // Debounce to avoid too fast page turning
@@ -951,10 +1222,9 @@ function App() {
       main.addEventListener('wheel', handleWheel, { passive: false });
       return () => {
         main.removeEventListener('wheel', handleWheel);
-        if (wheelTimeout) clearTimeout(wheelTimeout);
       };
     }
-  }, [document, zoomIn, zoomOut, navigation.viewMode, nextPage, previousPage]);
+  }, [document, isLoading, zoomIn, zoomOut, navigation.viewMode, nextPage, previousPage]);
 
   return (
     <Theme appearance="dark" accentColor="blue" radius="medium">
@@ -967,8 +1237,10 @@ function App() {
           zoomMode={navigation.zoomMode}
           viewMode={navigation.viewMode}
           sidebarOpen={sidebarOpen}
-          onOpenFile={loadFromFile}
+          onOpenFile={handleOpenFile}
           onExport={handleExport}
+          onCreatePDF={() => setCreatePDFOpen(true)}
+          onExportPages={() => setExportPagesOpen(true)}
           onPreviousPage={previousPage}
           onNextPage={nextPage}
           onGoToPage={goToPage}
@@ -981,11 +1253,13 @@ function App() {
           onToggleSidebar={toggleSidebar}
           onSetViewMode={setViewMode}
           onToggleSearch={toggleSearch}
-          hasDocument={!!document}
+          hasDocument={!!document && !isLoading}
         />
 
         {/* Combined Toolbar - Page Operations & Annotations */}
         <CombinedToolbar
+          documentKey={document}
+          documentRevision={documentVersion}
           currentPage={navigation.currentPage}
           totalPages={navigation.totalPages}
           selectedPages={selectedPages}
@@ -998,8 +1272,8 @@ function App() {
           hasDocument={!!document}
           onUndo={handleUndo}
           onRedo={handleRedo}
-          canUndo={canUndo() || canUndoAnnotation()}
-          canRedo={canRedo() || canRedoAnnotation()}
+          canUndo={canUndo()}
+          canRedo={canRedo()}
           undoActionName={getUndoActionName()}
           redoActionName={getRedoActionName()}
           onResetToOriginal={() => setResetDialogOpen(true)}
@@ -1009,19 +1283,32 @@ function App() {
           onImportFormData={handleImportFormData}
           onFlattenForm={handleFlattenForm}
           onResetForm={handleResetForm}
+          onDesignForm={() => setFormDesignerOpen(true)}
           onApplyRedactions={handleApplyRedactions}
+          onRemoveContent={handleRemoveContent}
+          onApplyContent={handleApplyContent}
+          onEncryptExport={() => setEncryptDialogOpen(true)}
+          onDocumentProperties={() => setPropertiesOpen(true)}
+          onOCR={() => setOCROpen(true)}
+          onPageDecorations={() => setPageDecorationsOpen(true)}
+          onCompressPDF={() => setCompressPDFOpen(true)}
+          onManageLinks={() => setLinksOpen(true)}
+          onManageBookmarks={() => setBookmarksOpen(true)}
+          onSignature={() => { if (document) setSignatureSession({ document, version: documentVersion }); }}
+          onCleanDocument={() => setCleanDocumentOpen(true)}
+          isBusy={isLoading}
           onInsertImage={handleInsertImage}
         />
 
         {/* Text Box Formatting Toolbar (shown when editing text box) */}
-        {tiptapEditor && (
+        {tiptapEditor && !isLoading && (
           <div className="textbox-format-toolbar-container">
             <TipTapToolbar editor={tiptapEditor} />
           </div>
         )}
 
         {/* Image Toolbar (shown when image is selected) */}
-        {selectedImageAnnotation && !tiptapEditor && (
+        {selectedImageAnnotation && !tiptapEditor && !isLoading && (
           <div className="image-format-toolbar-container">
             <ImageToolbar
               annotation={selectedImageAnnotation}
@@ -1030,6 +1317,19 @@ function App() {
           </div>
         )}
 
+        {document && (
+          <div className={`session-save-status status-${persistence.status}`} role="status" aria-live="polite">
+            {persistence.status === 'error'
+              ? `Local save failed: ${persistence.error}`
+              : persistence.status === 'saving' ? 'Saving changes on this device…' : 'Changes saved on this device'}
+            {persistence.status === 'error' && <button onClick={() => void persistence.flush()}>Retry</button>}
+          </div>
+        )}
+
+        {document && pendingImages.length > 0 && currentTool === 'image' && <div className="image-placement-status" role="status">
+          <span>Click a page to place {pendingImages[0].filename}.{pendingImages.length > 1 ? ` ${pendingImages.length} images remaining.` : ''}</span>
+          <button type="button" onClick={() => { setPendingImages([]); setCurrentTool('select'); }}>Cancel placement</button>
+        </div>}
         {/* Main content area */}
         <div className="main-layout" role="region" aria-label="PDF document viewer">
           {/* Sidebar */}
@@ -1059,18 +1359,23 @@ function App() {
                 {sidebarTab === 'thumbnails' && (
                   <div id="thumbnail-panel" role="tabpanel" aria-label="Page thumbnails">
                     <ThumbnailPanel
+                      key={documentVersion}
                       document={document}
                       currentPage={navigation.currentPage}
                       selectedPages={selectedPages}
                       onPageSelect={handlePageSelection}
+                      onReorderPages={isLoading ? undefined : handleReorderPages}
                     />
                   </div>
                 )}
                 {sidebarTab === 'outline' && (
                   <div id="outline-panel" role="tabpanel" aria-label="Document outline">
                     <OutlinePanel
+                      key={documentVersion}
                       document={document}
-                      onPageSelect={goToPage}
+                      onNavigate={handleLinkClick}
+                      onManage={() => setBookmarksOpen(true)}
+                      manageDisabled={isLoading}
                     />
                   </div>
                 )}
@@ -1117,9 +1422,20 @@ function App() {
                   setMergeDialogOpen(false);
                   setMergeDocumentData(null);
                 }}
-                onMergeComplete={async (data) => {
-                  const actionName = mergeDocumentData ? 'Insert Pages' : 'Merge PDFs';
-                  await reloadModifiedPDF(data, actionName);
+                onMergeComplete={async (data, insertionPosition, fileName) => {
+                  if (mergeDocumentData) {
+                    if (useDocumentStore.getState().documentVersion !== mergeDocumentData.documentVersion) {
+                      throw new Error('Document changed. Reopen the merge dialog.');
+                    }
+                    await runOperation('Insert pages', async ({ totalPages, workspace }) => {
+                      const merged = await PDFLibDocument.load(data);
+                      const pageMap = insertionPageMap(totalPages, insertionPosition ?? 0, merged.getPageCount() - totalPages);
+                      return { data, pageMap, workspace: remapWorkspacePages(workspace, pageMap) };
+                    });
+                  } else {
+                    const file = new File([new Uint8Array(data)], fileName || 'merged.pdf', { type: 'application/pdf' });
+                    if (!await loadFromFile(file)) throw new Error('Could not open the merged PDF');
+                  }
                   setMergeDialogOpen(false);
                   setMergeDocumentData(null);
                 }}
@@ -1130,6 +1446,7 @@ function App() {
             {/* Split dialog */}
             {document && splitDialogOpen && (
               <SplitDialog
+                preparePDF={async () => (await prepareExport()).data}
                 totalPages={navigation.totalPages}
                 onClose={() => setSplitDialogOpen(false)}
               />
@@ -1169,9 +1486,10 @@ function App() {
 
             {/* Error state */}
             {error && (
-              <div className="error-state">
+              <div className="error-state" role="alert">
                 <span className="error-icon">⚠</span>
                 <span>Error: {error}</span>
+                <button className="toolbar-btn" onClick={() => useDocumentStore.getState().setError(null)}>Dismiss</button>
               </div>
             )}
 
@@ -1190,7 +1508,7 @@ function App() {
                       input.accept = '.pdf';
                       input.onchange = async (e) => {
                         const file = (e.target as HTMLInputElement).files?.[0];
-                        if (file) await loadFromFile(file);
+                        if (file) await handleOpenFile(file);
                       };
                       input.click();
                     }}
@@ -1216,8 +1534,9 @@ function App() {
                 activeMatchIndex={currentResult?.matchIndex}
                 onPageChange={setCurrentPage}
                 onLinkClick={handleLinkClick}
+                onTextLayout={setTextLayoutBlockId}
                 onCalculatedZoomChange={(zoom) => setZoom(zoom, navigation.zoomMode)}
-                highlightDestination={highlightDest}
+                highlightDestination={highlightDest?.document === document && highlightDest.version === documentVersion ? highlightDest.destination : null}
                 currentTool={currentTool}
                 pendingImages={pendingImages}
                 onImagePlaced={() => {
@@ -1232,6 +1551,33 @@ function App() {
             )}
           </main>
         </div>
+        {document && !isLoading && <StickyNoteEditor />}
+        {passwordRequest && <PasswordDialog request={passwordRequest} onSubmit={submitPassword} onCancel={cancelPasswordRequest} />}
+        {document && propertiesOpen && <Suspense fallback={<div role="status">Loading document properties…</div>}><DocumentPropertiesDialog isOpen={propertiesOpen} documentKey={getOriginalDocument()} revision={documentVersion}
+          onClose={() => setPropertiesOpen(false)} readPDF={readPropertiesPDF} onApply={applyProperties} /></Suspense>}
+        {document && ocrOpen && <Suspense fallback={<div role="status">Loading OCR…</div>}><OCRDialog documentKey={getOriginalDocument()} totalPages={navigation.totalPages}
+          currentPage={navigation.currentPage} onRun={handleOCR} onClose={() => setOCROpen(false)} /></Suspense>}
+        {createPDFOpen && <Suspense fallback={<div role="status">Loading PDF creation…</div>}><CreatePDFDialog onCreate={handleOpenFile} onClose={() => setCreatePDFOpen(false)} /></Suspense>}
+        {document && exportPagesOpen && <Suspense fallback={<div role="status">Loading page export…</div>}><ExportPagesDialog readPDF={prepareExport} onClose={() => setExportPagesOpen(false)} /></Suspense>}
+        {document && formDesignerOpen && <Suspense fallback={<div role="status">Loading form designer…</div>}><FormDesignerDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+          readPDF={readFormDesignPDF} onSave={saveFormDesign} onClose={() => setFormDesignerOpen(false)} /></Suspense>}
+        {document && pageDecorationsOpen && <Suspense fallback={<div role="status">Loading page decorations…</div>}><PageDecorationsDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+          readPDF={readDecorationsPDF} onApply={applyDecorations} onClose={() => setPageDecorationsOpen(false)} /></Suspense>}
+        {document && cleanDocumentOpen && <Suspense fallback={<div role="status">Loading document cleanup…</div>}><CleanDocumentDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+          readPDF={readCleanupPDF} onApply={applyCleanup} onClose={() => setCleanDocumentOpen(false)} /></Suspense>}
+        {document && compressPDFOpen && <Suspense fallback={<div role="status">Loading PDF compression…</div>}><CompressPDFDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+          readPDF={readOptimizationPDF} onClose={() => setCompressPDFOpen(false)} /></Suspense>}
+        {document && bookmarksOpen && <Suspense fallback={<div role="status">Loading bookmarks…</div>}><PDFBookmarksDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+          readPDF={readBookmarksPDF} onApply={applyBookmarks} onClose={closeBookmarks} /></Suspense>}
+        {document && signatureSession?.document === document && signatureSession.version === documentVersion && <Suspense fallback={<div role="status">Loading signature…</div>}><SignatureDialog documentKey={document} revision={documentVersion}
+          onInsert={image => { handleInsertImage([image]); setSignatureSession(null); }} onClose={() => setSignatureSession(null)} /></Suspense>}
+        {document && linksOpen && <Suspense fallback={<div role="status">Loading links…</div>}><PDFLinksDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+          readPDF={readLinksPDF} onApply={applyLinks} onClose={closeLinks} /></Suspense>}
+        {document && textLayoutBlockId && <Suspense fallback={<div role="status">Loading text layout…</div>}><TextLayoutDialog documentKey={getOriginalDocument()} revision={documentVersion} blockId={textLayoutBlockId}
+          readPDF={readTextLayoutPDF} onSave={saveTextLayout} onClose={closeTextLayout} /></Suspense>}
+        {document && encryptDialogOpen && (
+          <EncryptDialog preparePDF={prepareExport} onClose={() => setEncryptDialogOpen(false)} />
+        )}
       </div>
     </Theme>
   );
