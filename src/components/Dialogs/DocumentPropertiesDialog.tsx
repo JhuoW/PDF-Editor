@@ -246,6 +246,6 @@ function PropertiesSession({ revision, onClose, readPDF, onApply }: DocumentProp
       </form>
     </section>
     {error && <p role="alert" className="document-properties-error">{translateError(error)}</p>}
-    <footer><p role="status" className="document-properties-status">{busy ?? translateMessage(status)}</p><button type="button" disabled={!!busy} onClick={onClose}>{t("m.close.bbfa77")}</button></footer>
+    <footer><p role="status" className="document-properties-status">{translateMessage(busy ?? status)}</p><button type="button" disabled={!!busy} onClick={onClose}>{t("m.close.bbfa77")}</button></footer>
   </dialog>;
 }

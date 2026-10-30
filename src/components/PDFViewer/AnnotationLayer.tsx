@@ -1,4 +1,4 @@
-import { useLocale } from "../../i18n";
+import { t, useLocale } from "../../i18n";
 import { useEffect, useMemo, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
@@ -18,9 +18,19 @@ export function AnnotationLayer({
   rotation,
   onLinkClick,
 }: AnnotationLayerProps) {
-  useLocale();
+  const locale = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewport = useMemo(() => page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) }), [page, scale, rotation]);
+
+  useEffect(() => {
+    const label = t('m.go.to.destination.660ae4');
+    // Update UI hints in place so switching language keeps the focused link and
+    // does not refetch PDF annotations or translate their user-authored content.
+    for (const link of containerRef.current?.querySelectorAll<HTMLAnchorElement>('[data-internal-destination]') ?? []) {
+      link.title = label;
+      if (link.dataset.defaultDestinationLabel === 'true') link.setAttribute('aria-label', label);
+    }
+  }, [locale]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -57,6 +67,13 @@ export function AnnotationLayer({
           const link = document.createElement('a');
           link.className = 'pdf-link-annotation';
           const description = typeof annotation.contentsObj?.str === 'string' ? annotation.contentsObj.str : undefined;
+          const describeDestination = () => {
+            const label = t('m.go.to.destination.660ae4');
+            link.dataset.internalDestination = 'true';
+            link.dataset.defaultDestinationLabel = String(!description);
+            link.title = label;
+            link.setAttribute('aria-label', description || label);
+          };
 
           // Position the link
           const left = Math.min(x1, x2);
@@ -73,8 +90,7 @@ export function AnnotationLayer({
           if (annotation.dest) {
             // Internal link (destination within document)
             link.href = '#';
-            link.title = 'Go to destination';
-            link.setAttribute('aria-label', description || 'Go to destination');
+            describeDestination();
             link.onclick = (e) => {
               e.preventDefault();
               if (onLinkClick) {
@@ -93,7 +109,7 @@ export function AnnotationLayer({
             const action = annotation.action;
             if (action.dest) {
               link.href = '#';
-              link.title = 'Go to destination';
+              describeDestination();
               link.onclick = (e) => {
                 e.preventDefault();
                 if (onLinkClick) {

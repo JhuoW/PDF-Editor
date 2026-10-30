@@ -139,7 +139,7 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
         <div className="decoration-add-actions"><button type="button" disabled={disabled} onClick={() => add('watermark')}>{t("m.add.watermark.2042dc")}</button><button type="button" disabled={disabled} onClick={() => add('header-footer')}>{t("m.add.headers.footers.1a0be4")}</button><button type="button" disabled={disabled} onClick={() => add('background')}>{t("m.add.background.7644fe")}</button></div>
         <p className="decoration-help">{t("m.only.decorations.created.by.this.editor.can.be.c.01f5c6")}</p>
         {selected && <>
-          {!selected.managed && <p role="status" className="decoration-error">{selected.reason || t("m.this.decoration.cannot.be.changed.safely.c85316")}</p>}
+          {!selected.managed && <p role="status" className="decoration-error">{translateError(selected.reason) || t("m.this.decoration.cannot.be.changed.safely.c85316")}</p>}
           {selected.needsRefresh && <><p role="status" className="decoration-help">{t("m.page.order.or.geometry.changed.refresh.to.update.56138f")}</p><button type="button" disabled={disabled || !selected.managed} onClick={() => change(selected.definition)}>{t("m.refresh.page.numbering.6a9fcd")}</button></>}
           <PageDecorationSettings key={selected.id} value={selected.definition} totalPages={current.inspection.pages.length} disabled={disabled || !selected.managed} otherImages={otherImages}
             onChange={change} onValidity={setValidation} onError={setError} onImageBusy={setImageBusy} />
@@ -153,7 +153,7 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
         {currentPreview?.error && <p role="alert" className="decoration-error">{translateError(currentPreview.error)}</p>}
       </section>
     </div>}
-    <footer>{(validation || error) && <p role="alert" className="decoration-error">{validation || translateError(error)}</p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.page.decorations.10bc34")}</p>}{imageBusy && <p role="status">{t("m.reading.image.8ae8b8")}</p>}
+    <footer>{(validation || error) && <p role="alert" className="decoration-error">{translateError(validation || error)}</p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.page.decorations.10bc34")}</p>}{imageBusy && <p role="status">{t("m.reading.image.8ae8b8")}</p>}
       <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? t("m.discard.changes.fa8fc0") : t("m.close.bbfa77")}</button><button type="button" className="decoration-primary" disabled={disabled || !operations.length || !!validation || !!currentPreview?.error} onClick={() => void save()}>{t("m.apply.decorations.7a178f")}</button></div>
     </footer>
   </dialog>;

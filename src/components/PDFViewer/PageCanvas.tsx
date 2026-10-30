@@ -1,6 +1,7 @@
 import { useLocale, translateError } from "../../i18n";
 import { useEffect, useRef, useState, useMemo, memo } from 'react';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import { AnnotationMode, type PDFPageProxy } from 'pdfjs-dist';
+import { useFormStore } from '../../store/formStore';
 import { getPageDimensions, getEffectiveRotation } from '../../core/PDFRenderer';
 import { TextLayer } from './TextLayer';
 import { AnnotationLayer } from './AnnotationLayer';
@@ -49,7 +50,9 @@ export const PageCanvas = memo(function PageCanvas({
   useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const renderKey = useMemo(() => ({ page, scale, rotation }), [page, scale, rotation]);
+  const htmlForms = useFormStore(state => state.fields.some(field => field.pageNumber === pageNumber && !field.hidden && !field.readOnly
+    && ['text', 'checkbox', 'radio', 'dropdown', 'listbox'].includes(field.type)));
+  const renderKey = useMemo(() => ({ page, scale, rotation, htmlForms }), [page, scale, rotation, htmlForms]);
   const [result, setResult] = useState<{ key: typeof renderKey; error?: string } | null>(null);
   const isRendering = result?.key !== renderKey;
   const dimensions = useMemo(() => getPageDimensions(page, scale, rotation), [page, scale, rotation]);
@@ -83,6 +86,9 @@ export const PageCanvas = memo(function PageCanvas({
       canvas: null,
       canvasContext: ctx,
       viewport,
+      // Interactive controls paint their current values in FormLayer. Rendering
+      // original widget appearances underneath leaves old text/check marks visible.
+      annotationMode: htmlForms ? AnnotationMode.ENABLE_FORMS : AnnotationMode.ENABLE,
     };
 
     const renderTask = page.render(renderContext);
@@ -109,7 +115,7 @@ export const PageCanvas = memo(function PageCanvas({
         renderTaskRef.current = null;
       }
     };
-  }, [page, scale, rotation, dimensions, renderKey]);
+  }, [page, scale, rotation, dimensions, renderKey, htmlForms]);
 
   return (
     <div

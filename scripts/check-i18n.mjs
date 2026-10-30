@@ -32,7 +32,7 @@ for (const file of fs.readdirSync('src', { recursive: true }).filter(file => fil
     if (ts.isJsxAttribute(node) && ['aria-label', 'title', 'placeholder', 'alt'].includes(node.name.getText(ast)) && node.initializer && ts.isStringLiteral(node.initializer) && /[A-Za-z]{2}/.test(node.initializer.text)) report(node, 'Untranslated UI attribute');
     if (ts.isCallExpression(node) && node.expression.getText(ast) === 't' && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) {
       const key = node.arguments[0].text;
-      if (!en[key] && !sources.has(key)) report(node, `Unknown translation: ${key}`);
+      if (!Object.hasOwn(en, key) && !sources.has(key)) report(node, `Unknown translation: ${key}`);
     }
     ts.forEachChild(node, visit);
   }

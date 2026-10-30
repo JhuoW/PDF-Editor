@@ -1,4 +1,9 @@
 export const en = {
+  "ocr.progress.loading.core": "loading tesseract core",
+  "ocr.progress.initializing.engine": "initializing tesseract",
+  "ocr.progress.loading.language": "loading language traineddata",
+  "ocr.progress.initializing.api": "initializing api",
+  "ocr.progress.recognizing.text": "recognizing text",
   "m.retry.9f5cd8": "Retry",
   "m.click.a.page.to.place.f79307": "Click a page to place",
   "m.cancel.placement.739c5b": "Cancel placement",

@@ -18,12 +18,23 @@ export function WorkspaceInspector({ onTextLayout, onProperties, isBusy }: { onT
   const { document, navigation } = useDocumentStore();
   const selected = [...annotationStore.annotations.values()].flat().find(item => item.id === annotationStore.selectedAnnotationId);
   const block = [...editing.textBlocks.values()].flat().find(item => item.id === editing.selectedBlockId);
+  const closeInspector = () => {
+    setInspectorOpen(false);
+    window.document.getElementById('workspace-inspector-toggle')?.focus();
+  };
+  const activeTextSection = inspectorSection === 'box' ? 'box' : 'text';
   return <aside id="workspace-inspector-root" className={`workspace-inspector ${inspectorOpen ? 'open' : ''}`} aria-label={t("m.properties.bc6c88")} inert={isBusy}>
-    <header><div><SlidersHorizontal size={17} /><h2>{t("m.properties.bc6c88")}</h2></div><button type="button" className="toolbar-btn icon-only" aria-label={t("m.close.properties.20b956")} onClick={() => setInspectorOpen(false)}><X size={16} /></button></header>
+    <header><div><SlidersHorizontal size={17} /><h2>{t("m.properties.bc6c88")}</h2></div><button type="button" className="toolbar-btn icon-only" aria-label={t("m.close.properties.20b956")} onClick={closeInspector}><X size={16} /></button></header>
     {selected?.type === 'freetext' ? <>
-      <div className="inspector-tabs" role="tablist" aria-label={t("m.text.properties.5aa98f")}><button role="tab" aria-selected={inspectorSection !== 'box'} onClick={() => setInspectorSection('text')}>{t("m.text.c3328c")}</button><button role="tab" aria-selected={inspectorSection === 'box'} onClick={() => setInspectorSection('box')}>{t("m.box.239ca5")}</button></div>
-      <div className="inspector-content">{inspectorSection === 'box' ? <BoxPropertiesPanel annotation={selected as FreeTextAnnotation} /> : <TextPropertiesPanel annotation={selected as FreeTextAnnotation} />}</div>
-    </> : selected?.type === 'image' ? <div className="inspector-content"><ImagePropertiesPanel annotation={selected as ImageAnnotation} onClose={() => setInspectorOpen(false)} /></div>
+      <div className="inspector-tabs" role="tablist" aria-label={t("m.text.properties.5aa98f")} onKeyDown={event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault(); event.stopPropagation();
+        const next = event.key === 'Home' ? 'text' : event.key === 'End' ? 'box' : activeTextSection === 'text' ? 'box' : 'text';
+        setInspectorSection(next);
+        window.document.getElementById(`workspace-properties-${next}`)?.focus();
+      }}><button role="tab" id="workspace-properties-text" tabIndex={activeTextSection === 'text' ? 0 : -1} aria-selected={activeTextSection === 'text'} aria-controls="workspace-properties-panel" onClick={() => setInspectorSection('text')}>{t("m.text.c3328c")}</button><button role="tab" id="workspace-properties-box" tabIndex={activeTextSection === 'box' ? 0 : -1} aria-selected={activeTextSection === 'box'} aria-controls="workspace-properties-panel" onClick={() => setInspectorSection('box')}>{t("m.box.239ca5")}</button></div>
+      <div className="inspector-content" role="tabpanel" id="workspace-properties-panel" aria-labelledby={`workspace-properties-${activeTextSection}`}>{inspectorSection === 'box' ? <BoxPropertiesPanel annotation={selected as FreeTextAnnotation} /> : <TextPropertiesPanel annotation={selected as FreeTextAnnotation} />}</div>
+    </> : selected?.type === 'image' ? <div className="inspector-content"><ImagePropertiesPanel annotation={selected as ImageAnnotation} onClose={closeInspector} /></div>
       : <div className="inspector-content">
         {block ? <section className="inspector-card"><Type size={24} /><h3>{t("m.original.pdf.text.9acab0")}</h3><dl><dt>{t("m.font.size.83ca9e")}</dt><dd>{block.style.fontSize.toFixed(1)}{' '}{t("m.pt.bc8112")}</dd></dl><button className="inspector-primary" disabled={!block.editable} onClick={() => onTextLayout(block.id)}>{t("m.text.layout.661a8e")}</button></section>
         : selected ? <section className="inspector-card"><ImageIcon size={24} /><h3>{t("m.annotation.de3b78")}</h3><label>{t("m.color.1d0c83")}<input type="color" aria-label={t("m.annotation.color.c86abe")} value={selected.color ?? '#2563eb'} onChange={event => { const next = { ...selected, color: event.target.value }; annotationStore.updateAnnotation(selected.id, { color: event.target.value }); recordUpdate(next, selected); }} /></label><p>{t("m.use.the.selection.handles.to.move.or.resize.this.354a43")}</p></section>

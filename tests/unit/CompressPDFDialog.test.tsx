@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useLocaleStore } from '../../src/i18n';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,7 +26,7 @@ beforeEach(() => {
   props = { documentKey: 'one', revision: 1, currentPage: 2, readPDF: vi.fn(async () => source), onClose: vi.fn() };
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(async () => { useLocaleStore.getState().setLocale('en'); localStorage.clear(); await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function render(changes: Partial<CompressPDFDialogProps> = {}) { props = { ...props, ...changes }; await act(async () => root.render(<CompressPDFDialog {...props} />)); }
 function button(name: string) { return [...host.querySelectorAll('button')].find(item => item.textContent === name)!; }
 async function click(name: string) { await act(async () => button(name).click()); }
@@ -41,6 +42,17 @@ async function quality(value: number) {
 async function escape() { await act(async () => host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))); }
 
 describe('CompressPDFDialog', () => {
+  it('translates an optimization failure when switching language without starting another operation', async () => {
+    api.optimize.mockRejectedValueOnce(new Error('Could not export pages.'));
+    await render(); await click('Compress PDF');
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Could not export pages.');
+    await act(async () => useLocaleStore.getState().setLocale('zh-CN'));
+    expect(host.querySelector('[role="alert"]')?.textContent).not.toContain('Could not');
+    await act(async () => useLocaleStore.getState().setLocale('en'));
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Could not export pages.');
+    expect(api.optimize).toHaveBeenCalledTimes(1);
+  });
+
   it('analyzes the prepared source, defaults to lossless, and downloads exactly the previewed result', async () => {
     await render(); expect(host.querySelector('dialog')?.open).toBe(true);
     expect(api.inspect.mock.calls[0][0]).toBe(source.data); expect(api.inspect.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);

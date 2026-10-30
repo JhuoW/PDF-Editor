@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: fileURLToPath(new URL('../e2e', import.meta.url)),
-  testMatch: ['workspace-i18n.spec.ts', 'deployment.spec.ts', 'inline-text-edit.spec.ts', 'paragraph-reflow.spec.ts', 'bookmarks.spec.ts', 'signature.spec.ts', 'drawing-coordinates.spec.ts', 'image-insertion.spec.ts', 'custom-stamps.spec.ts', 'search-navigation.spec.ts', 'ui-final-review.spec.ts', 'interaction-guards.spec.ts'],
+  testMatch: ['review-*.spec.ts', 'workspace-i18n.spec.ts', 'deployment.spec.ts', 'inline-text-edit.spec.ts', 'paragraph-reflow.spec.ts', 'bookmarks.spec.ts', 'signature.spec.ts', 'drawing-coordinates.spec.ts', 'image-insertion.spec.ts', 'custom-stamps.spec.ts', 'search-navigation.spec.ts', 'ui-final-review.spec.ts', 'interaction-guards.spec.ts'],
   workers: 1,
   use: {
     browserName: 'chromium',

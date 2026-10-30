@@ -8,84 +8,13 @@ import { PREDEFINED_STAMPS, SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations
 import type { EditingMode } from '../../editing/types';
 import { useToolbarMenus } from './useToolbarMenus';
 import './CombinedToolbar.css';
-import { translateMessage, useLocale , t } from '../../i18n';
+import { translateMessage, translateError, useLocale , t } from '../../i18n';
 import { useUIStore } from '../../store/uiStore';
 import { ToolButton, type WorkspaceCommand } from '../Workspace/ToolButton';
 import { House, Type, ImagePlus, Image as ImageIcon, Highlighter, Underline, Strikethrough, Pencil, MoveUpRight, Minus, RectangleHorizontal, Circle, StickyNote, Stamp, MousePointer2, Hand, Files, Scissors, RotateCcw, RotateCw, Rotate3D, Trash2, FilePlus2, FileInput, FileOutput, ScanText, FileImage, FileDown, FilePenLine, Signature, FileJson, ListRestart, Layers, ShieldCheck, Eraser, EyeOff, FileKey2, Settings2, Link, BookMarked, Paintbrush, Undo2, Redo2, Check, LayoutGrid, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
 
-// Image data passed when inserting an image
-export interface PendingImageData {
-  imageData: string; // Base64 data URL
-  originalWidth: number;
-  originalHeight: number;
-  filename: string;
-  fileSize: number;
-  mimeType: string;
-}
-
-function readInsertImage(file: File, signal: AbortSignal): Promise<PendingImageData> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    let image: HTMLImageElement | null = null, settled = false;
-    const cleanup = () => {
-      signal.removeEventListener('abort', abort);
-      reader.onload = null; reader.onerror = null; reader.onabort = null;
-      if (image) { image.onload = null; image.onerror = null; }
-    };
-    const fail = (cause: Error) => { if (settled) return; settled = true; cleanup(); reject(cause); };
-    const abort = () => {
-      fail(new DOMException('Image loading cancelled.', 'AbortError'));
-      if (reader.readyState === 1) reader.abort();
-      if (image) image.src = '';
-    };
-    signal.addEventListener('abort', abort, { once: true });
-    if (signal.aborted) { abort(); return; }
-    reader.onload = () => {
-      if (settled || signal.aborted) return;
-      const data = reader.result;
-      if (typeof data !== 'string') { fail(new Error(`Could not read image: ${file.name}`)); return; }
-      image = new Image();
-      image.onload = async () => {
-        if (settled || signal.aborted || !image) return;
-        const width = image.naturalWidth, height = image.naturalHeight;
-        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || width * height > 40_000_000) { fail(new Error(`Image ${file.name} must have valid dimensions within 40 million pixels.`)); return; }
-        try {
-          let imageData = data, fileSize = file.size;
-          let mimeType = /^data:([^;,]+)/i.exec(data)?.[1].toLowerCase() ?? file.type;
-          let convert = !['image/png', 'image/jpeg', 'image/jpg'].includes(mimeType);
-          if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
-            const { inspectPDFImage } = await import('../../core/ImagePDF');
-            if (settled || signal.aborted) return;
-            const bytes = Uint8Array.from(atob(data.slice(data.indexOf(',') + 1)), char => char.charCodeAt(0));
-            convert = inspectPDFImage({ name: file.name, data: bytes }).orientation !== 1;
-          }
-          if (convert) {
-            // Browsers apply EXIF while drawing an image; raw PDF JPEG embedding
-            // does not. Canonical PNG pixels also make WebP/GIF/BMP/SVG exportable.
-            const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-            try {
-              const context = canvas.getContext('2d'); if (!context) throw new Error('Could not prepare the image for PDF export.');
-              context.drawImage(image, 0, 0, width, height);
-              imageData = canvas.toDataURL('image/png');
-              if (!imageData.startsWith('data:image/png;base64,')) throw new Error('Could not encode the image for PDF export.');
-              const encoded = imageData.slice(imageData.indexOf(',') + 1);
-              fileSize = Math.floor(encoded.length * 3 / 4) - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
-              if (fileSize > 20 * 1024 * 1024) throw new Error(`Prepared image ${file.name} exceeds 20 MB. Choose a smaller image.`);
-              mimeType = 'image/png';
-            } finally { canvas.width = 0; canvas.height = 0; }
-          }
-          if (settled || signal.aborted) return;
-          settled = true; cleanup(); resolve({ imageData, originalWidth: width, originalHeight: height, filename: file.name, fileSize, mimeType });
-        } catch (cause) { fail(cause instanceof Error ? cause : new Error(`Could not prepare image: ${file.name}`)); }
-      };
-      image.onerror = () => fail(new Error(`Could not decode image: ${file.name}`));
-      image.src = data;
-    };
-    reader.onerror = () => fail(new Error(`Could not read image: ${file.name}`));
-    reader.onabort = () => fail(new DOMException('Image loading cancelled.', 'AbortError'));
-    try { reader.readAsDataURL(file); } catch (cause) { fail(cause instanceof Error ? cause : new Error(`Could not read image: ${file.name}`)); }
-  });
-}
+import { readInsertImage, type PendingImageData } from '../../utils/readInsertImage';
+export type { PendingImageData } from '../../utils/readInsertImage';
 
 interface SelectedStamp { type: 'predefined' | 'custom'; name: string; imageData?: string; width?: number; height?: number }
 
@@ -496,7 +425,7 @@ export function CombinedToolbar({
         <button className="toolbar-btn icon-only" onClick={onUndo} disabled={!canUndo} title={undoActionName ? t("m.undo.ctrl.z.60a1ee", { v0: translateMessage(undoActionName) }) : t("m.undo.ctrl.z.26039c")} aria-label={undoActionName ? t("m.undo.dbfb05", { v0: translateMessage(undoActionName) }) : t("m.undo.39fc72")}><Undo2 size={17} /></button>
         <button className="toolbar-btn icon-only" onClick={onRedo} disabled={!canRedo} title={redoActionName ? t("m.redo.ctrl.shift.z.f1f904", { v0: translateMessage(redoActionName) }) : t("m.redo.ctrl.shift.z.c4d794")} aria-label={redoActionName ? t("m.redo.1a011b", { v0: translateMessage(redoActionName) }) : t("m.redo.471b94")}><Redo2 size={17} /></button>
         <button type="button" className="toolbar-btn all-tools-trigger" onClick={() => toggleMenu('document')} data-toolbar-menu-trigger="document" aria-expanded={showDocumentMenu} aria-controls="toolbar-document-menu"><LayoutGrid size={16} /><span>{t("m.all.tools.b390ab")}</span><ChevronDown size={12} /></button>
-        <button type="button" className={`toolbar-btn icon-only ${inspectorOpen ? 'active' : ''}`} title={t("m.properties.bc6c88")} aria-label={t("m.toggle.properties.c12733")} aria-pressed={inspectorOpen} onClick={() => setInspectorOpen(!inspectorOpen)}><SlidersHorizontal size={17} /></button>
+        <button type="button" id="workspace-inspector-toggle" disabled={!hasDocument} className={`toolbar-btn icon-only ${hasDocument && inspectorOpen ? 'active' : ''}`} title={t("m.properties.bc6c88")} aria-label={t("m.toggle.properties.c12733")} aria-controls={hasDocument ? 'workspace-inspector-root' : undefined} aria-pressed={hasDocument && inspectorOpen} onClick={() => setInspectorOpen(!inspectorOpen)}><SlidersHorizontal size={17} /></button>
       </div>
     </div>
     <div className="workspace-ribbon" id="workspace-ribbon" role="tabpanel" aria-labelledby={`workspace-${workspace}`}>
@@ -523,7 +452,7 @@ export function CombinedToolbar({
       {['highlight', 'rectangle', 'ellipse'].includes(currentTool) && <label>{t("m.opacity.f0fa69")}<input type="range" aria-label={t("m.annotation.opacity.7ca132")} min="0.1" max="1" step="0.1" value={toolSettings.opacity} onChange={handleOpacityChange} /></label>}
       {['ink', 'line', 'arrow', 'rectangle', 'ellipse'].includes(currentTool) && <label>{t("m.stroke.width.07d2ad")}<input type="range" aria-label={t("m.stroke.width.71c051")} min="1" max="10" step="1" value={toolSettings.strokeWidth} onChange={handleStrokeWidthChange} /></label>}
     </div>}
-    {shownImageRead && <div className="image-read-feedback"><span role={shownImageRead.status === 'error' ? 'alert' : 'status'}>{translateMessage(shownImageRead.message)}</span><button className="toolbar-btn" onClick={cancelImageRead}>{shownImageRead.status === 'loading' ? t("m.cancel.image.loading.6ec197") : t("m.dismiss.image.error.a0b1d9")}</button></div>}
+    {shownImageRead && <div className="image-read-feedback"><span role={shownImageRead.status === 'error' ? 'alert' : 'status'}>{shownImageRead.status === 'error' ? translateError(shownImageRead.message) : translateMessage(shownImageRead.message)}</span><button className="toolbar-btn" onClick={cancelImageRead}>{shownImageRead.status === 'loading' ? t("m.cancel.image.loading.6ec197") : t("m.dismiss.image.error.a0b1d9")}</button></div>}
     <input ref={imageInputRef} type="file" accept={SUPPORTED_IMAGE_EXTENSIONS} multiple disabled={isBusy || !hasDocument || !onInsertImage} aria-label={t("m.insert.images.f4a261")} onChange={handleImageFileChange} hidden />
     <input ref={stampInputRef} type="file" accept="image/*" aria-label={t("m.custom.stamp.image.96a754")} disabled={isBusy || !hasDocument} onChange={handleStampFileChange} hidden />
   </section>;

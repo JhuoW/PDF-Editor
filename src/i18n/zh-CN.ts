@@ -1,5 +1,10 @@
 import type { en } from "./en";
 export const zhCN: Record<keyof typeof en, string> = {
+  "ocr.progress.loading.core": "正在加载识别引擎",
+  "ocr.progress.initializing.engine": "正在初始化识别引擎",
+  "ocr.progress.loading.language": "正在加载识别语言",
+  "ocr.progress.initializing.api": "正在准备文字识别",
+  "ocr.progress.recognizing.text": "正在识别文字",
   "m.retry.9f5cd8": "重试",
   "m.click.a.page.to.place.f79307": "单击要放置的页面",
   "m.cancel.placement.739c5b": "取消放置",

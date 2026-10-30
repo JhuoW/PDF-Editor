@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useLocaleStore } from '../../src/i18n';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -38,7 +39,7 @@ beforeEach(() => {
   document.body.append(host);
   root = createRoot(host);
 });
-afterEach(async () => {
+afterEach(async () => { useLocaleStore.getState().setLocale('en'); localStorage.clear();
   await act(async () => root.unmount());
   host.remove();
   anchorClick.mockRestore();
@@ -66,6 +67,22 @@ async function selectFile(file: File) {
 }
 
 describe('DocumentPropertiesDialog', () => {
+  it('switches an in-flight save status without changing the property draft', async () => {
+    let finish!: () => void;
+    await render({ onApply: vi.fn(() => new Promise<void>(resolve => { finish = resolve; })) });
+    await fill('Document title', 'Keep this English title');
+    await click('Save properties');
+    const status = () => host.querySelector('footer [role="status"]')?.textContent;
+    expect(status()).toBe('Saving properties…');
+    await act(async () => useLocaleStore.getState().setLocale('zh-CN'));
+    expect(status()).not.toContain('Saving');
+    expect(status()).toMatch(/[\u3400-\u9fff]/);
+    await act(async () => useLocaleStore.getState().setLocale('en'));
+    expect(status()).toBe('Saving properties…');
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Document title"]')?.value).toBe('Keep this English title');
+    await act(async () => finish());
+  });
+
   it('opens a modal, focuses the title, distinguishes same-name attachments and restores focus', async () => {
     const opener = document.createElement('button');
     document.body.append(opener); opener.focus();

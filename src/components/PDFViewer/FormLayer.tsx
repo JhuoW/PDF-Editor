@@ -3,7 +3,7 @@ import { useLocale, t } from "../../i18n";
  * FormLayer - Renders interactive form fields on top of PDF pages
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useFormStore } from '../../store/formStore';
 import type { FormField } from '../../forms/types';
@@ -18,6 +18,20 @@ interface FormLayerProps {
   rotation: number;
 }
 
+interface WidgetAppearance {
+  subtype?: string;
+  fieldName?: string;
+  hasAppearance?: boolean;
+  rect?: number[];
+  backgroundColor?: ArrayLike<number> | null;
+  borderColor?: ArrayLike<number> | null;
+  borderStyle?: { width?: number; style?: number };
+  defaultAppearanceData?: { fontColor?: ArrayLike<number> };
+}
+function widgetColor(color: ArrayLike<number> | null | undefined) {
+  return color?.length === 3 ? `rgb(${color[0]}, ${color[1]}, ${color[2]})` : undefined;
+}
+
 export function FormLayer({
   page,
   pageNumber,
@@ -26,6 +40,15 @@ export function FormLayer({
 }: FormLayerProps) {
   useLocale();
   const { fields, setFieldValueByName, activeFieldId, setActiveField } = useFormStore();
+  const [appearance, setAppearance] = useState<{ page: PDFPageProxy; widgets: WidgetAppearance[] } | null>(null);
+  useEffect(() => {
+    if (typeof page.getAnnotations !== 'function') return;
+    let canceled = false;
+    void page.getAnnotations().then(annotations => {
+      if (!canceled) setAppearance({ page, widgets: annotations.filter(annotation => annotation.subtype === 'Widget') });
+    }).catch(() => { /* Existing controls remain usable if appearance metadata is unavailable. */ });
+    return () => { canceled = true; };
+  }, [page]);
 
   // Get fields for this page
   const pageFields = useMemo(
@@ -99,7 +122,14 @@ export function FormLayer({
     const isActive = activeFieldId === field.id;
     const multiple = field.multiSelect ?? (field.type === 'listbox' || Array.isArray(field.value));
     const selectedValues = Array.isArray(field.value) ? field.value : field.value ? [String(field.value)] : [];
-    const baseClass = `form-field form-field-${field.type}${isActive ? ' active' : ''}${field.required ? ' required' : ''}`;
+    const widget = appearance?.page === page ? appearance.widgets.find(widget => {
+      if (widget.fieldName !== field.name || widget.rect?.length !== 4) return false;
+      const bounds = sourceViewport.convertToViewportRectangle(widget.rect);
+      return Math.abs(Math.min(bounds[0], bounds[2]) - field.rect.x) < .1
+        && Math.abs(Math.min(bounds[1], bounds[3]) - field.rect.y) < .1;
+    }) : undefined;
+    const nativeAppearance = field.readOnly && field.type !== 'button' && widget?.hasAppearance;
+    const baseClass = `form-field form-field-${field.type}${isActive ? ' active' : ''}${field.required ? ' required' : ''}${nativeAppearance ? ' form-field-native-appearance' : ''}`;
 
     const style: React.CSSProperties = {
       left: position.left,
@@ -110,6 +140,19 @@ export function FormLayer({
       fontSize: Math.max(10, (field.fontSize || 12) * scale),
       textAlign: field.textAlign,
     };
+    if (!field.readOnly && widget) {
+      // Recreate the native widget's fill/border, rather than masking stale
+      // glyphs with white or losing colored controls on illustrated pages.
+      const borderWidth = (widget.borderStyle?.width ?? 0) * (page.userUnit || 1) * scale;
+      Object.assign(style, {
+        backgroundColor: widgetColor(widget.backgroundColor) ?? 'transparent',
+        color: widgetColor(widget.defaultAppearanceData?.fontColor) ?? '#000000',
+        borderColor: widgetColor(widget.borderColor) ?? 'transparent',
+        borderStyle: widget.borderStyle?.style === 2 ? 'dashed' : 'solid',
+        borderWidth: widget.borderStyle?.style === 5 ? 0 : borderWidth,
+        ...(widget.borderStyle?.style === 5 ? { borderBottomWidth: borderWidth } : {}),
+      });
+    }
 
     switch (field.type) {
       case 'text':
@@ -257,6 +300,7 @@ export function FormLayer({
         return (
           <div
             key={field.id}
+            aria-label={field.name}
             className={`${baseClass} signature-placeholder`}
             style={style}
             onClick={() => !field.readOnly && handleFocus(field.id)}

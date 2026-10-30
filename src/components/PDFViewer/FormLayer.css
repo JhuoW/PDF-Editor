@@ -234,3 +234,27 @@ textarea.form-field-text {
 .form-field-radio.required::after {
   display: none;
 }
+
+/* Native, passive widget artwork stays on the PDF canvas. Keep its accessible
+   control and text selection without painting another background over it. */
+.form-field-native-appearance,
+.form-field-native-appearance:hover,
+.form-field-native-appearance:read-only,
+.form-field-native-appearance:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.form-field-native-appearance .checkbox-visual,
+.form-field-native-appearance .radio-visual,
+.form-field-native-appearance .signature-signed,
+.form-field-native-appearance .signature-empty {
+  visibility: hidden;
+}
+
+.form-field-native-appearance:focus-visible {
+  outline: 2px solid var(--accent-9, #3b82f6);
+  outline-offset: 1px;
+}

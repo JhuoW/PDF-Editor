@@ -11,6 +11,7 @@ import { useAnnotationStore } from '../../store/annotationStore';
 import './PDFViewer.css';
 import type { PDFLinkView } from '../../core/PDFLinkTypes';
 import { PDF_LINK_SCROLL_INSET } from '../../core/PDFLinkNavigation';
+import { hasOpenModal, isTextInput, isInteractiveControl } from '../../utils/keyboard';
 
 export interface LinkDestination {
   pageNumber: number;
@@ -364,15 +365,8 @@ export function PDFViewer({
   // Space key for temporary pan mode
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Leave spaces to form controls and rich-text editors, including their children.
-      const target = e.target;
-      if (target instanceof HTMLElement && (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        target.isContentEditable ||
-        target.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')
-      )) return;
+      // Space still activates focused buttons/links and belongs to modal dialogs.
+      if (e.defaultPrevented || hasOpenModal() || isTextInput(e.target) || isInteractiveControl(e.target)) return;
 
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();

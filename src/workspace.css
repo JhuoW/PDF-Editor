@@ -148,3 +148,9 @@ dialog { color: #344054; background: #fff; border-color: #e2e8f0; }dialog > head
   .main-toolbar .header-actions { margin-left: auto; }
   .app-container:has(.sidebar) .quick-tools { visibility: hidden; }
 }
+@media(max-width: 340px) {
+  .main-toolbar { padding-inline: 5px; gap: 3px; }
+  .main-toolbar .toolbar-btn { padding-inline: 4px; }
+  .main-toolbar .app-brand-icon { width: 26px; }
+  .main-toolbar .header-actions { gap: 2px; }
+}

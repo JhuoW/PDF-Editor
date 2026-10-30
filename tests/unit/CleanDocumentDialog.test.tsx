@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useLocaleStore } from '../../src/i18n';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,7 +24,7 @@ beforeEach(() => {
   props = { documentKey: 'one', revision: 1, currentPage: 1, readPDF: vi.fn(async () => source), onApply: vi.fn(async (_options, _signal, commit) => { commit(); }), onClose: vi.fn() };
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(async () => { useLocaleStore.getState().setLocale('en'); localStorage.clear(); await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 async function render(changes: Partial<CleanDocumentDialogProps> = {}) { props = { ...props, ...changes }; await act(async () => root.render(<CleanDocumentDialog {...props} />)); }
 async function settlePreview() { await act(async () => vi.advanceTimersByTimeAsync(300)); }
 function button(name: string) { return [...host.querySelectorAll('button')].find(item => item.textContent === name)!; }
@@ -33,6 +34,23 @@ async function toggle(name: string) { await act(async () => checkbox(name).click
 async function escape() { await act(async () => host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))); }
 
 describe('CleanDocumentDialog', () => {
+  it('translates active cleanup progress without restarting or discarding the operation', async () => {
+    let finish!: () => void;
+    await render({ onApply: vi.fn((_options, _signal, _commit, progress) => {
+      progress?.({ phase: 'clean', completed: 3, total: 10 });
+      return new Promise<void>(resolve => { finish = resolve; });
+    }) });
+    await settlePreview(); await click('Apply cleanup');
+    expect(host.querySelector('.clean-progress')?.textContent).toContain('Removing selected items');
+    await act(async () => useLocaleStore.getState().setLocale('zh-CN'));
+    expect(host.querySelector('.clean-progress')?.textContent).not.toContain('Removing');
+    expect(host.querySelector('.clean-progress')?.textContent).toContain('3 / 10');
+    await act(async () => useLocaleStore.getState().setLocale('en'));
+    expect(host.querySelector('.clean-progress')?.textContent).toContain('Removing selected items');
+    expect(props.onApply).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+  });
+
   it('reuses the prepared report, selects conservative defaults, merges current annotations, and waits for an exact preview before Apply', async () => {
     await render(); expect(host.querySelector('dialog')?.open).toBe(true); expect(api.inspect).not.toHaveBeenCalled();
     for (const name of ['Document metadata', 'Attachments', 'Scripts and active content']) expect(checkbox(name).checked).toBe(true);

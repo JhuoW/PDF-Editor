@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useLocaleStore } from '../../src/i18n';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,7 @@ beforeEach(() => {
   props = { documentKey: 'first', totalPages: 8, currentPage: 4, onClose: vi.fn(), onRun: vi.fn(async () => [recognized]) };
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
+afterEach(async () => { useLocaleStore.getState().setLocale('en'); localStorage.clear(); await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 async function render(changes: Partial<OCRDialogProps> = {}) {
   props = { ...props, ...changes };
   await act(async () => root.render(<OCRDialog {...props} />));
@@ -36,6 +37,24 @@ async function escape() {
 }
 
 describe('OCRDialog', () => {
+  it('translates live OCR worker stages while keeping the recognition job and options intact', async () => {
+    let finish!: (value: OCRPageResult[]) => void;
+    await render({ onRun: vi.fn(() => new Promise(resolve => { finish = resolve; })) });
+    await submit();
+    const [, signal, report] = vi.mocked(props.onRun).mock.calls[0];
+    for (const status of ['loading tesseract core', 'initializing tesseract', 'loading language traineddata', 'initializing api', 'recognizing text']) {
+      await act(async () => report({ phase: 'recognizing', pageNumber: 2, completedPages: 1, totalPages: 8, progress: .25, status }));
+      expect(host.querySelector('.ocr-progress [role="status"]')?.textContent).toContain(status);
+      await act(async () => useLocaleStore.getState().setLocale('zh-CN'));
+      expect(host.querySelector('.ocr-progress [role="status"]')?.textContent).not.toContain(status);
+      expect(host.querySelector('.ocr-progress [role="status"]')?.textContent).toMatch(/[\u3400-\u9fff]/);
+      await act(async () => useLocaleStore.getState().setLocale('en'));
+      expect(host.querySelector('.ocr-progress [role="status"]')?.textContent).toContain(status);
+    }
+    expect(signal.aborted).toBe(false); expect(props.onRun).toHaveBeenCalledTimes(1);
+    await act(async () => finish([recognized]));
+  });
+
   it('opens a focused native modal, defaults to all pages and skipping text, and restores focus', async () => {
     const opener = document.createElement('button'); document.body.append(opener); opener.focus();
     await render();

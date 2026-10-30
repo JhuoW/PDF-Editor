@@ -1007,6 +1007,21 @@ function App() {
     event.currentTarget.classList.remove('drag-over');
   }, []);
 
+  // Save belongs to the document even while a native/rich-text editor has focus.
+  // Capture it before editor key handlers; modal dialogs keep their own Ctrl+S.
+  useEffect(() => {
+    const save = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey
+        || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's'
+        || !document || hasOpenModal()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!isLoading) void handleExport();
+    };
+    window.addEventListener('keydown', save, true);
+    return () => window.removeEventListener('keydown', save, true);
+  }, [document, isLoading, handleExport]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

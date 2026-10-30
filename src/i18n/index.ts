@@ -25,11 +25,11 @@ const patterns = Object.entries(english).filter(([, value]) => /\{v\d+\}/.test(v
 }).sort((a, b) => b.weight - a.weight);
 
 export function t(key: string, values: Record<string, unknown> = {}): string {
-  const resolved = english[key] ? key : sourceKeys.get(key);
+  const resolved = Object.hasOwn(english, key) ? key : sourceKeys.get(normalize(key));
   const source = resolved ? english[resolved] : key;
   const translated = useLocaleStore.getState().locale === 'zh-CN' && resolved ? chinese[resolved] : source;
   return (translated ?? source).replace(/\{(\w+)\}/g, (match, name: string) => {
-    if (values[name] === undefined) return match;
+    if (!Object.hasOwn(values, name) || values[name] === undefined) return match;
     if (useLocaleStore.getState().locale !== 'zh-CN' || !resolved) return String(values[name]);
     const kind = templateOptions[resolved]?.[name];
     if (kind === 'plural') return '';
@@ -43,7 +43,7 @@ export function translateMessage(value: unknown): string {
   if (value === null || value === undefined) return '';
   const source = value instanceof Error ? value.message : String(value);
   if (useLocaleStore.getState().locale === 'en') return source;
-  const normalized = normalize(source), direct = english[normalized] ? normalized : sourceKeys.get(normalized) ?? sourceKeysLower.get(normalized.toLowerCase());
+  const normalized = normalize(source), direct = Object.hasOwn(english, normalized) ? normalized : sourceKeys.get(normalized) ?? sourceKeysLower.get(normalized.toLowerCase());
   if (direct) return t(direct);
   for (const item of patterns) {
     if (!item.weight) continue;

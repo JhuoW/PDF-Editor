@@ -148,7 +148,7 @@ function OCRSession({ totalPages, currentPage, onClose, onRun }: OCRDialogProps)
       <p className="ocr-help">{t("m.recognition.runs.on.this.device.form.fields.and..69c931")}</p>
       {busy && <div className="ocr-progress" aria-busy="true">
         <progress max={1} value={Math.min(1, Math.max(0, progress?.progress ?? 0))} aria-label={t("m.ocr.progress.e67739")} />
-        <p role="status">{canceling ? t("m.canceling.ocr.2023cd") : saving ? t("m.saving.recognized.text.c42061") : progress?.status}{!saving && !canceling && progress?.pageNumber ? t("m.page.completed.dd308b", { v0: progress.pageNumber, v1: progress.completedPages, v2: progress.totalPages }) : ''}</p>
+        <p role="status">{canceling ? t("m.canceling.ocr.2023cd") : saving ? t("m.saving.recognized.text.c42061") : translateMessage(progress?.status)}{!saving && !canceling && progress?.pageNumber ? t("m.page.completed.dd308b", { v0: progress.pageNumber, v1: progress.completedPages, v2: progress.totalPages }) : ''}</p>
       </div>}
       {!busy && message && <p role="status" className="ocr-result-message">{translateMessage(message)}</p>}
       {results && <div className="ocr-results"><table><caption>{t("m.recognition.results.174b57")}</caption><thead><tr><th>{t("m.page.fb0627")}</th><th>{t("m.result.5faa59")}</th><th>{t("m.words.d26d55")}</th></tr></thead><tbody>

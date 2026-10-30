@@ -151,7 +151,7 @@ function CompressPDFSession({ currentPage, readPDF, onClose }: CompressPDFDialog
       </div>}
     <footer>{busy && <div className="compress-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{translateMessage(progressLabel(progress, compressing))}</span></div>}
       {result && !busy && <p role="status">{t("m.compression.ready.c2b036")}</p>}
-      {(error || currentPreviewError) && <p role="alert" className="compress-error">{error || translateError(currentPreviewError)}</p>}
+      {(error || currentPreviewError) && <p role="alert" className="compress-error">{translateError(error || currentPreviewError)}</p>}
       {notice?.key === settings && <p role="status">{translateMessage(notice.text)}</p>}
       <div><button type="button" onClick={() => { if (compressing) operation.current?.abort(); else close(); }}>{compressing ? t("m.cancel.compression.55312d") : reading ? t("m.cancel.analysis.df18d1") : t("m.close.bbfa77")}</button>
         <button type="button" disabled={!canCompress} onClick={() => void compress()}>{compressing ? t("m.compressing.84c5e4") : t("m.compress.pdf.c81566")}</button><button type="button" className="compress-primary" disabled={!canDownload} onClick={download}>{t("m.download.pdf.98e5ef")}</button></div>

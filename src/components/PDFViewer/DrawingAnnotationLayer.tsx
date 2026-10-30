@@ -1,11 +1,13 @@
-import { useLocale, translateMessage, t } from "../../i18n";
+import { useLocale, translateMessage, translateError, t } from "../../i18n";
 import { useEffect, useRef, useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
-import { hasOpenModal, isTextInput } from '../../utils/keyboard';
+import { hasOpenModal, isTextInput, isInteractiveControl } from '../../utils/keyboard';
 import { useUIStore } from '../../store/uiStore';
+import { useDocumentStore } from '../../store/documentStore';
+import { readInsertImage } from '../../utils/readInsertImage';
 import { useHistoryStore } from '../../store/historyStore';
 import { registerPendingEditor } from '../../store/workspaceHistory';
 import {
@@ -36,6 +38,11 @@ import { mapViewportPoint } from '../../utils/viewportMapping';
 import './DrawingAnnotationLayer.css';
 
 const TipTapEditor = lazy(() => import('../TextBox/TipTapEditor'));
+
+function hasImageFiles(transfer: DataTransfer): boolean {
+  return Array.from(transfer.items ?? []).some(item => item.kind === 'file' && item.type.startsWith('image/'))
+    || Array.from(transfer.files ?? []).some(file => file.type.startsWith('image/'));
+}
 
 interface DrawingAnnotationLayerProps {
   page: PDFPageProxy;
@@ -2234,6 +2241,7 @@ export function DrawingAnnotationLayer({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || hasOpenModal() || isTextInput(e.target) || isCropping) return;
+      if (e.key === 'Enter' && isInteractiveControl(e.target)) return;
       // Skip if typing in an input (except for undo/redo)
       const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
       const isCtrl = e.ctrlKey || e.metaKey;
@@ -2732,163 +2740,61 @@ export function DrawingAnnotationLayer({
 
   const editingRect = getEditingAnnotationRect();
 
-  // Helper to process image file and create annotation
-  const processImageFile = useCallback(async (file: File, dropX?: number, dropY?: number) => {
-    // Supported image formats
-    const supportedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml'];
-
-    // Check if it's an image
-    if (!file.type.startsWith('image/')) {
-      alert(translateMessage(`"${file.name}" is not an image file.`));
-      return;
-    }
-
-    // Check for supported format
-    if (!supportedFormats.includes(file.type.toLowerCase())) {
-      alert(translateMessage(`Unsupported image format: ${file.type}\n\nSupported formats: JPG, PNG, GIF, WebP, BMP, SVG`));
-      return;
-    }
-
-    // Warn for large files (> 5MB)
-    const fileSizeMB = file.size / (1024 * 1024);
-    if (fileSizeMB > 5) {
-      const proceed = confirm(
-        translateMessage(`This image is large (${fileSizeMB.toFixed(1)} MB) and may affect performance.\n\n` +
-        `Consider compressing the image before inserting.\n\n` +
-        `Do you want to continue anyway?`)
-      );
-      if (!proceed) return;
-    }
-
-    // Very large files (> 20MB) - block with error
-    if (fileSizeMB > 20) {
-      alert(
-        translateMessage(`Image file is too large (${fileSizeMB.toFixed(1)} MB).\n\n` +
-        `Maximum supported size is 20 MB. Please compress the image and try again.`)
-      );
-      return;
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const reader = new FileReader();
-
-      reader.onerror = () => {
-        alert(translateMessage(`Failed to read file "${file.name}". The file may be corrupted.`));
-        reject(new Error('File read error'));
-      };
-
-      reader.onload = (e) => {
-        const imageData = e.target?.result as string;
-        if (!imageData) {
-          alert(translateMessage(`Failed to read file "${file.name}". The file may be corrupted.`));
-          reject(new Error('Empty file data'));
-          return;
-        }
-
-        const img = new Image();
-
-        img.onerror = () => {
-          alert(
-            translateMessage(`Failed to load image "${file.name}".\n\n` +
-            `The file may be corrupted or in an unsupported format.`)
-          );
-          reject(new Error('Image load error'));
-        };
-
-        img.onload = () => {
-          // Validate image dimensions
-          if (img.naturalWidth === 0 || img.naturalHeight === 0) {
-            alert(translateMessage(`Invalid image dimensions for "${file.name}".`));
-            reject(new Error('Invalid image dimensions'));
-            return;
-          }
-
-          // Warn for very high resolution images
-          const megapixels = (img.naturalWidth * img.naturalHeight) / 1000000;
-          if (megapixels > 25) {
-            console.warn(`High resolution image: ${img.naturalWidth}x${img.naturalHeight} (${megapixels.toFixed(1)} MP)`);
-          }
-
-          // Calculate placement position
-          let pdfX: number, pdfY: number;
-          if (dropX !== undefined && dropY !== undefined) {
-            const pdfCoords = screenToPdfCoords(dropX, dropY);
-            pdfX = pdfCoords.x;
-            pdfY = pdfCoords.y;
-          } else {
-            // Center of visible area
-            pdfX = (visibleBounds.left + visibleBounds.right) / 2;
-            pdfY = (visibleBounds.bottom + visibleBounds.top) / 2;
-          }
-
-          // Calculate image dimensions - fit to max 200px (or page size for very small pages)
-          const pageWidth = dimensions.width / scale;
-          const pageHeight = dimensions.height / scale;
-          const maxDimension = Math.min(200, pageWidth * 0.8, pageHeight * 0.8);
-          const minDimension = 20; // Minimum size
-
-          let imgWidth = img.naturalWidth;
-          let imgHeight = img.naturalHeight;
-
-          // Scale down large images
-          if (imgWidth > maxDimension || imgHeight > maxDimension) {
-            const aspectRatio = imgWidth / imgHeight;
-            if (aspectRatio > 1) {
-              imgWidth = maxDimension;
-              imgHeight = maxDimension / aspectRatio;
-            } else {
-              imgHeight = maxDimension;
-              imgWidth = maxDimension * aspectRatio;
-            }
-          }
-
-          // Enforce minimum size for very small images
-          if (imgWidth < minDimension || imgHeight < minDimension) {
-            const aspectRatio = imgWidth / imgHeight;
-            if (aspectRatio > 1) {
-              imgHeight = minDimension;
-              imgWidth = minDimension * aspectRatio;
-            } else {
-              imgWidth = minDimension;
-              imgHeight = minDimension / aspectRatio;
-            }
-          }
-
-          // Constrain position to keep image on page
-          const halfWidth = imgWidth / 2;
-          const halfHeight = imgHeight / 2;
-          pdfX = Math.max(visibleBounds.left + halfWidth, Math.min(visibleBounds.right - halfWidth, pdfX));
-          pdfY = Math.max(visibleBounds.bottom + halfHeight, Math.min(visibleBounds.top - halfHeight, pdfY));
-
-          // Create and add image annotation
-          const imageAnnotation = createImageAnnotation(
-            pageNumber,
-            [pdfX - halfWidth, pdfY - halfHeight, imgWidth, imgHeight],
-            imageData,
-            img.naturalWidth,
-            img.naturalHeight,
-            {
-              originalFilename: file.name,
-              originalFileSize: file.size,
-              mimeType: file.type,
-            }
-          );
-
-          addAnnotation(imageAnnotation);
-          recordAdd(imageAnnotation);
-          selectAnnotation(imageAnnotation.id);
-          resolve();
-        };
-
-        img.src = imageData;
-      };
-
-      reader.readAsDataURL(file);
+  const imageJobs = useRef(new Set<AbortController>());
+  const imagePage = useRef<PDFPageProxy | null>(null);
+  useEffect(() => {
+    imagePage.current = page;
+    const cancel = () => { imageJobs.current.forEach(job => job.abort()); imageJobs.current.clear(); };
+    const unsubscribe = useDocumentStore.subscribe((next, previous) => {
+      if (next.isLoading || next.document !== previous.document || next.documentVersion !== previous.documentVersion
+        || next.loadRequestId !== previous.loadRequestId) cancel();
     });
-  }, [pageNumber, dimensions, scale, visibleBounds, addAnnotation, recordAdd, selectAnnotation, screenToPdfCoords]);
+    return () => { imagePage.current = null; unsubscribe(); cancel(); };
+  }, [page]);
+
+  // Pasted/dropped images share the toolbar's bounded decoder and PNG normalization.
+  const processImageFile = useCallback(async (file: File, dropX?: number, dropY?: number) => {
+    const owner = useDocumentStore.getState();
+    if (imagePage.current !== page || !owner.document || owner.isLoading) return;
+    const supported = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml'];
+    if (!file.type.startsWith('image/')) {
+      alert(translateMessage(`"${file.name}" is not an image file.`)); return;
+    }
+    if (!supported.includes(file.type.toLowerCase())) {
+      alert(translateMessage(`Unsupported image format: ${file.type}\n\nSupported formats: JPG, PNG, GIF, WebP, BMP, SVG`)); return;
+    }
+    const fileSizeMB = file.size / (1024 * 1024);
+    if (fileSizeMB > 20) {
+      alert(translateMessage(`Image file is too large (${fileSizeMB.toFixed(1)} MB).\n\nMaximum supported size is 20 MB. Please compress the image and try again.`)); return;
+    }
+    if (fileSizeMB > 5 && !confirm(translateMessage(`This image is large (${fileSizeMB.toFixed(1)} MB) and may affect performance.\n\nConsider compressing the image before inserting.\n\nDo you want to continue anyway?`))) return;
+    const job = new AbortController(); imageJobs.current.add(job);
+    const isCurrent = () => {
+      const state = useDocumentStore.getState();
+      return !job.signal.aborted && !state.isLoading && state.document === owner.document
+        && state.documentVersion === owner.documentVersion && state.loadRequestId === owner.loadRequestId;
+    };
+    try {
+      const image = await readInsertImage(file, job.signal);
+      if (!isCurrent()) return;
+      const center = dropX !== undefined && dropY !== undefined ? screenToPdfCoords(dropX, dropY)
+        : { x: (visibleBounds.left + visibleBounds.right) / 2, y: (visibleBounds.bottom + visibleBounds.top) / 2 };
+      const maxDimension = Math.min(200, dimensions.width / scale * .8, dimensions.height / scale * .8);
+      const factor = Math.min(1, maxDimension / Math.max(image.originalWidth, image.originalHeight));
+      const width = image.originalWidth * factor, height = image.originalHeight * factor;
+      const x = Math.max(visibleBounds.left + width / 2, Math.min(visibleBounds.right - width / 2, center.x));
+      const y = Math.max(visibleBounds.bottom + height / 2, Math.min(visibleBounds.top - height / 2, center.y));
+      const annotation = createImageAnnotation(pageNumber, [x - width / 2, y - height / 2, width, height], image.imageData,
+        image.originalWidth, image.originalHeight, { originalFilename: image.filename, originalFileSize: image.fileSize, mimeType: image.mimeType });
+      addAnnotation(annotation); recordAdd(annotation); selectAnnotation(annotation.id);
+    } catch (error) {
+      if (isCurrent()) alert(translateError(error instanceof Error ? error.message : 'Could not prepare the image for PDF export.'));
+    } finally { imageJobs.current.delete(job); }
+  }, [page, pageNumber, dimensions, scale, visibleBounds, addAnnotation, recordAdd, selectAnnotation, screenToPdfCoords]);
 
   // Handle drag enter
   const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!hasImageFiles(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current++;
@@ -2899,6 +2805,7 @@ export function DrawingAnnotationLayer({
 
   // Handle drag leave
   const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (dragCounterRef.current === 0) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current--;
@@ -2909,6 +2816,7 @@ export function DrawingAnnotationLayer({
 
   // Handle drag over
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!hasImageFiles(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
@@ -2916,20 +2824,22 @@ export function DrawingAnnotationLayer({
 
   // Handle drop
   const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
     setIsDragOver(false);
     dragCounterRef.current = 0;
+    const imageFiles = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+    if (!imageFiles.length) return;
+    e.preventDefault();
+    e.stopPropagation();
 
     const point = clientToLocal(e.clientX, e.clientY);
     if (!point) return;
     const { x: dropX, y: dropY } = point;
-
-    const files = Array.from(e.dataTransfer.files);
-    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    const owner = useDocumentStore.getState();
 
     // Process each image file
     for (let i = 0; i < imageFiles.length; i++) {
+      const current = useDocumentStore.getState();
+      if (current.document !== owner.document || current.loadRequestId !== owner.loadRequestId || current.isLoading) return;
       const file = imageFiles[i];
       // Offset each subsequent image
       const offsetX = dropX + i * 20;
@@ -2941,14 +2851,11 @@ export function DrawingAnnotationLayer({
   // Handle clipboard paste for images
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
-      // Skip if editing text
-      if (editingAnnotationId) return;
-
-      // Skip if in an input field
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return;
-      }
+      // Several page layers can be mounted together. Only the targeted/current
+      // page owns a paste; modal dialogs and native editors retain their input.
+      if (e.defaultPrevented || hasOpenModal() || editingAnnotationId || isTextInput(e.target)) return;
+      const targetPage = e.target instanceof Element ? Number(e.target.closest('.page-wrapper')?.getAttribute('data-page')) : 0;
+      if ((targetPage || useDocumentStore.getState().navigation.currentPage) !== pageNumber) return;
 
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -2969,7 +2876,7 @@ export function DrawingAnnotationLayer({
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [editingAnnotationId, processImageFile]);
+  }, [editingAnnotationId, pageNumber, processImageFile]);
 
   // Cancel crop mode
   const cancelCropMode = useCallback(() => {
@@ -3037,6 +2944,7 @@ export function DrawingAnnotationLayer({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || hasOpenModal() || isTextInput(e.target)) return;
       if (e.key === 'Enter') {
+        if (isInteractiveControl(e.target)) return;
         e.preventDefault();
         applyCrop();
       } else if (e.key === 'Escape') {

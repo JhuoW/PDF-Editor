@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useLocaleStore } from '../../src/i18n';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,7 +19,7 @@ beforeEach(() => {
   props = { documentKey: 'one', revision: 1, currentPage: 1, readPDF: vi.fn(async () => new Uint8Array([1]).buffer), onApply: vi.fn(async (_ops, _signal, commit) => { commit(); }), onClose: vi.fn() };
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(async () => { useLocaleStore.getState().setLocale('en'); localStorage.clear(); await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 async function render(changes: Partial<PageDecorationsDialogProps> = {}) { props = { ...props, ...changes }; await act(async () => root.render(<PageDecorationsDialog {...props} />)); }
 async function preview() { await act(async () => vi.advanceTimersByTimeAsync(350)); }
 function button(name: string) { return [...host.querySelectorAll('button')].find(item => item.textContent === name)!; }
@@ -31,6 +32,18 @@ async function fill(label: string, text: string) {
 async function escape() { await act(async () => host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))); }
 
 describe('PageDecorationsDialog', () => {
+  it('translates a pending range validation error immediately while preserving watermark content', async () => {
+    await render(); await click('Add watermark'); await fill('Watermark text', 'Keep this English watermark');
+    await fill('Pages', '3-1');
+    expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/[A-Za-z]/);
+    await act(async () => useLocaleStore.getState().setLocale('zh-CN'));
+    expect(host.querySelector('[role="alert"]')?.textContent).not.toMatch(/range|page|Pages|Invalid/);
+    expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/[\u3400-\u9fff]/);
+    expect(host.querySelector('textarea')?.value).toBe('Keep this English watermark');
+    await act(async () => useLocaleStore.getState().setLocale('en'));
+    expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/[A-Za-z]/);
+  });
+
   it('previews the actual output locally and applies one operation batch only when requested', async () => {
     await render(); await preview(); expect(host.querySelector('dialog')?.open).toBe(true); expect(host.querySelector('[data-preview]')?.textContent).toBe('1');
     await click('Add watermark'); await fill('Watermark text', 'CONFIDENTIAL 中文'); await preview();

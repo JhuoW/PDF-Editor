@@ -30,6 +30,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const input = useRef<HTMLTextAreaElement>(null), layer = useRef<HTMLDivElement>(null), actions = useRef<HTMLDivElement>(null);
   const group = useRef<string | null>(null), pointer = useRef<{ id: number; anchor: number } | null>(null);
   const focusedBlock = useRef<string | null>(null);
+  const preferredColumn = useRef<number | null>(null);
   const pendingPoint = useRef<{ x: number; y: number; detail: number } | null>(null);
   const pageBlocks = textBlocks.get(pageNumber) ?? EMPTY, hasBlocks = textBlocks.has(pageNumber);
   const pageEdits = useMemo(() => textEdits.filter(edit => pageBlocks.some(block => block.id === edit.blockId)), [textEdits, pageBlocks]);
@@ -64,7 +65,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     if (!focusedBlock.current) return;
     const finishedBlock = focusedBlock.current;
     focusedBlock.current = null;
-    group.current = null; pointer.current = null; pendingPoint.current = null;
+    group.current = null; pointer.current = null; pendingPoint.current = null; preferredColumn.current = null;
     useHistoryStore.getState().endGroup(); setEditingBlockId(null);
     if (!keepSelection && useEditingStore.getState().selectedBlockId === finishedBlock) selectBlock(null);
   }, [selectBlock]);
@@ -101,6 +102,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const begin = (block: TextBlock, event: React.PointerEvent) => {
     if (!block.editable || event.button !== 0) return;
     event.preventDefault(); event.stopPropagation();
+    preferredColumn.current = null;
     const point = pointAt(event);
     if (activeId !== block.id) {
       finish(); useHistoryStore.getState().endGroup();
@@ -115,7 +117,9 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       layer.current?.setPointerCapture?.(event.pointerId);
     } else if (prepared) {
       const offset = inlineOffsetAt(prepared, point.x, point.y);
-      let start = event.shiftKey ? selection.start : offset, end = offset;
+      const element = input.current;
+      const anchor = element?.selectionDirection === 'backward' ? element.selectionEnd : element?.selectionStart ?? selection.start;
+      let start = event.shiftKey ? anchor : offset, end = offset;
       if (event.detail >= 2) {
         while (start > 0 && /[\p{L}\p{N}_]/u.test(editText[start - 1])) start--;
         while (end < editText.length && /[\p{L}\p{N}_]/u.test(editText[end])) end++;
@@ -127,6 +131,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   };
   const change = (value: string) => {
     pendingPoint.current = null;
+    preferredColumn.current = null;
     setEditText(value);
     const previous = activeId ? layouts.get(activeId) : undefined;
     const automatic = !previous || previous.keepBaseline ? { ...previous, ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), keepBaseline: true, reflow: true } : undefined;
@@ -136,6 +141,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const keyDown = (event: React.KeyboardEvent) => {
     event.stopPropagation();
     pendingPoint.current = null;
+    if (!['ArrowUp', 'ArrowDown', 'Shift', 'Control', 'Meta', 'Alt'].includes(event.key)) preferredColumn.current = null;
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === 'Escape') {
       event.preventDefault(); const key = group.current; group.current = null;
@@ -155,8 +161,9 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       else if (event.key === 'End') next = event.ctrlKey || event.metaKey ? editText.length : row?.end ?? editText.length;
       else {
         const caret = inlineCaret(prepared, offset), index = row ? rows.indexOf(row) : 0;
+        preferredColumn.current ??= caret.x;
         const target = rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowUp' ? -1 : 1)))];
-        if (target) next = inlineOffsetAt(prepared, caret.x, target.baseline - prepared.layout.fontSize * .3);
+        if (target) next = inlineOffsetAt(prepared, preferredColumn.current, target.baseline - prepared.layout.fontSize * .3);
       }
       const anchor = event.shiftKey ? backward ? element.selectionEnd : element.selectionStart : next;
       setRange(anchor, next);

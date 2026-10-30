@@ -8,6 +8,7 @@ import { PageCanvas } from '../../src/components/PDFViewer/PageCanvas';
 
 const formLayer = vi.hoisted(() => vi.fn<(props: { rotation: number; page: PDFPageProxy }) => null>(() => null));
 
+vi.mock('pdfjs-dist', () => ({ AnnotationMode: { ENABLE: 1, ENABLE_FORMS: 2 } }));
 vi.mock('../../src/components/PDFViewer/TextLayer', () => ({ TextLayer: () => null }));
 vi.mock('../../src/components/PDFViewer/AnnotationLayer', () => ({ AnnotationLayer: () => null }));
 vi.mock('../../src/components/PDFViewer/DrawingAnnotationLayer', () => ({ DrawingAnnotationLayer: () => null }));

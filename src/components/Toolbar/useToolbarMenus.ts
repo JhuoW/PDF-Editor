@@ -11,7 +11,10 @@ export function useToolbarMenus(host: RefObject<HTMLDivElement | null>, open: st
     if (!open) {
       pendingFocus.current = null;
       if (old && (!document.activeElement || document.activeElement === document.body || !document.activeElement.isConnected)) {
-        host.current?.querySelector<HTMLButtonElement>(`[data-toolbar-menu-trigger="${old}"]`)?.focus();
+        const trigger = origin.current?.isConnected && origin.current.dataset.toolbarMenuTrigger === old
+          ? origin.current
+          : host.current?.querySelector<HTMLButtonElement>(`[data-toolbar-menu-trigger="${old}"]`);
+        trigger?.focus();
       }
       return;
     }
