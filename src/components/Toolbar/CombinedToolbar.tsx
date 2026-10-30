@@ -11,7 +11,7 @@ import './CombinedToolbar.css';
 import { translateMessage, translateError, useLocale , t } from '../../i18n';
 import { useUIStore } from '../../store/uiStore';
 import { ToolButton, type WorkspaceCommand } from '../Workspace/ToolButton';
-import { House, Type, ImagePlus, Image as ImageIcon, Highlighter, Underline, Strikethrough, Pencil, MoveUpRight, Minus, RectangleHorizontal, Circle, StickyNote, Stamp, MousePointer2, Hand, Files, Scissors, RotateCcw, RotateCw, Rotate3D, Trash2, FilePlus2, FileInput, FileOutput, ScanText, FileImage, FileDown, FilePenLine, Signature, FileJson, ListRestart, Layers, ShieldCheck, Eraser, EyeOff, FileKey2, Settings2, Link, BookMarked, Paintbrush, Undo2, Redo2, Check, LayoutGrid, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
+import { House, Type, ImagePlus, Image as ImageIcon, Highlighter, Underline, Strikethrough, Pencil, Move, MoveUpRight, Minus, RectangleHorizontal, Circle, StickyNote, Stamp, MousePointer2, Hand, Files, Scissors, RotateCcw, RotateCw, Rotate3D, Trash2, FilePlus2, FileInput, FileOutput, ScanText, FileImage, FileDown, FilePenLine, Signature, FileJson, ListRestart, Layers, ShieldCheck, Eraser, EyeOff, FileKey2, Settings2, Link, BookMarked, Paintbrush, Undo2, Redo2, Check, LayoutGrid, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
 
 import { readInsertImage, type PendingImageData } from '../../utils/readInsertImage';
 export type { PendingImageData } from '../../utils/readInsertImage';
@@ -253,6 +253,7 @@ export function CombinedToolbar({
 
   // Annotation tool handlers
   const handleToolClick = (tool: AnnotationTool) => {
+    commitPendingEditors();
     closeMenus();
     if (imageJob.current?.kind === 'stamp') cancelImageRead();
     // Clear editing mode when selecting an annotation tool (mutual exclusivity)
@@ -331,11 +332,13 @@ export function CombinedToolbar({
 
   // Editing mode handlers
   const handleEditingModeChange = (mode: EditingMode) => {
+    commitPendingEditors();
     if (imageJob.current?.kind === 'stamp') cancelImageRead();
     setEditingMode(editingMode === mode ? 'none' : mode);
 
     // Clear annotation tool when entering editing mode
     if (mode !== 'none') {
+      useAnnotationStore.getState().selectAnnotation(null);
       setCurrentTool('select');
     }
   };
@@ -361,6 +364,7 @@ export function CombinedToolbar({
   };
   const command = (id: string, label: string, shortLabel: string, group: string, icon: WorkspaceCommand['icon'], run: WorkspaceCommand['run'], enabled = hasDocument, active?: boolean, danger = false): WorkspaceCommand => ({ id, label: translateMessage(label), shortLabel: translateMessage(shortLabel), group, icon, run, disabled: !enabled || isBusy, active, danger });
   const commands: WorkspaceCommand[] = [
+    command('edit-objects', t('objects.tool'), t('objects.tool'), 'Edit', Move, () => handleEditingModeChange('object'), hasDocument, editingMode === 'object'),
     command('edit-text', t("m.edit.text.f5f4f6"), t("m.edit.text.6597b9"), 'Edit', Type, () => handleEditingModeChange('text'), hasDocument, editingMode === 'text'),
     command('edit-images', t("m.edit.images.ce2267"), t("m.edit.images.b368ef"), 'Edit', ImageIcon, () => handleEditingModeChange('image'), hasDocument, editingMode === 'image'),
     command('insert-image', t("m.insert.images.f4a261"), t("m.insert.image.c8141e"), 'Edit', ImagePlus, handleInsertImageClick, hasDocument && !!onInsertImage),
@@ -429,18 +433,19 @@ export function CombinedToolbar({
       </div>
     </div>
     <div className="workspace-ribbon" id="workspace-ribbon" role="tabpanel" aria-labelledby={`workspace-${workspace}`}>
-      {workspace === 'home' && <>{group(t("m.text.images.25bcef"), ['edit-text', 'edit-images', 'insert-image'])}{group(t("m.review.sign.acf4a5"), ['highlight', 'freetext', 'signature'])}{group(t("m.document.tools.044791"), ['merge', 'split', 'ocr', 'compress'])}</>}
-      {workspace === 'edit' && <>{group(t("m.text.images.25bcef"), ['edit-text', 'edit-images', 'insert-image', 'freetext'])}{group(t("m.document.tools.044791"), ['links', 'bookmarks', 'appearance'])}</>}
+      {workspace === 'home' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image'])}{group(t("m.review.sign.acf4a5"), ['highlight', 'freetext', 'signature'])}{group(t("m.document.tools.044791"), ['merge', 'split', 'ocr', 'compress'])}</>}
+      {workspace === 'edit' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image', 'freetext'])}{group(t("m.document.tools.044791"), ['links', 'bookmarks', 'appearance'])}</>}
       {workspace === 'annotate' && <>{group(t("m.markup.3d221e"), ['highlight', 'underline', 'strikeout'])}{group(t("m.draw.bfa50c"), ['ink', 'line', 'arrow', 'rectangle', 'ellipse'])}{group(t("m.notes.stamps.a8aea3"), ['sticky-note', 'freetext'])}<div className="ribbon-group"><button type="button" className="workspace-tool" disabled={!hasDocument || isBusy} title={t("m.stamp.973fc7")} onClick={() => toggleMenu('stamp')} data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"><Stamp size={21} /><span>{t("m.stamp.973fc7")}</span></button></div></>}
       {workspace === 'organize' && <>{group(t("m.pages.600584"), ['merge', 'split', 'rotate-left', 'rotate-right', 'rotate-180', 'delete-pages'])}{group(t("m.insert.pages.5cca93"), ['blank-before', 'blank-after', 'blank-end', 'pdf-before', 'pdf-after'])}</>}
       {workspace === 'convert' && <>{group(t("m.create.export.ced19b"), ['create-pdf', 'export-pages'])}{group(t("m.recognize.optimize.c5cdd5"), ['ocr', 'compress'])}</>}
       {workspace === 'forms' && <>{group(t("m.form.tools.b442aa"), ['form-designer', 'signature'])}{group(t("m.form.data.97ee0f"), ['form-import', 'form-json', 'form-fdf', 'form-xfdf', 'form-reset', 'form-flatten'])}</>}
       {workspace === 'protect' && <>{group(t("m.document.protection.3f11e2"), ['encrypt', 'clean'])}{group(t("m.content.removal.5f172b"), ['mark-content', 'apply-marks', 'remove-content'])}</>}
       <div className="ribbon-context">
-        {hasDocument && (hasContentEdits || editingMode === 'text') && onApplyContent && <button className="toolbar-btn apply-content" disabled={!hasContentEdits} onClick={onApplyContent}>{t("m.apply.content.changes.ccfad2")}</button>}
-        <div id="pdf-text-edit-controls" className={`pdf-text-edit-controls ${editingMode === 'text' ? 'active' : ''}`}>
-          {editingMode === 'text' && <button type="button" className="toolbar-btn" onClick={() => { commitPendingEditors(); handleToolClick('select'); }}><Check size={15} />{t("m.done.e9b450")}</button>}
+        {hasDocument && (hasContentEdits || editingMode === 'text' || editingMode === 'object') && onApplyContent && <button className="toolbar-btn apply-content" disabled={!hasContentEdits} onClick={onApplyContent}>{t("m.apply.content.changes.ccfad2")}</button>}
+        <div id="pdf-text-edit-controls" className={`pdf-text-edit-controls ${editingMode === 'text' || editingMode === 'object' ? 'active' : ''}`}>
+          {(editingMode === 'text' || editingMode === 'object') && <button type="button" className="toolbar-btn" onClick={() => handleToolClick('select')}><Check size={15} />{t("m.done.e9b450")}</button>}
           {editingMode === 'text' && !selectedBlockId && <span>{t("m.click.text.in.the.pdf.to.edit.cd73d4")}</span>}
+          {editingMode === 'object' && <span title={t('objects.help')}>{t('objects.short.help')}</span>}
         </div>
       </div>
     </div>

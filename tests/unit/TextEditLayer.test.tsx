@@ -55,6 +55,33 @@ afterEach(async () => {
 });
 
 describe('text editing interaction', () => {
+  it('opens the requested object block for direct typing without a second click', async () => {
+    useEditingStore.getState().setTextBlocks(1, [block]);
+    useEditingStore.getState().requestTextEdit(block.id);
+    await render(page());
+    expect(container.querySelector('textarea')?.value).toBe('Original');
+    expect(document.activeElement).toBe(container.querySelector('textarea'));
+    expect(useEditingStore.getState().pendingTextEditId).toBeNull();
+    expect(useEditingStore.getState().textEdits).toEqual([]);
+  });
+
+  it('keeps a moved text object at its translated position when direct typing starts', async () => {
+    useEditingStore.getState().setTextBlocks(1, [block]);
+    const targetRect = { ...block.rect, x: 110, y: 120 };
+    useEditingStore.getState().updateBlockLayout({ blockId: block.id, originalText: block.text, newText: block.text, timestamp: 1,
+      layout: { targetRect, translate: true, keepBaseline: true } });
+    useEditingStore.getState().requestTextEdit(block.id);
+    await render(page());
+    expect(container.querySelector<HTMLElement>('.pdf-text-caret')?.style.left).toBe('110px');
+    expect(container.querySelector<HTMLElement>('.pdf-text-caret')?.style.top).toBe('120px');
+    const textarea = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Changed');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(useEditingStore.getState().textEdits[0].layout).toMatchObject({ targetRect, translate: true });
+  });
+
   it('does not clear an image selection when an inactive text layer is flushed for export', async () => {
     useEditingStore.getState().setMode('image');
     useEditingStore.getState().selectImage('image-1');

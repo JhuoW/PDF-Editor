@@ -39,6 +39,10 @@ export interface TextLayoutOptions {
   lineHeight?: number;
   /** Direct edits keep the original baseline when growing into adjacent space. */
   keepBaseline?: boolean;
+  /** Move the original baseline with the target region, retaining its row layout. */
+  translate?: boolean;
+  /** Direct typing can grow a moved region; dragging itself retains its size. */
+  autoGrow?: boolean;
   /** Physical source rows have been joined; remaining newlines are deliberate. */
   reflow?: boolean;
 }
@@ -148,7 +152,7 @@ export interface RedactionArea {
   applied: boolean;
 }
 
-export type EditingMode = 'none' | 'text' | 'image' | 'redact';
+export type EditingMode = 'none' | 'text' | 'image' | 'object' | 'redact';
 
 export interface ContentEditingState {
   mode: EditingMode;

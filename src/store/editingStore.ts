@@ -21,6 +21,7 @@ interface EditingStore {
   images: Map<number, PDFImage[]>;
   redactions: RedactionArea[];
   selectedBlockId: string | null;
+  pendingTextEditId: string | null;
   selectedImageId: string | null;
   selectedRedactionId: string | null;
   textEdits: TextEditOperation[];
@@ -29,6 +30,8 @@ interface EditingStore {
 
   // Actions
   setMode: (mode: EditingMode) => void;
+  requestTextEdit: (blockId: string) => void;
+  clearTextEditRequest: () => void;
   setTextBlocks: (pageNumber: number, blocks: TextBlock[]) => void;
   setImages: (pageNumber: number, images: PDFImage[]) => void;
   selectBlock: (blockId: string | null) => void;
@@ -69,6 +72,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   images: new Map(),
   redactions: [],
   selectedBlockId: null,
+  pendingTextEditId: null,
   selectedImageId: null,
   selectedRedactionId: null,
   textEdits: [],
@@ -79,10 +83,18 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     set({
       mode,
       selectedBlockId: null,
+      pendingTextEditId: null,
       selectedImageId: null,
       selectedRedactionId: null,
     });
   },
+
+  requestTextEdit: blockId => {
+    const block = get().getBlock(blockId);
+    if (!block?.editable) return;
+    set({ mode: 'text', selectedBlockId: blockId, pendingTextEditId: blockId, selectedImageId: null, selectedRedactionId: null });
+  },
+  clearTextEditRequest: () => set({ pendingTextEditId: null }),
 
   setTextBlocks: (pageNumber, blocks) => {
     set((state) => {
@@ -120,7 +132,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     const layout = inlineLayout ?? existing?.layout;
     const originalText = existing?.originalText ?? block.text;
     const textEdits = state.textEdits.filter(edit => edit.blockId !== blockId);
-    if (newText !== originalText || (existing?.layout && !existing.layout.keepBaseline)) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}) });
+    if (newText !== originalText || (layout && (layout.translate || !layout.keepBaseline))) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}) });
     const textBlocks = new Map(state.textBlocks);
     textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === blockId ? { ...item, text: newText } : item));
     set({ textBlocks, textEdits, isDirty: textEdits.length > 0 || state.imageEdits.length > 0 || state.redactions.some(area => !area.applied) });
@@ -204,6 +216,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   clearAll: () => {
     set({
       mode: 'none',
+      pendingTextEditId: null,
       textBlocks: new Map(),
       images: new Map(),
       redactions: [],

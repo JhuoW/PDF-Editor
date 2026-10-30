@@ -76,6 +76,32 @@ async function exported(page: Page, name: string) {
 }
 async function noErrors(page: Page) { await expect(page.getByRole('alert')).toHaveCount(0); }
 
+test('moves the real abstract as a text object while preserving its wording, neighboring artwork and other pages', async ({ page }) => {
+  await openPaper(page);
+  const block = page.locator('.text-block').filter({ hasText: 'Deep neural nets' });
+  const rect = await sourceRect(block), original = await block.textContent();
+  await page.locator('.workspace-ribbon [data-command="edit-objects"]').click();
+  const objects = page.locator('.object-edit-box[data-object-kind="text"]');
+  await expect(objects.first()).toBeVisible();
+  const id = await objects.evaluateAll((elements, source) => elements.find(element => {
+    const style = (element as HTMLElement).style;
+    return Math.abs(parseFloat(style.left) - source.x) < .1 && Math.abs(parseFloat(style.top) - source.y) < .1;
+  })?.getAttribute('data-object-id'), rect);
+  expect(id).toBeTruthy();
+  const object = page.locator(`[data-object-id="${id}"]`), box = (await object.boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + 10); await page.mouse.down();
+  await page.mouse.move(box.x, box.y + 18, { steps: 4 }); await page.mouse.up();
+  const output = await exported(page, 'abstract-object-moved.pdf');
+  await noErrors(page);
+  expect(normalized(documentText(output)[0])).toContain(normalized(original!));
+  expect(documentText(output)[0].match(/Deep neural nets/g)).toHaveLength(1);
+  unchangedOutside(output, 1, { x: rect.x - 10, y: rect.y, width: rect.width + 10, height: rect.height + 8 });
+  await page.locator('.workspace-history > button').nth(0).click();
+  const restored = await exported(page, 'abstract-object-undone.pdf');
+  expect(documentText(restored)).toEqual(originalText);
+  expect(Buffer.from(render(restored, 1).pixels)).toEqual(Buffer.from(render(source, 1).pixels));
+});
+
 test('edits a real abstract without merging its heading or changing other pages, and restores history after refresh', async ({ page }) => {
   await openPaper(page);
   const block = page.locator('.text-block').filter({ hasText: 'Deep neural nets' });

@@ -1,26 +1,61 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useDocumentStore } from '../../store/documentStore';
 import { useFormStore } from '../../store/formStore';
+import { useEditingStore } from '../../store/editingStore';
+import { useObjectTransformStore } from '../../store/objectTransformStore';
 import { InlineTextPreviewClient, type InlineTextPreviewResult } from '../../editing/InlineTextPreviewClient';
-import type { TextBlock, TextEditOperation } from '../../editing/types';
+import type { PDFImage, TextBlock, TextEditOperation } from '../../editing/types';
 import type { PreparedTextEditLayout } from '../../editing/TextEditApplier';
+
+const EMPTY_IMAGES: PDFImage[] = [];
 
 export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blocks: TextBlock[], edits: TextEditOperation[], activeId: string | null, scale: number, rotation: number) {
   const [preview, setPreview] = useState<(InlineTextPreviewResult & { page: PDFPageProxy; geometry: Map<string, PreparedTextEditLayout> }) | null>(null);
   const client = useRef<InlineTextPreviewClient | null>(null), sequence = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contexts = useRef(new Map<number, object>());
+  const images = useEditingStore(state => state.images.get(pageNumber) ?? EMPTY_IMAGES);
+  const allImageEdits = useEditingStore(state => state.imageEdits);
+  const draft = useObjectTransformStore(state => state.draft?.pageNumber === pageNumber ? state.draft : null);
+  const imageEdits = useMemo(() => {
+    const ids = new Set(images.map(image => image.id));
+    return allImageEdits.filter(edit => ids.has(edit.imageId));
+  }, [images, allImageEdits]);
+  const previewEdits = useMemo(() => draft?.textEdit
+    ? [...edits.filter(edit => edit.blockId !== draft.textEdit!.blockId), draft.textEdit]
+    : edits, [edits, draft?.textEdit]);
+  const previewImageEdits = useMemo(() => draft?.imageEdit ? [...imageEdits, draft.imageEdit] : imageEdits, [imageEdits, draft?.imageEdit]);
   const htmlForms = useFormStore(state => state.fields.some(field => field.pageNumber === pageNumber && !field.hidden && !field.readOnly
     && ['text', 'checkbox', 'radio', 'dropdown', 'listbox'].includes(field.type)));
-  const latest = useRef({ blocks, edits, activeId, scale, rotation, htmlForms });
-  useEffect(() => { latest.current = { blocks, edits, activeId, scale, rotation, htmlForms }; });
-  const needed = !!activeId || edits.length > 0;
+  // In-flight frames are useful while a pointer continues moving. A mode,
+  // committed edit, selection or gesture change invalidates their old context.
+  const context = useMemo(() => ({ page, blocks, edits, images, imageEdits, imageId: draft?.imageEdit?.imageId,
+    blockId: draft?.textEdit?.blockId, activeId, scale, rotation, htmlForms }),
+  [page, blocks, edits, images, imageEdits, draft?.imageEdit?.imageId, draft?.textEdit?.blockId, activeId, scale, rotation, htmlForms]);
+  const latest = useRef({ pageNumber, blocks, edits: previewEdits, images, imageEdits: previewImageEdits, activeId, scale, rotation, htmlForms, context });
+  useEffect(() => { latest.current = { pageNumber, blocks, edits: previewEdits, images, imageEdits: previewImageEdits, activeId, scale, rotation, htmlForms, context }; });
+  const needed = !!activeId || previewEdits.length > 0 || previewImageEdits.length > 0;
+  const requestPreview = useCallback((data?: ArrayBuffer) => {
+    const worker = client.current;
+    if (!worker) return;
+    const current = latest.current, id = ++sequence.current;
+    contexts.current.set(id, current.context);
+    worker.request({ id, ...(data ? { data } : {}), pageNumber: current.pageNumber, blocks: current.blocks, edits: current.edits,
+      images: current.images, imageEdits: current.imageEdits, activeId: current.activeId,
+      scale: Math.min(3, current.scale * (window.devicePixelRatio || 1)), rotation: current.rotation, htmlForms: current.htmlForms });
+  }, []);
   useEffect(() => {
     if (!needed) return;
     const document = useDocumentStore.getState().document;
     if (!document) return;
     let canceled = false;
+    const ownedContexts = contexts.current;
     const worker = new InlineTextPreviewClient(result => {
-      if (!canceled) setPreview(previous => {
+      const resultContext = ownedContexts.get(result.id);
+      for (const id of ownedContexts.keys()) if (id <= result.id) ownedContexts.delete(id);
+      if (canceled || (result.id !== -1 && resultContext !== latest.current.context)) return;
+      setPreview(previous => {
         const geometry = new Map(previous?.page === page ? previous.geometry : []);
         if (result.activeId && result.prepared) geometry.set(result.activeId, result.prepared);
         return { ...result, page, geometry };
@@ -30,14 +65,19 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
     void document.getData().then(data => {
       if (canceled) return;
       client.current = worker;
-      worker.request({ id: ++sequence.current, data: new Uint8Array(data).buffer, pageNumber, ...latest.current, scale: Math.min(3, latest.current.scale * (window.devicePixelRatio || 1)) });
+      requestPreview(new Uint8Array(data).buffer);
     }).catch(cause => { if (!canceled) setPreview({ id: -1, page, geometry: new Map(), error: cause instanceof Error ? cause.message : 'Could not read the PDF.' }); });
-    return () => { canceled = true; worker.destroy(); if (client.current === worker) client.current = null; };
+    return () => { canceled = true; worker.destroy(); ownedContexts.clear(); if (client.current === worker) client.current = null; };
+  }, [page, pageNumber, needed, requestPreview]);
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
   }, [page, pageNumber, needed]);
   useEffect(() => {
-    const timer = setTimeout(() => client.current?.request({ id: ++sequence.current, pageNumber, blocks, edits, activeId, scale: Math.min(3, scale * (window.devicePixelRatio || 1)), rotation, htmlForms }), 35);
-    return () => clearTimeout(timer);
-  }, [pageNumber, blocks, edits, activeId, scale, rotation, htmlForms]);
+    if (!needed || timer.current !== null) return;
+    // Throttle instead of debounce: a continuous drag still gets PDF frames.
+    timer.current = setTimeout(() => { timer.current = null; requestPreview(); }, 35);
+  }, [pageNumber, blocks, previewEdits, images, previewImageEdits, activeId, scale, rotation, htmlForms, needed, requestPreview]);
   if (!needed || preview?.page !== page) return null;
   const cached = activeId ? preview.geometry.get(activeId) : undefined;
   return cached?.input.text === blocks.find(block => block.id === activeId)?.text

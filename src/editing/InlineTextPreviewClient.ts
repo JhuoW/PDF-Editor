@@ -1,10 +1,12 @@
 import type { PreparedTextEditLayout } from './TextEditApplier';
-import type { TextBlock, TextEditOperation, TextRect } from './types';
+import type { ImageEditOperation, PDFImage, TextBlock, TextEditOperation, TextRect } from './types';
 
 export interface InlineTextPreviewRequest {
   id: number; data?: ArrayBuffer; pageNumber: number; blocks: TextBlock[]; edits: TextEditOperation[];
   activeId: string | null; scale: number; rotation: number;
   htmlForms?: boolean;
+  images?: PDFImage[];
+  imageEdits?: ImageEditOperation[];
 }
 export interface InlineTextPreviewResult {
   id: number; activeId?: string | null; png?: Uint8Array<ArrayBuffer>; bytes?: Uint8Array<ArrayBuffer>; prepared?: PreparedTextEditLayout; availableRect?: TextRect; error?: string;

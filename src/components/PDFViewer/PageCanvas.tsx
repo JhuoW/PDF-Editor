@@ -11,6 +11,7 @@ import { DestinationHighlight } from './DestinationHighlight';
 import { FormLayer } from './FormLayer';
 import { TextEditLayer } from './TextEditLayer';
 import { ImageEditLayer } from './ImageEditLayer';
+import { ObjectEditLayer } from './ObjectEditLayer';
 import { RedactionLayer } from './RedactionLayer';
 import type { LinkDestination } from './PDFViewer';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
@@ -186,6 +187,9 @@ export const PageCanvas = memo(function PageCanvas({
           scale={scale}
           rotation={rotation}
         />
+      )}
+      {dimensions.width > 0 && (
+        <ObjectEditLayer page={page} pageNumber={pageNumber} scale={scale} rotation={rotation} onTextLayout={onTextLayout} />
       )}
       {dimensions.width > 0 && (
         <RedactionLayer

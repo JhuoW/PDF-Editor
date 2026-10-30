@@ -83,6 +83,7 @@ export function restoreWorkspace(snapshot: WorkspaceSnapshot): void {
   useEditingStore.setState({
     ...copy.editing,
     mode: 'none',
+    pendingTextEditId: null,
     selectedBlockId: null,
     selectedImageId: null,
     selectedRedactionId: null,

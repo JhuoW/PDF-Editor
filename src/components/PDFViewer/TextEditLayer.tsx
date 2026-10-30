@@ -8,7 +8,7 @@ import { useHistoryStore } from '../../store/historyStore';
 import { cancelWorkspaceGroup, registerPendingEditor } from '../../store/workspaceHistory';
 import { detectTextBlocks } from '../../editing/TextBlockDetector';
 import { originalParagraphText } from '../../editing/ParagraphText';
-import type { TextBlock, TextRect } from '../../editing/types';
+import type { TextBlock, TextLayoutOptions, TextRect } from '../../editing/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { mapViewportPoint, mapViewportRect } from '../../utils/viewportMapping';
 import { inlineCaret, inlineOffsetAt, inlineSelection, inlineTextRows, sourceInlineGeometry } from '../../editing/InlineTextGeometry';
@@ -21,9 +21,21 @@ interface TextEditLayerProps {
   onTextLayout?: (blockId: string) => void;
 }
 const EMPTY: TextBlock[] = [];
+function sourceGeometry(block: TextBlock, text: string, layout?: TextLayoutOptions) {
+  const geometry = sourceInlineGeometry({ ...block, text });
+  if (layout?.translate && layout.targetRect) {
+    const dx = layout.targetRect.x - block.rect.x, dy = layout.targetRect.y - block.rect.y;
+    geometry.input.rect = layout.targetRect;
+    for (const line of geometry.layout.lines) {
+      line.x += dx; line.baseline += dy;
+      for (const glyph of line.glyphs) { glyph.x += dx; glyph.baseline += dy; }
+    }
+  }
+  return geometry;
+}
 export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout }: TextEditLayerProps) {
   useLocale();
-  const { mode, setMode, setTextBlocks, textBlocks, selectedBlockId, selectBlock, updateBlockText, textEdits } = useEditingStore();
+  const { mode, setMode, setTextBlocks, textBlocks, selectedBlockId, selectBlock, updateBlockText, textEdits, pendingTextEditId, clearTextEditRequest } = useEditingStore();
   const [analysisError, setAnalysisError] = useState<{ page: PDFPageProxy; message: string } | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null), [editText, setEditText] = useState('');
   const [selection, setSelection] = useState({ start: 0, end: 0 });
@@ -38,7 +50,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const activeId = mode === 'text' ? editingBlockId : null;
   const preview = useInlineTextPreview(page, pageNumber, pageBlocks, pageEdits, activeId, scale, rotation);
   const activeBlock = pageBlocks.find(block => block.id === activeId);
-  const fallback = useMemo(() => activeBlock ? sourceInlineGeometry({ ...activeBlock, text: editText }) : undefined, [activeBlock, editText]);
+  const fallback = useMemo(() => activeBlock ? sourceGeometry(activeBlock, editText, layouts.get(activeBlock.id)) : undefined, [activeBlock, editText, layouts]);
   const measured = preview?.activeId === activeId ? preview.prepared : undefined;
   const prepared = useMemo(() => measured && measured.input.text !== editText && originalParagraphText(measured.input.text) === editText
     ? { ...measured, input: { ...measured.input, text: editText } } : measured ?? fallback, [measured, editText, fallback]);
@@ -90,8 +102,8 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   }, [prepared, editText, preview, activeId]);
   useEffect(() => {
     const previous = activeId ? layouts.get(activeId) : undefined;
-    if (activeId && group.current && pageEdits.some(edit => edit.blockId === activeId) && preview?.activeId === activeId && preview.availableRect && (!previous || previous.keepBaseline)) {
-      updateBlockText(activeId, editText, group.current, { ...previous, targetRect: preview.availableRect, keepBaseline: true, reflow: true });
+    if (activeId && group.current && (!previous?.translate || previous.autoGrow) && pageEdits.some(edit => edit.blockId === activeId) && preview?.activeId === activeId && preview.availableRect && (!previous || previous.keepBaseline)) {
+      updateBlockText(activeId, editText, group.current, { ...previous, targetRect: preview.availableRect, keepBaseline: true, reflow: true, ...(previous?.translate ? { autoGrow: false } : {}) });
     }
   }, [activeId, pageEdits, layouts, preview, editText, updateBlockText]);
 
@@ -113,7 +125,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       setSelection({ start: 0, end: 0 });
       pendingPoint.current = { ...point, detail: event.detail };
       const cached = preview?.geometry.get(block.id);
-      pointer.current = { id: event.pointerId, anchor: inlineOffsetAt(cached?.input.text === text ? cached : sourceInlineGeometry({ ...block, text }), point.x, point.y) };
+      pointer.current = { id: event.pointerId, anchor: inlineOffsetAt(cached?.input.text === text ? cached : sourceGeometry(block, text, previous), point.x, point.y) };
       layer.current?.setPointerCapture?.(event.pointerId);
     } else if (prepared) {
       const offset = inlineOffsetAt(prepared, point.x, point.y);
@@ -129,12 +141,25 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       layer.current?.setPointerCapture?.(event.pointerId);
     }
   };
+  useEffect(() => {
+    if (mode !== 'text' || !pendingTextEditId) return;
+    const block = pageBlocks.find(block => block.id === pendingTextEditId && block.editable);
+    if (!block) return;
+    finish(); useHistoryStore.getState().endGroup();
+    focusedBlock.current = block.id; group.current = `text:${block.id}:${crypto.randomUUID()}`;
+    const previous = layouts.get(block.id);
+    const text = previous?.reflow || (previous && !previous.keepBaseline) ? block.text : originalParagraphText(block.text);
+    selectBlock(block.id); setEditText(text); setEditingBlockId(block.id);
+    setSelection({ start: 0, end: 0 });
+    clearTextEditRequest();
+  }, [mode, pendingTextEditId, pageBlocks, layouts, finish, selectBlock, clearTextEditRequest]);
   const change = (value: string) => {
     pendingPoint.current = null;
     preferredColumn.current = null;
     setEditText(value);
     const previous = activeId ? layouts.get(activeId) : undefined;
-    const automatic = !previous || previous.keepBaseline ? { ...previous, ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), keepBaseline: true, reflow: true } : undefined;
+    const automatic = previous?.translate ? { ...previous, ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), reflow: true, autoGrow: true }
+      : !previous || previous.keepBaseline ? { ...previous, ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), keepBaseline: true, reflow: true } : undefined;
     if (activeId && group.current) updateBlockText(activeId, value, group.current, automatic);
     if (input.current) setSelection({ start: input.current.selectionStart, end: input.current.selectionEnd });
   };
@@ -180,7 +205,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     {onTextLayout && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); onTextLayout(selectedBlock.id); }}>{t("m.text.layout.661a8e")}</button>}
     <span id="pdf-text-edit-help">{t("m.enter.new.line.ctrl.enter.done.bbf4cd")}</span>
   </div>;
-  if (mode !== 'text' && !pageEdits.length) return null;
+  if (mode !== 'text' && !preview) return null;
   return <div ref={layer} data-preview-text={preview?.prepared?.input.text} className={`text-edit-layer ${mode === 'text' ? 'active' : 'preview-only'}`} onPointerDown={event => {
     if (event.target === event.currentTarget) { event.preventDefault(); finish(); }
   }} onDoubleClick={event => {
@@ -201,7 +226,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     if (layer.current?.hasPointerCapture?.(event.pointerId)) layer.current.releasePointerCapture(event.pointerId);
     pointer.current = null;
   }} onPointerCancel={() => { pointer.current = null; }}>
-    {preview?.png && preview.bytes && <InlinePDFPreview png={preview.png} bytes={preview.bytes} pageNumber={pageNumber} scale={scale} rotation={rotation} editing={mode === 'text'} />}
+    {preview?.png && preview.bytes && <InlinePDFPreview png={preview.png} bytes={preview.bytes} pageNumber={pageNumber} scale={scale} rotation={rotation} editing={mode === 'text' || mode === 'object'} />}
     {mode === 'text' && <>
       {!hasBlocks && analysisError?.page !== page && <div className="text-edit-loading" role="status">{t("m.analyzing.text.297d65")}</div>}
       {analysisError?.page === page && <div className="text-edit-loading" role="alert">{translateError(analysisError.message)}</div>}
@@ -214,8 +239,8 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
         <textarea ref={input} className="pdf-text-input" aria-label={t("m.edit.text.on.page.1a4d7e", { v0: pageNumber })} aria-describedby="pdf-text-edit-help" value={editText} spellCheck={false} autoCapitalize="off" autoComplete="off" style={{ left: caret?.left ?? 0, top: caret?.top ?? 0 }} onChange={event => change(event.target.value)} onSelect={event => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} onKeyDown={keyDown} onBlur={event => finish(!!actions.current?.contains(event.relatedTarget))} />
       </>}
       {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
-      {(preview?.error || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">{translateError(preview?.error) || t("m.text.exceeds.the.available.space.open.text.layou.c2d953")}</div>}
       {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status">{translateError(readOnlyReason)} <button type="button" onClick={() => setMode('none')}>{t("m.exit.text.editing.6c1160")}</button></div>}
     </>}
+    {(preview?.error || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">{translateError(preview?.error) || t("m.text.exceeds.the.available.space.open.text.layou.c2d953")}</div>}
   </div>;
 }

@@ -87,14 +87,19 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   if (block.lines.some(line => line.items.some(item => Math.abs(item.transform[1]) > 0.001 || Math.abs(item.transform[2]) > 0.001))) throw new Error(`Rotated or vertical text inside page ${block.pageNumber} cannot be replaced yet. Page rotation itself is supported.`);
   const source = sourceStyle(engine, page, block, session), overrides = edit.layout ?? {}, geometry = pageGeometry(engine, page);
   const originalBaseline = overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined);
-  const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height);
+  const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,
+    overrides.translate ? overrides.targetRect : undefined);
   const rect = { ...(overrides.targetRect ?? (overrides.keepBaseline ? availableRect : block.rect)) };
+  if (overrides.translate && overrides.keepBaseline && overrides.autoGrow) {
+    rect.width = availableRect.width; rect.height = availableRect.height;
+  }
   if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 || rect.x + rect.width > geometry.width + 0.01 || rect.y + rect.height > geometry.height + 0.01) throw new Error('The text layout region must be completely inside the visible page.');
   const input: TextLayoutInput = { text: edit.newText, rect, fontName: overrides.fontName ?? source.name, fontSize: overrides.fontSize ?? block.style.fontSize,
     fontColor: overrides.fontColor ?? '#' + source.color.map(value => Math.round(Math.max(0, Math.min(1, value)) * 255).toString(16).padStart(2, '0')).join(''),
     alignment: overrides.alignment ?? block.style.alignment, lineHeight: overrides.lineHeight ?? Math.min(5, Math.max(originalBaseline ? .25 : 1, Number.isFinite(block.style.lineHeight) ? block.style.lineHeight : 1.2)), reflow: overrides.reflow };
   if (!overrides.fontName) input.sourceFontKey = source.sourceFontKey;
-  if (originalBaseline) input.legacyBaseline = block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8;
+  if (originalBaseline) input.legacyBaseline = (block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8)
+    + (overrides.translate ? rect.y - block.rect.y : 0);
   if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === block.style.fontSize) input.sourceRows = block.lines.map(line => ({ text: line.text, width: line.width }));
   const layout = session.layout(input, control);
   return { block, input, layout, page: { width: geometry.width, height: geometry.height }, availableRect };

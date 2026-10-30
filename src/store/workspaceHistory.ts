@@ -18,7 +18,7 @@ export function applyWorkspacePatch(patch: WorkspacePatch) {
       ...copy.editing,
       textBlocks: new Map([...current.textBlocks, ...copy.editing.textBlocks]),
       images: new Map([...current.images, ...copy.editing.images]),
-      selectedBlockId: null, selectedImageId: null, selectedRedactionId: null,
+      selectedBlockId: null, selectedImageId: null, selectedRedactionId: null, pendingTextEditId: null,
     });
   }
 }

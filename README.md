@@ -12,7 +12,7 @@
 ## Features
 
 - **📄 Viewing & Navigation**: Browse PDFs with thumbnails, bookmarks, search, and flexible page views.
-- **✏️ Text & Image Editing**: Edit existing text and images, or insert new content.
+- **✏️ Text & Image Editing**: Edit existing text, move text and images, resize images, or insert new content.
 - **🖊️ Annotations & Signatures**: Highlight, draw, add notes, and place handwritten or image signatures.
 - **🔗 Page Organization**: Merge, split, insert, delete, rotate, and reorder pages.
 - **📝 Forms**: Create and fill PDF forms, import/export data, and flatten fields.
@@ -36,7 +36,7 @@ Open `http://localhost:5173` in your browser.
 
 1. **Open**: Click **Open** or drag a PDF into the viewer.
 2. **Navigate**: Use thumbnails, page controls, and zoom to browse the document.
-3. **Edit & Annotate**: Select **Edit → Edit Text**, then click the original text and type. Use the toolbar for images and annotations.
+3. **Edit & Annotate**: Use **Edit objects** to move text and resize images, or **Edit text** to change the original wording. Add annotations from the toolbar.
 4. **Organize**: Use the page tools to merge, split, rotate, or reorder pages.
 5. **Export**: Click **Export** to download your edited PDF.
 

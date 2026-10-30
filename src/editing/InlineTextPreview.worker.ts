@@ -1,4 +1,5 @@
 import { prepareTextEditLayout, previewInlineTextEdits } from './TextEditApplier';
+import { applyImageEdits } from './ImageEditApplier';
 import { loadMuPDF } from '../utils/mupdf';
 import type { InlineTextPreviewRequest } from './InlineTextPreviewClient';
 import type { Device, Matrix, PDFPage, PDFWidget, Rect } from 'mupdf';
@@ -38,8 +39,13 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
     if (!source) throw new Error('No PDF is available for text editing.');
     const blocks = new Map([[request.pageNumber, request.blocks]]);
     const active = request.blocks.find(block => block.id === request.activeId);
-    const prepared = active ? await prepareTextEditLayout(source, active, request.edits.find(edit => edit.blockId === active.id)) : undefined;
-    const bytes = await previewInlineTextEdits(source.slice(0), blocks, request.edits);
+    // Match the export pipeline: image occurrences refer to the original page
+    // stream and must be rewritten before text removal rebuilds that stream.
+    const imageBytes = request.imageEdits?.length
+      ? await applyImageEdits(source.slice(0), new Map([[request.pageNumber, request.images ?? []]]), request.imageEdits) : null;
+    const data = imageBytes ? new Uint8Array(imageBytes).buffer : source.slice(0);
+    const prepared = active ? await prepareTextEditLayout(data, active, request.edits.find(edit => edit.blockId === active.id)) : undefined;
+    const bytes = await previewInlineTextEdits(data, blocks, request.edits);
     const engine = await loadMuPDF();
     const availableRect = prepared?.availableRect;
     const document = new engine.PDFDocument(bytes);

@@ -145,16 +145,17 @@ describe('toolbar disclosure menus', () => {
   it('opens with the keyboard, skips disabled buttons, navigates and restores focus on Escape', async () => {
     await render(); const outsideKey = vi.fn(); window.addEventListener('keydown', outsideKey);
     try {
-      trigger().focus(); await key(trigger(), 'ArrowDown'); expect(trigger().getAttribute('aria-expanded')).toBe('true'); expect(document.activeElement?.textContent).toBe('Edit Text');
+      trigger().focus(); await key(trigger(), 'ArrowDown'); expect(trigger().getAttribute('aria-expanded')).toBe('true'); expect(document.activeElement?.textContent).toBe('Edit objects');
+      await key(document.activeElement!, 'ArrowDown'); expect(document.activeElement?.textContent).toBe('Edit Text');
       await key(document.activeElement!, 'ArrowDown'); expect(document.activeElement?.textContent).toBe('Edit Images');
       await key(document.activeElement!, 'End'); expect(document.activeElement?.textContent?.trim()).toBe('Close Document');
       await key(document.activeElement!, 'ArrowUp'); expect(document.activeElement?.textContent).toBe('Mark Content Areas');
-      await key(document.activeElement!, 'Home'); expect(document.activeElement?.textContent).toBe('Edit Text');
+      await key(document.activeElement!, 'Home'); expect(document.activeElement?.textContent).toBe('Edit objects');
       await key(document.activeElement!, 'Escape'); expect(menu()).toBeNull(); expect(document.activeElement).toBe(trigger()); expect(outsideKey).not.toHaveBeenCalled();
     } finally { window.removeEventListener('keydown', outsideKey); }
   });
   it('moves focus after native Enter activation and closes on focus leaving its disclosure', async () => {
-    await render(); trigger().focus(); await key(trigger(), 'Enter'); await act(async () => trigger().click()); expect(document.activeElement?.textContent).toBe('Edit Text');
+    await render(); trigger().focus(); await key(trigger(), 'Enter'); await act(async () => trigger().click()); expect(document.activeElement?.textContent).toBe('Edit objects');
     await act(async () => host.querySelector<HTMLButtonElement>('[title="Rectangle"]')!.focus()); expect(menu()).toBeNull();
   });
   it('keeps only one dropdown open and clamps its position to the viewport', async () => {
