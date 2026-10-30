@@ -121,7 +121,7 @@ function App() {
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [ocrOpen, setOCROpen] = useState(false);
   const [createPDFOpen, setCreatePDFOpen] = useState(false);
-  const [exportPagesOpen, setExportPagesOpen] = useState(false);
+  const [exportPagesOpen, setExportPagesOpen] = useState<'all' | 'images' | null>(null);
   const [formDesignerOpen, setFormDesignerOpen] = useState(false);
   const [pageDecorationsOpen, setPageDecorationsOpen] = useState(false);
   const [cleanDocumentOpen, setCleanDocumentOpen] = useState(false);
@@ -232,7 +232,7 @@ function App() {
       setPropertiesOpen(false);
       setOCROpen(false);
       setCreatePDFOpen(false);
-      setExportPagesOpen(false);
+      setExportPagesOpen(null);
       setFormDesignerOpen(false);
       setPageDecorationsOpen(false);
       setCompressPDFOpen(false);
@@ -918,7 +918,7 @@ function App() {
       setPropertiesOpen(false);
       setOCROpen(false);
       setCreatePDFOpen(false);
-      setExportPagesOpen(false);
+      setExportPagesOpen(null);
       setFormDesignerOpen(false);
       setPageDecorationsOpen(false);
       setCleanDocumentOpen(false);
@@ -1271,7 +1271,7 @@ function App() {
           onOpenFile={handleOpenFile}
           onExport={handleExport}
           onCreatePDF={() => setCreatePDFOpen(true)}
-          onExportPages={() => setExportPagesOpen(true)}
+          onExportPages={() => setExportPagesOpen('all')}
           onPreviousPage={previousPage}
           onNextPage={nextPage}
           onGoToPage={goToPage}
@@ -1326,7 +1326,8 @@ function App() {
           onManageLinks={() => setLinksOpen(true)}
           onManageBookmarks={() => setBookmarksOpen(true)}
           onCreatePDF={() => setCreatePDFOpen(true)}
-          onExportPages={() => setExportPagesOpen(true)}
+          onExportPages={() => setExportPagesOpen('all')}
+          onPDFToImages={() => setExportPagesOpen('images')}
           onSignature={() => { if (document) setSignatureSession({ document, version: documentVersion }); }}
           onCleanDocument={() => setCleanDocumentOpen(true)}
           isBusy={isLoading}
@@ -1576,7 +1577,8 @@ function App() {
         {document && ocrOpen && <Suspense fallback={<div role="status">{t("m.loading.ocr.000da0")}</div>}><OCRDialog documentKey={getOriginalDocument()} totalPages={navigation.totalPages}
           currentPage={navigation.currentPage} onRun={handleOCR} onClose={() => setOCROpen(false)} /></Suspense>}
         {createPDFOpen && <Suspense fallback={<div role="status">{t("m.loading.pdf.creation.ca53ea")}</div>}><CreatePDFDialog onCreate={handleOpenFile} onClose={() => setCreatePDFOpen(false)} /></Suspense>}
-        {document && exportPagesOpen && <Suspense fallback={<div role="status">{t("m.loading.page.export.5b4fcb")}</div>}><ExportPagesDialog readPDF={prepareExport} onClose={() => setExportPagesOpen(false)} /></Suspense>}
+        {document && exportPagesOpen && <Suspense fallback={<div role="status">{t("m.loading.page.export.5b4fcb")}</div>}><ExportPagesDialog readPDF={prepareExport} imagesOnly={exportPagesOpen === 'images'}
+          totalPages={navigation.totalPages} currentPage={navigation.currentPage} selectedPages={selectedPages} onClose={() => setExportPagesOpen(null)} /></Suspense>}
         {document && formDesignerOpen && <Suspense fallback={<div role="status">{t("m.loading.form.designer.de3723")}</div>}><FormDesignerDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
           readPDF={readFormDesignPDF} onSave={saveFormDesign} onClose={() => setFormDesignerOpen(false)} /></Suspense>}
         {document && pageDecorationsOpen && <Suspense fallback={<div role="status">{t("m.loading.page.decorations.53b350")}</div>}><PageDecorationsDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}

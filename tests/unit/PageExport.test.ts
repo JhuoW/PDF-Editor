@@ -26,6 +26,7 @@ describe('page export', () => {
   it('parses ordered page ranges, deduplicates, and rejects malformed or out-of-range pages', () => {
     expect(parseExportPageRange('3, 1-2, 3', 3)).toEqual([3, 1, 2]);
     expect(parseExportPageRange('', 3)).toEqual([1, 2, 3]);
+    expect(parseExportPageRange('３，１—２、３；２', 3)).toEqual([3, 1, 2]);
     for (const range of ['0', '4', '3-1', '1,,2', '1.5', '1-', '-2']) expect(() => parseExportPageRange(range, 3)).toThrow();
   });
   it('exports one selected cropped/rotated/UserUnit page as a correctly sized PNG at 300 dpi', async () => {

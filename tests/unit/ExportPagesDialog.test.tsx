@@ -4,22 +4,66 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExportPagesDialog } from '../../src/components/Dialogs/ExportPagesDialog';
 import { downloadPageExport, exportPagesInWorker } from '../../src/core/PageExportClient';
+import { useLocaleStore } from '../../src/i18n';
 
 vi.mock('../../src/core/PageExportClient', () => ({ downloadPageExport: vi.fn(), exportPagesInWorker: vi.fn() }));
 const source = { data: new Uint8Array([1, 2]), fileName: 'source.pdf' };
 const result = { data: new Uint8Array([9]), fileName: 'source-page-1.png', mimeType: 'image/png', pages: [1] };
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
+  useLocaleStore.getState().setLocale('en');
   vi.clearAllMocks(); vi.mocked(exportPagesInWorker).mockResolvedValue(result);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => { root.unmount(); }); host.remove(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => { root.unmount(); }); host.remove(); useLocaleStore.getState().setLocale('en'); vi.unstubAllGlobals(); });
 async function submit() { await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }); }
+async function choose(scope: string) { await act(async () => { host.querySelector<HTMLInputElement>(`input[value="${scope}"]`)!.click(); }); }
+async function enterRange(value: string) {
+  await act(async () => {
+    const input = host.querySelector<HTMLInputElement>('input[aria-describedby]')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 
 describe('ExportPagesDialog', () => {
+  it.each([
+    ['all', '', '8 of 8'], ['current', '4', '1 of 8'], ['selection', '2,7', '2 of 8'],
+  ])('converts %s pages from document navigation without exposing text formats', async (scope, range, count) => {
+    await act(async () => { root.render(<ExportPagesDialog imagesOnly totalPages={8} currentPage={4} selectedPages={[7, 2, 7, 99]} readPDF={async () => source} onClose={vi.fn()} />); });
+    expect(host.querySelector('h2')!.textContent).toBe('PDF to images');
+    expect([...host.querySelectorAll('select[aria-label="Export format"] option')].map(option => (option as HTMLOptionElement).value)).toEqual(['png', 'jpeg']);
+    await choose(scope);
+    expect(host.querySelector('[role="status"]')!.textContent).toContain(count);
+    await submit();
+    expect(exportPagesInWorker).toHaveBeenCalledWith(source.data, expect.objectContaining({ range }), expect.anything());
+    expect(downloadPageExport).toHaveBeenCalledWith(result);
+  });
+
+  it('rejects empty and out-of-bounds custom ranges before preparing edits, then permits a corrected Chinese range', async () => {
+    const readPDF = vi.fn().mockResolvedValue(source);
+    await act(async () => { root.render(<ExportPagesDialog imagesOnly totalPages={8} readPDF={readPDF} onClose={vi.fn()} />); });
+    expect(host.querySelector<HTMLInputElement>('input[value="selection"]')!.disabled).toBe(true);
+    await choose('custom'); await submit();
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('Enter at least one page');
+    await enterRange('9'); await submit();
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('between 1 and 8');
+    expect(readPDF).not.toHaveBeenCalled(); expect(exportPagesInWorker).not.toHaveBeenCalled();
+    await act(async () => { useLocaleStore.getState().setLocale('zh-CN'); });
+    expect(host.querySelector('h2')!.textContent).toBe('PDF 转图片');
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('1和8');
+    expect(host.querySelector<HTMLInputElement>('input[aria-describedby]')!.value).toBe('9');
+    await enterRange('３，１–２，３');
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('[role="status"]')!.textContent).toContain('已选择 3 页，共 8 页');
+    await submit();
+    expect(readPDF).toHaveBeenCalledOnce();
+    expect(exportPagesInWorker).toHaveBeenCalledWith(source.data, expect.objectContaining({ range: '３，１–２，３' }), expect.anything());
+  });
+
   it('opens a native modal and allows retry after preparation fails without downloading incomplete data', async () => {
     const readPDF = vi.fn().mockRejectedValueOnce(new Error('Document changed')).mockResolvedValue(source), onClose = vi.fn();
     await act(async () => { root.render(<ExportPagesDialog readPDF={readPDF} onClose={onClose} />); });

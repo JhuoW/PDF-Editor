@@ -66,6 +66,7 @@ interface CombinedToolbarProps {
   onInsertImage?: (images: PendingImageData[]) => void;
   onCreatePDF?: () => void;
   onExportPages?: () => void;
+  onPDFToImages?: () => void;
 }
 
 export function CombinedToolbar({
@@ -111,6 +112,7 @@ export function CombinedToolbar({
   onInsertImage,
   onCreatePDF,
   onExportPages,
+  onPDFToImages,
 }: CombinedToolbarProps) {
   useLocale();
   const [showDocumentMenu, setShowDocumentMenu] = useState(false);
@@ -384,7 +386,8 @@ export function CombinedToolbar({
     command('pdf-before', t("m.insert.pdf.before.33c3be"), t("m.insert.pdf.before.33c3be"), 'Organize', FileInput, handleInsertFromFileBefore),
     command('pdf-after', t("m.insert.pdf.after.282440"), t("m.insert.pdf.after.282440"), 'Organize', FileInput, handleInsertFromFileAfter),
     command('create-pdf', t("m.create.pdf.from.images.74adad"), t("m.images.to.pdf.9710a6"), 'Convert', FileImage, () => onCreatePDF?.(), !!onCreatePDF),
-    command('export-pages', t("m.export.pages.8f8203"), t("m.pdf.to.images.c96714"), 'Convert', FileOutput, () => onExportPages?.(), hasDocument && !!onExportPages),
+    command('pdf-to-images', t('pdf.images.title'), t('pdf.images.title'), 'Convert', FileImage, () => onPDFToImages?.(), hasDocument && !!onPDFToImages),
+    command('export-pages', t("m.export.pages.8f8203"), t("m.export.pages.93a12e"), 'Convert', FileOutput, () => onExportPages?.(), hasDocument && !!onExportPages),
     command('ocr', t("m.scan.ocr.5304f2"), t("m.recognize.text.7f8640"), 'Convert', ScanText, () => onOCR?.(), hasDocument && !!onOCR),
     command('compress', t("m.compress.pdf.2ae903"), t("m.compress.pdf.c81566"), 'Convert', FileDown, () => onCompressPDF?.(), hasDocument && !!onCompressPDF),
     command('form-designer', t("m.design.form.b154f0"), t("m.form.designer.e0fd9d"), 'Forms & Sign', FilePenLine, () => onDesignForm?.(), hasDocument && !!onDesignForm),
@@ -438,7 +441,7 @@ export function CombinedToolbar({
       {workspace === 'edit' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image', 'freetext'])}{group(t("m.document.tools.044791"), ['links', 'bookmarks', 'appearance'])}</>}
       {workspace === 'annotate' && <>{group(t("m.markup.3d221e"), ['highlight', 'underline', 'strikeout'])}{group(t("m.draw.bfa50c"), ['ink', 'line', 'arrow', 'rectangle', 'ellipse'])}{group(t("m.notes.stamps.a8aea3"), ['sticky-note', 'freetext'])}<div className="ribbon-group"><button type="button" className="workspace-tool" disabled={!hasDocument || isBusy} title={t("m.stamp.973fc7")} onClick={() => toggleMenu('stamp')} data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"><Stamp size={21} /><span>{t("m.stamp.973fc7")}</span></button></div></>}
       {workspace === 'organize' && <>{group(t("m.pages.600584"), ['merge', 'split', 'rotate-left', 'rotate-right', 'rotate-180', 'delete-pages'])}{group(t("m.insert.pages.5cca93"), ['blank-before', 'blank-after', 'blank-end', 'pdf-before', 'pdf-after'])}</>}
-      {workspace === 'convert' && <>{group(t("m.create.export.ced19b"), ['create-pdf', 'export-pages'])}{group(t("m.recognize.optimize.c5cdd5"), ['ocr', 'compress'])}</>}
+      {workspace === 'convert' && <>{group(t("m.create.export.ced19b"), ['create-pdf', 'pdf-to-images'])}{group(t("m.recognize.optimize.c5cdd5"), ['ocr', 'compress'])}</>}
       {workspace === 'forms' && <>{group(t("m.form.tools.b442aa"), ['form-designer', 'signature'])}{group(t("m.form.data.97ee0f"), ['form-import', 'form-json', 'form-fdf', 'form-xfdf', 'form-reset', 'form-flatten'])}</>}
       {workspace === 'protect' && <>{group(t("m.document.protection.3f11e2"), ['encrypt', 'clean'])}{group(t("m.content.removal.5f172b"), ['mark-content', 'apply-marks', 'remove-content'])}</>}
       <div className="ribbon-context">

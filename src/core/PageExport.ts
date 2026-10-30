@@ -12,6 +12,7 @@ export interface PageExportControl { signal?: AbortSignal; onProgress?: (progres
 
 export function parseExportPageRange(range: string, totalPages: number): number[] {
   if (!Number.isInteger(totalPages) || totalPages < 1) throw new Error('The PDF has no readable pages.');
+  range = range.normalize('NFKC').replace(/[、；;]/g, ',').replace(/[–—−]/g, '-');
   if (!range.trim() || range.trim().toLowerCase() === 'all') return Array.from({ length: totalPages }, (_, index) => index + 1);
   const pages = new Set<number>();
   for (const part of range.split(',')) {

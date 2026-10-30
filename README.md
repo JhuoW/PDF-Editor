@@ -15,6 +15,7 @@
 - **✏️ Text & Image Editing**: Format original text, arrange objects, crop and transform images, or insert new content.
 - **🖊️ Annotations & Signatures**: Highlight, draw, add notes, and place handwritten or image signatures.
 - **🔗 Page Organization**: Merge, split, insert, delete, rotate, and reorder pages.
+- **🖼️ PDF & Images**: Create PDFs from images, or export selected PDF pages as PNG/JPEG.
 - **📝 Forms**: Create and fill PDF forms, import/export data, and flatten fields.
 - **🔍 Scan OCR**: Make English and Simplified Chinese scans searchable with local recognition.
 - **🔒 Private & Open Source**: Process documents locally, without subscriptions or cloud uploads.
@@ -38,7 +39,7 @@ Open `http://localhost:5173` in your browser.
 2. **Navigate**: Use thumbnails, page controls, and zoom to browse the document.
 3. **Edit & Annotate**: Use **Edit objects** to move text and resize images, or **Edit text** to change the original wording. Add annotations from the toolbar.
 4. **Organize**: Use the page tools to merge, split, rotate, or reorder pages.
-5. **Export**: Click **Export** to download your edited PDF.
+5. **Export**: Download your edited PDF with **Export**, or use **Convert → PDF to images** for selected pages.
 
 ## Contributing
 
