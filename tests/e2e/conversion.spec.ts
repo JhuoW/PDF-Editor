@@ -96,7 +96,7 @@ test('exports current text and Unicode form edits to UTF-8 and rejects invalid r
   await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'OLD PAGE CONTENT' }).dblclick();
   await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill('NEW TEXT');
-  await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).press('Enter');
+  await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).press('Control+Enter');
   const dialog = await openExport(page);
   await page.getByLabel('Export format', { exact: true }).selectOption('text');
   await page.getByLabel('Page range', { exact: true }).fill('3');

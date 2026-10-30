@@ -118,5 +118,5 @@ test('fits overflow explicitly, supports narrow screens and discards or resets l
   await expect(panel.getByRole('textbox', { name: 'Text', exact: true })).toHaveValue(LAYOUT_ORIGINAL);
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   expect(text(await exported(page))[0]).toContain(LAYOUT_ORIGINAL);
-  await expect(page.getByRole('button', { name: 'Apply Content Changes', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Apply Content Changes', exact: true })).toBeDisabled();
 });

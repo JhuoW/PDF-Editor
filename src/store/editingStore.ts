@@ -10,6 +10,7 @@ import type {
   PDFImage,
   RedactionArea,
   TextEditOperation,
+  TextLayoutOptions,
   ImageEditOperation,
 } from '../editing/types';
 
@@ -35,7 +36,7 @@ interface EditingStore {
   selectRedaction: (redactionId: string | null) => void;
 
   // Text editing
-  updateBlockText: (blockId: string, newText: string, groupKey?: string) => void;
+  updateBlockText: (blockId: string, newText: string, groupKey?: string, layout?: TextLayoutOptions) => void;
   updateBlockLayout: (edit: TextEditOperation) => void;
   getBlock: (blockId: string) => TextBlock | null;
 
@@ -111,14 +112,15 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     set({ selectedRedactionId: redactionId, selectedBlockId: null, selectedImageId: null });
   },
 
-  updateBlockText: (blockId, newText, groupKey) => {
+  updateBlockText: (blockId, newText, groupKey, inlineLayout) => {
     const state = get(), block = state.getBlock(blockId);
-    if (!block || !block.editable || block.text === newText) return;
+    if (!block || !block.editable || (block.text === newText && (!inlineLayout || JSON.stringify(state.textEdits.find(edit => edit.blockId === blockId)?.layout) === JSON.stringify(inlineLayout)))) return;
     recordEditingState(state, 'Edit original text', groupKey);
     const existing = state.textEdits.find(edit => edit.blockId === blockId);
+    const layout = inlineLayout ?? existing?.layout;
     const originalText = existing?.originalText ?? block.text;
     const textEdits = state.textEdits.filter(edit => edit.blockId !== blockId);
-    if (newText !== originalText || existing?.layout) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(existing?.layout ? { layout: existing.layout } : {}) });
+    if (newText !== originalText || (existing?.layout && !existing.layout.keepBaseline)) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}) });
     const textBlocks = new Map(state.textBlocks);
     textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === blockId ? { ...item, text: newText } : item));
     set({ textBlocks, textEdits, isDirty: textEdits.length > 0 || state.imageEdits.length > 0 || state.redactions.some(area => !area.applied) });

@@ -1,250 +1,207 @@
-/**
- * TextEditLayer - Renders text blocks for editing
- * Allows users to click on text blocks and edit them inline
- */
-
-import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
+/** Direct PDF text editing: the PDF paints the letters, an input handles typing. */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useEditingStore } from '../../store/editingStore';
 import { useHistoryStore } from '../../store/historyStore';
 import { cancelWorkspaceGroup, registerPendingEditor } from '../../store/workspaceHistory';
 import { detectTextBlocks } from '../../editing/TextBlockDetector';
-import type { TextBlock } from '../../editing/types';
+import type { TextBlock, TextRect } from '../../editing/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
-import { mapViewportRect } from '../../utils/viewportMapping';
+import { mapViewportPoint, mapViewportRect } from '../../utils/viewportMapping';
+import { inlineCaret, inlineOffsetAt, inlineSelection, inlineTextRows, sourceInlineGeometry } from '../../editing/InlineTextGeometry';
+import { useInlineTextPreview } from './useInlineTextPreview';
+import { InlinePDFPreview } from './InlinePDFPreview';
 import './TextEditLayer.css';
 
 interface TextEditLayerProps {
-  page: PDFPageProxy;
-  pageNumber: number;
-  scale: number;
-  rotation: number;
+  page: PDFPageProxy; pageNumber: number; scale: number; rotation: number;
   onTextLayout?: (blockId: string) => void;
 }
-
-const EMPTY_TEXT_BLOCKS: TextBlock[] = [];
-
-export function TextEditLayer({
-  page,
-  pageNumber,
-  scale,
-  rotation,
-  onTextLayout,
-}: TextEditLayerProps) {
-  const {
-    mode,
-    setMode,
-    textBlocks,
-    setTextBlocks,
-    selectedBlockId,
-    selectBlock,
-    updateBlockText,
-    textEdits,
-  } = useEditingStore();
-
+const EMPTY: TextBlock[] = [];
+export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout }: TextEditLayerProps) {
+  const { mode, setMode, setTextBlocks, textBlocks, selectedBlockId, selectBlock, updateBlockText, textEdits } = useEditingStore();
   const [analysisError, setAnalysisError] = useState<{ page: PDFPageProxy; message: string } | null>(null);
-  const editingGroup = useRef<string | null>(null);
-  const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const actionsRef = useRef<HTMLDivElement>(null);
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null), [editText, setEditText] = useState('');
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const input = useRef<HTMLTextAreaElement>(null), layer = useRef<HTMLDivElement>(null), actions = useRef<HTMLDivElement>(null);
+  const group = useRef<string | null>(null), pointer = useRef<{ id: number; anchor: number } | null>(null);
+  const focusedBlock = useRef<string | null>(null);
+  const pendingPoint = useRef<{ x: number; y: number; detail: number } | null>(null);
+  const pageBlocks = textBlocks.get(pageNumber) ?? EMPTY, hasBlocks = textBlocks.has(pageNumber);
+  const pageEdits = useMemo(() => textEdits.filter(edit => pageBlocks.some(block => block.id === edit.blockId)), [textEdits, pageBlocks]);
+  const layouts = useMemo(() => new Map(pageEdits.map(edit => [edit.blockId, edit.layout])), [pageEdits]);
+  const activeId = mode === 'text' ? editingBlockId : null;
+  const preview = useInlineTextPreview(page, pageNumber, pageBlocks, pageEdits, activeId, scale, rotation);
+  const activeBlock = pageBlocks.find(block => block.id === activeId);
+  const fallback = useMemo(() => activeBlock ? sourceInlineGeometry(activeBlock) : undefined, [activeBlock]);
+  const prepared = preview?.activeId === activeId ? preview.prepared ?? fallback : fallback;
+  const source = page.getViewport({ scale: 1, rotation: 0 });
+  const viewport = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) });
+  const rectStyle = (rect: TextRect) => {
+    const mapped = mapViewportRect(rect, source, viewport);
+    return { left: mapped.x, top: mapped.y, width: mapped.width, height: mapped.height };
+  };
+  const blockStyle = (block: TextBlock) => rectStyle(layouts.get(block.id)?.targetRect ?? block.rect);
 
-  // Get blocks for this page
-  const pageBlocks = textBlocks.get(pageNumber) ?? EMPTY_TEXT_BLOCKS;
-  const hasBlocks = textBlocks.has(pageNumber);
-  const isLoading = !hasBlocks && analysisError?.page !== page;
-  const readOnlyReason = pageBlocks.find(block => !block.editable)?.unsupportedReason;
-  const layouts = useMemo(() => new Map(textEdits.map(edit => [edit.blockId, edit.layout])), [textEdits]);
-
-  // Load text blocks when entering text mode
   useEffect(() => {
-    if (mode !== 'text') return;
+    if (mode !== 'text' || hasBlocks) return;
+    let canceled = false;
+    void detectTextBlocks(page).then(blocks => {
+      if (!canceled) { setAnalysisError(null); setTextBlocks(pageNumber, blocks); }
+    }).catch(cause => {
+      if (!canceled) setAnalysisError({ page, message: cause instanceof Error ? cause.message : 'Could not analyze text.' });
+    });
+    return () => { canceled = true; };
+  }, [mode, hasBlocks, page, pageNumber, setTextBlocks]);
 
-    // Only load if we don't have blocks for this page
-    if (hasBlocks) return;
-
-    let cancelled = false;
-    detectTextBlocks(page)
-      .then((blocks) => {
-        if (cancelled) return;
-        setAnalysisError(null);
-        setTextBlocks(pageNumber, blocks);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error('Failed to detect text blocks:', err);
-        setAnalysisError({ page, message: err instanceof Error ? err.message : 'Could not analyze text' });
-      });
-    return () => { cancelled = true; };
-  }, [mode, page, pageNumber, hasBlocks, setTextBlocks]);
-
-  // Transform block position based on rotation
-  const transformRect = useCallback(
-    (block: TextBlock) => {
-      const { x, y, width, height } = mapViewportRect(
-        layouts.get(block.id)?.targetRect ?? block.rect,
-        page.getViewport({ scale: 1, rotation: 0 }),
-        page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) }),
-      );
-      return {
-        left: x,
-        top: y,
-        width,
-        height,
-      };
-    },
-    [page, rotation, scale, layouts]
-  );
-
-  const handleBlockClick = useCallback(
-    (block: TextBlock, e: React.MouseEvent) => {
-      e.stopPropagation();
-
-      if (!block.editable || editingBlockId === block.id) return;
-
-      useHistoryStore.getState().endGroup();
-      editingGroup.current = `text:${block.id}:${crypto.randomUUID()}`;
-
-      selectBlock(block.id);
-      setEditingBlockId(block.id);
-      setEditText(block.text);
-    },
-    [editingBlockId, selectBlock]
-  );
-
-  const handleTextChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setEditText(e.target.value);
-      if (editingBlockId && editingGroup.current) updateBlockText(editingBlockId, e.target.value, editingGroup.current);
-    },
-    [editingBlockId, updateBlockText]
-  );
-
-  const handleBlur = useCallback((keepSelection = false) => {
-    if (!editingGroup.current) return;
-    editingGroup.current = null;
-    useHistoryStore.getState().endGroup();
-    setEditingBlockId(null);
-    if (!keepSelection) selectBlock(null);
+  const finish = useCallback((keepSelection = false) => {
+    if (!focusedBlock.current) return;
+    const finishedBlock = focusedBlock.current;
+    focusedBlock.current = null;
+    group.current = null; pointer.current = null; pendingPoint.current = null;
+    useHistoryStore.getState().endGroup(); setEditingBlockId(null);
+    if (!keepSelection && useEditingStore.getState().selectedBlockId === finishedBlock) selectBlock(null);
   }, [selectBlock]);
-  useEffect(() => registerPendingEditor(() => handleBlur()), [handleBlur]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      // Enter/Escape first confirm or dismiss an IME candidate, not the edit.
-      // Some browsers report the final composition key as keyCode 229.
-      if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
-      if (e.key === 'Escape') {
-        // Cancel this focus session without leaving its live draft in history.
-        const key = editingGroup.current;
-        editingGroup.current = null;
-        if (key) cancelWorkspaceGroup(key);
-        setEditingBlockId(null);
-        selectBlock(null);
-      } else if (e.key === 'Enter' && !e.shiftKey) {
-        // Save and exit on Enter (Shift+Enter for new line)
-        e.preventDefault();
-        handleBlur();
-      }
-    },
-    [handleBlur, selectBlock]
-  );
-
-  // Focus textarea when editing starts
+  useEffect(() => registerPendingEditor(() => finish()), [finish]);
+  const setRange = useCallback((start: number, end = start) => {
+    input.current?.setSelectionRange(Math.min(start, end), Math.max(start, end), end < start ? 'backward' : 'forward');
+    setSelection({ start: Math.min(start, end), end: Math.max(start, end) });
+  }, []);
   useEffect(() => {
-    if (editingBlockId && textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.select();
+    if (activeId) { input.current?.focus({ preventScroll: true }); input.current?.setSelectionRange(0, 0); }
+  }, [activeId, setRange]);
+  useEffect(() => {
+    const point = pendingPoint.current;
+    if (!point || !prepared || prepared.input.text !== editText) return;
+    if (preview?.activeId === activeId && preview.prepared) pendingPoint.current = null;
+    let start = inlineOffsetAt(prepared, point.x, point.y), end = start;
+    if (point.detail >= 2) {
+      while (start > 0 && /[\p{L}\p{N}_]/u.test(editText[start - 1])) start--;
+      while (end < editText.length && /[\p{L}\p{N}_]/u.test(editText[end])) end++;
     }
-  }, [editingBlockId]);
+    input.current?.setSelectionRange(start, end);
+  }, [prepared, editText, preview, activeId]);
+  useEffect(() => {
+    const previous = activeId ? layouts.get(activeId) : undefined;
+    if (activeId && group.current && pageEdits.some(edit => edit.blockId === activeId) && preview?.activeId === activeId && preview.availableRect && (!previous || previous.keepBaseline)) {
+      updateBlockText(activeId, editText, group.current, { targetRect: preview.availableRect, keepBaseline: true });
+    }
+  }, [activeId, pageEdits, layouts, preview, editText, updateBlockText]);
 
-  // Handle click on the layer (outside any text block) - exit edit mode
-  const handleLayerClick = useCallback((e: React.MouseEvent) => {
-    // Only handle direct clicks on the layer, not bubbled events from blocks
-    if (e.target === e.currentTarget) {
-      // Save any pending edit first
-      if (editingBlockId) {
-        const block = pageBlocks.find((b) => b.id === editingBlockId);
-        if (block && editText !== block.text) {
-          updateBlockText(editingBlockId, editText);
-        }
+  const pointAt = (event: React.PointerEvent | React.MouseEvent) => {
+    const bounds = layer.current!.getBoundingClientRect();
+    return mapViewportPoint(event.clientX - bounds.left, event.clientY - bounds.top, viewport, source);
+  };
+  const begin = (block: TextBlock, event: React.PointerEvent) => {
+    if (!block.editable || event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    const point = pointAt(event);
+    if (activeId !== block.id) {
+      finish(); useHistoryStore.getState().endGroup();
+      focusedBlock.current = block.id; group.current = `text:${block.id}:${crypto.randomUUID()}`;
+      selectBlock(block.id); setEditText(block.text); setEditingBlockId(block.id);
+      setSelection({ start: 0, end: 0 });
+      pendingPoint.current = { ...point, detail: event.detail };
+      const cached = preview?.geometry.get(block.id);
+      pointer.current = { id: event.pointerId, anchor: inlineOffsetAt(cached?.input.text === block.text ? cached : sourceInlineGeometry(block), point.x, point.y) };
+      layer.current?.setPointerCapture?.(event.pointerId);
+    } else if (prepared) {
+      const offset = inlineOffsetAt(prepared, point.x, point.y);
+      let start = event.shiftKey ? selection.start : offset, end = offset;
+      if (event.detail >= 2) {
+        while (start > 0 && /[\p{L}\p{N}_]/u.test(editText[start - 1])) start--;
+        while (end < editText.length && /[\p{L}\p{N}_]/u.test(editText[end])) end++;
       }
-      // Exit edit mode
-      setMode('none');
-      setEditingBlockId(null);
-      selectBlock(null);
+      input.current?.focus({ preventScroll: true }); setRange(start, end);
+      pointer.current = { id: event.pointerId, anchor: start };
+      layer.current?.setPointerCapture?.(event.pointerId);
     }
-  }, [editingBlockId, editText, pageBlocks, updateBlockText, setMode, selectBlock]);
-
-  // Don't render if not in text mode
-  if (mode !== 'text') return null;
-
+  };
+  const change = (value: string) => {
+    pendingPoint.current = null;
+    setEditText(value);
+    const previous = activeId ? layouts.get(activeId) : undefined;
+    const automatic = !previous || previous.keepBaseline ? { ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), keepBaseline: true } : undefined;
+    if (activeId && group.current) updateBlockText(activeId, value, group.current, automatic);
+    if (input.current) setSelection({ start: input.current.selectionStart, end: input.current.selectionEnd });
+  };
+  const keyDown = (event: React.KeyboardEvent) => {
+    event.stopPropagation();
+    pendingPoint.current = null;
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.key === 'Escape') {
+      event.preventDefault(); const key = group.current; group.current = null;
+      if (key) cancelWorkspaceGroup(key);
+      finish();
+    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault(); finish();
+    } else if (prepared && input.current && ['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+      // Native vertical navigation would follow the hidden input's 1px rows.
+      // Instead follow the same PDF glyph rows that paint the visible text.
+      event.preventDefault();
+      const element = input.current, backward = element.selectionDirection === 'backward';
+      const offset = backward ? element.selectionStart : element.selectionEnd;
+      const rows = inlineTextRows(prepared), row = rows.find(row => offset >= row.start && offset <= row.end) ?? rows.at(-1);
+      let next = offset;
+      if (event.key === 'Home') next = event.ctrlKey || event.metaKey ? 0 : row?.start ?? 0;
+      else if (event.key === 'End') next = event.ctrlKey || event.metaKey ? editText.length : row?.end ?? editText.length;
+      else {
+        const caret = inlineCaret(prepared, offset), index = row ? rows.indexOf(row) : 0;
+        const target = rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowUp' ? -1 : 1)))];
+        if (target) next = inlineOffsetAt(prepared, caret.x, target.baseline - prepared.layout.fontSize * .3);
+      }
+      const anchor = event.shiftKey ? backward ? element.selectionEnd : element.selectionStart : next;
+      setRange(anchor, next);
+    }
+  };
   const selectedBlock = pageBlocks.find(block => block.id === selectedBlockId && block.editable);
-  const selectedRect = selectedBlock ? transformRect(selectedBlock) : null;
-  const viewportWidth = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) }).width;
-
-  return (
-    <div className="text-edit-layer" onClick={handleLayerClick}>
-      {isLoading && (
-        <div className="text-edit-loading">
-          <span>Analyzing text...</span>
-        </div>
-      )}
-      {analysisError?.page === page && (
-        <div className="text-edit-loading" role="alert">{analysisError.message}</div>
-      )}
-      {readOnlyReason && <div className="text-edit-readonly" role="status"><span>{readOnlyReason}</span>
-        <button type="button" onClick={() => setMode('none')}>Exit text editing</button></div>}
-
-      {pageBlocks.map((block) => {
-        const style = transformRect(block);
-        const isSelected = selectedBlockId === block.id;
-        const isEditing = block.editable && editingBlockId === block.id;
-        const layout = layouts.get(block.id);
-        const fontSize = (layout?.fontSize ?? block.style.fontSize) * scale;
-        const lineHeight = layout?.lineHeight ?? block.style.lineHeight;
-
-        return (
-          <div
-            key={block.id}
-            className={`text-block ${!block.editable ? 'readonly' : ''} ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`}
-            aria-disabled={!block.editable || undefined}
-            title={block.unsupportedReason}
-            // A PDF glyph rectangle can be shorter than an HTML line box.
-            // Enlarge only the input surface, leaving the PDF removal bounds intact.
-            style={isEditing ? { ...style, minHeight: Math.max(32, fontSize * lineHeight + 8) } : style}
-            onClick={(e) => handleBlockClick(block, e)}
-          >
-            {isEditing ? (
-              <textarea
-                ref={textareaRef}
-                className="text-block-editor"
-                aria-label={`Edit text on page ${pageNumber}`}
-                value={editText}
-                onChange={handleTextChange}
-                onBlur={event => handleBlur(!!actionsRef.current?.contains(event.relatedTarget))}
-                onKeyDown={handleKeyDown}
-                style={{
-                  fontSize,
-                  color: layout?.fontColor ?? block.style.fontColor ?? '#000000',
-                  textAlign: layout?.alignment ?? block.style.alignment,
-                  lineHeight,
-                }}
-              />
-            ) : (
-              <div className="text-block-content">
-                {block.text}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {pageBlocks.some(block => layouts.get(block.id)) && <p className="text-edit-draft-hint" role="status">Layout draft — apply content changes to update the page.</p>}
-      {onTextLayout && selectedBlock && selectedRect && <div ref={actionsRef} className="text-edit-actions" style={{ left: Math.max(0, Math.min(selectedRect.left, Number.isFinite(viewportWidth) ? viewportWidth - 140 : selectedRect.left)), top: Math.max(0, selectedRect.top - 38) }}>
-        <button type="button" onPointerDown={event => { event.preventDefault(); event.stopPropagation(); }} onClick={event => {
-          event.stopPropagation(); handleBlur(); onTextLayout(selectedBlock.id);
-        }}>Text layout…</button>
-      </div>}
-    </div>
-  );
+  const selectedRect = selectedBlock ? blockStyle(selectedBlock) : null;
+  const readOnlyReason = pageBlocks.find(block => !block.editable)?.unsupportedReason;
+  const caret = activeId && prepared ? rectStyle(inlineCaret(prepared, selection.end)) : null;
+  const regions = activeId && prepared ? inlineSelection(prepared, selection.start, selection.end).map(rectStyle) : [];
+  const toolbarHost = window.document.getElementById('pdf-text-edit-controls');
+  const editActions = selectedBlock && selectedRect && <div ref={actions} className={`text-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { left: Math.max(0, Math.min(selectedRect.left, (viewport.width || 500) - 270)), top: Math.max(0, selectedRect.top - 40) }}>
+    {activeId && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => finish()}>Done</button>}
+    {onTextLayout && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); onTextLayout(selectedBlock.id); }}>Text layout…</button>}
+    <span id="pdf-text-edit-help">Enter: new line · Ctrl/⌘ Enter: done</span>
+  </div>;
+  if (mode !== 'text' && !pageEdits.length) return null;
+  return <div ref={layer} data-preview-text={preview?.prepared?.input.text} className={`text-edit-layer ${mode === 'text' ? 'active' : 'preview-only'}`} onPointerDown={event => {
+    if (event.target === event.currentTarget) { event.preventDefault(); finish(); }
+  }} onDoubleClick={event => {
+    if (!activeId || !prepared || (event.target as Element).closest('.text-edit-actions')) return;
+    event.preventDefault(); pendingPoint.current = null;
+    const point = pointAt(event);
+    let start = inlineOffsetAt(prepared, point.x, point.y), end = start;
+    while (start > 0 && /[\p{L}\p{N}_]/u.test(editText[start - 1])) start--;
+    while (end < editText.length && /[\p{L}\p{N}_]/u.test(editText[end])) end++;
+    setRange(start, end);
+  }} onPointerMove={event => {
+    const drag = pointer.current;
+    if (!drag || !prepared || event.pointerId !== drag.id) return;
+    pendingPoint.current = null;
+    const point = pointAt(event), end = inlineOffsetAt(prepared, point.x, point.y);
+    setRange(drag.anchor, end);
+  }} onPointerUp={event => {
+    if (layer.current?.hasPointerCapture?.(event.pointerId)) layer.current.releasePointerCapture(event.pointerId);
+    pointer.current = null;
+  }} onPointerCancel={() => { pointer.current = null; }}>
+    {preview?.png && preview.bytes && <InlinePDFPreview png={preview.png} bytes={preview.bytes} pageNumber={pageNumber} scale={scale} rotation={rotation} editing={mode === 'text'} />}
+    {mode === 'text' && <>
+      {!hasBlocks && analysisError?.page !== page && <div className="text-edit-loading" role="status">Analyzing text…</div>}
+      {analysisError?.page === page && <div className="text-edit-loading" role="alert">{analysisError.message}</div>}
+      {pageBlocks.map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''}`} aria-disabled={!block.editable || undefined} title={block.unsupportedReason} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
+        <span className="text-block-content">{block.text}</span>
+      </div>)}
+      {activeId && <>
+        {regions.map((style, index) => <div key={index} className="pdf-text-selection" style={style} />)}
+        {caret && selection.start === selection.end && <div className="pdf-text-caret" style={{ ...caret, width: Math.max(1.5, caret.width) }} />}
+        <textarea ref={input} className="pdf-text-input" aria-label={`Edit text on page ${pageNumber}`} aria-describedby="pdf-text-edit-help" value={editText} spellCheck={false} autoCapitalize="off" autoComplete="off" style={{ left: caret?.left ?? 0, top: caret?.top ?? 0 }} onChange={event => change(event.target.value)} onSelect={event => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} onKeyDown={keyDown} onBlur={event => finish(!!actions.current?.contains(event.relatedTarget))} />
+      </>}
+      {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
+      {(preview?.error || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">{preview?.error ?? 'Text exceeds the available space. Open Text layout to fit it before exporting.'}</div>}
+      {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status">{readOnlyReason} <button type="button" onClick={() => setMode('none')}>Exit text editing</button></div>}
+    </>}
+  </div>;
 }

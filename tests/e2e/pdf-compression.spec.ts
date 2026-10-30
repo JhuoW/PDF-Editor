@@ -53,7 +53,7 @@ test('compresses current edits losslessly with real previews, editable forms, na
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Compression 中文 field');
   await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original body text' }).dblclick();
-  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Enter');
+  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();
   const expected = (await download(page, page.getByRole('button', { name: 'Export', exact: true }))).bytes;
   const panel = await dialog(page); await compress(panel);

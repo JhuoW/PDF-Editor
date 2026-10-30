@@ -45,7 +45,7 @@ test('reviews and removes selected data with current text/forms, native and work
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Current 中文 value');
   await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original body text' }).dblclick();
-  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Enter');
+  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();
   const panel = await dialog(page);
   await expect(panel.getByRole('checkbox', { name: 'Comments and annotations', exact: true })).toBeEnabled();

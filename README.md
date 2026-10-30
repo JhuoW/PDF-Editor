@@ -36,7 +36,7 @@ Open `http://localhost:5173` in your browser.
 
 1. **Open**: Click **Open** or drag a PDF into the viewer.
 2. **Navigate**: Use thumbnails, page controls, and zoom to browse the document.
-3. **Edit & Annotate**: Use the toolbar to edit content or add annotations. Click **Apply Content Changes** after editing original text or images.
+3. **Edit & Annotate**: Select **Edit → Edit Text**, then click the original text and type. Use the toolbar for images and annotations.
 4. **Organize**: Use the page tools to merge, split, rotate, or reorder pages.
 5. **Export**: Click **Export** to download your edited PDF.
 

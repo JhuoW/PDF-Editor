@@ -119,7 +119,7 @@ test('Escape cancels original text drafts without losing redo; focused drafts su
   let editor = await startOriginalTextEdit(page, original);
   const previous = 'Previous committed edit';
   await editor.fill(previous);
-  await editor.press('Enter');
+  await editor.press('Control+Enter');
   await historyStep(page, 'Undo', 'Edit original text');
   await expect(undo(page)).toBeDisabled();
   await expect(redo(page)).toHaveAccessibleName('Redo Edit original text');

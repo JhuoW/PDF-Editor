@@ -16,6 +16,10 @@ export interface TextLayoutInput {
   lineHeight: number;
   /** Compatibility for existing plain-text edits; explicit layout uses ink bounds. */
   legacyBaseline?: number;
+  /** Session-owned source font; absent when an explicit replacement font is chosen. */
+  sourceFontKey?: string;
+  /** Physical source rows retain their PDF word spacing when unchanged. */
+  sourceRows?: Array<{ text: string; width: number }>;
 }
 export interface TextLayoutGlyph {
   character: string; fontName: string; glyphId: number;
@@ -112,13 +116,20 @@ function wrap(glyphs: MeasuredGlyph[], width: number): WrappedLine[] {
 export class TextLayoutSession {
   private readonly fonts = new Map<string, Font>();
   private readonly measured = new Map<string, MeasuredGlyph>();
+  private readonly fallbacks = new Map<string, string>();
   private stroke?: StrokeState;
   private readonly engine: Engine;
   constructor(engine: Engine) { this.engine = engine; }
+  useSourceFont(key: string, font: Font, fallback: string) {
+    if (this.fonts.has(key)) { font.destroy(); return; }
+    this.fonts.set(key, font);
+    this.fallbacks.set(key, fallback);
+  }
   private font(name: string) { if (!this.fonts.has(name)) this.fonts.set(name, new this.engine.Font(name)); return this.fonts.get(name)!; }
   private glyph(character: string, primary: string): MeasuredGlyph {
     const cache = `${primary}:${character}`, cached = this.measured.get(cache); if (cached) return cached;
     let fontName = primary, font = this.font(primary), glyphId = font.encodeCharacter(character);
+    if (!glyphId && this.fallbacks.has(primary)) { fontName = this.fallbacks.get(primary)!; font = this.font(fontName); glyphId = font.encodeCharacter(character); }
     if (!glyphId) { fontName = 'zh-Hans'; font = this.font(fontName); glyphId = font.encodeCharacter(character); }
     if (!glyphId) throw new Error(`The replacement font does not support ${JSON.stringify(character)} (U+${character.codePointAt(0)!.toString(16).toUpperCase()}).`);
     const text = new this.engine.Text();
@@ -136,7 +147,18 @@ export class TextLayoutSession {
     if (text === '') return { fits: true, requiredHeight: 0, suggestedHeight: 0, lines: [], fontSize: input.fontSize, lineAdvance: input.fontSize * input.lineHeight, inkBounds: null, warnings: [] };
     const legacy = input.legacyBaseline !== undefined;
     if (legacy && !Number.isFinite(input.legacyBaseline)) throw new Error('The original text baseline is invalid.');
-    const paragraphs = text.split('\n').map(paragraph => Array.from(paragraph, character => this.glyph(character, input.fontName)));
+    const primary = input.sourceFontKey && this.fonts.has(input.sourceFontKey) ? input.sourceFontKey : input.fontName;
+    const paragraphs = text.split('\n').map(paragraph => {
+      const glyphs = Array.from(paragraph, character => this.glyph(character, primary));
+      const source = input.sourceRows?.find(row => row.text === paragraph);
+      const spaces = glyphs.filter(glyph => space(glyph.character));
+      if (!source || !spaces.length) return glyphs;
+      // PDF word spacing can shrink as well as stretch a line. Embedded font
+      // advances alone otherwise wrap unchanged, justified source rows again.
+      const delta = (source.width / input.fontSize - glyphs.reduce((sum, glyph) => sum + glyph.advance, 0)) / spaces.length;
+      if (spaces.some(glyph => glyph.advance + delta < .01)) return glyphs;
+      return glyphs.map(glyph => space(glyph.character) ? { ...glyph, advance: glyph.advance + delta } : glyph);
+    });
     let ascent = 0.8, descent = 0.2;
     for (const paragraph of paragraphs) for (const glyph of paragraph) { ascent = Math.max(ascent, glyph.ascent); descent = Math.max(descent, glyph.descent); }
     const assemble = (size: number, useLegacy = legacy): TextLayoutResult => {

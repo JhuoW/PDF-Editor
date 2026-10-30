@@ -51,7 +51,7 @@ async function editOriginalText(page: Page) {
   const editor = page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });
   await editor.fill('');
   await editor.pressSequentially('UPDATED CONTENT');
-  await editor.press('Enter');
+  await editor.press('Control+Enter');
   await expect(editor).toHaveCount(0);
 }
 

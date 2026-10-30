@@ -62,7 +62,7 @@ test('previews and applies Unicode watermarks, page/Bates headers, and backgroun
   await page.getByRole('textbox', { name: 'Preserved value', exact: true }).fill('Pending 中文 value');
   await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original on page 1' }).dblclick();
-  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Edited body'); await editor.press('Enter');
+  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Edited body'); await editor.press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();
   await page.getByTitle('Rectangle', { exact: true }).click(); const canvas = (await page.locator('canvas.page-canvas').boundingBox())!;
   await page.mouse.move(canvas.x + 50, canvas.y + 50); await page.mouse.down(); await page.mouse.move(canvas.x + 120, canvas.y + 95, { steps: 5 }); await page.mouse.up();
@@ -172,7 +172,7 @@ test('keeps owned text and image decorations separate from body editing and pres
   await expect(page.locator('.text-block').filter({ hasText: 'Original body text' })).toHaveCount(1);
   await expect(page.locator('.text-block').filter({ hasText: 'OWNED WATERMARK' })).toHaveCount(0);
   await page.locator('.text-block').filter({ hasText: 'Original body text' }).dblclick();
-  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Enter');
+  const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Control+Enter');
   await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '🖼 Edit Images', exact: true }).click();
   await expect(page.locator('.image-box')).toHaveCount(3);
   // Background image precedes the body image; foreground logo follows it. Detaching

@@ -50,7 +50,7 @@ async function escape() { await act(async () => host.querySelector('dialog')!.di
 describe('TextLayoutDialog', () => {
   it('uses resolved source style and the complete PDF preview without creating an unchanged draft', async () => {
     await render(); await settle();
-    expect(field('Font').value).toBe('Times-Roman'); expect(field('Text color').value).toBe('#123456');
+    expect(field('Font').value).toBe('original'); expect(field('Text color').value).toBe('#123456');
     expect(host.textContent).toContain('Preview ready'); expect(host.textContent).toContain('original removal area stays unchanged'); expect(button('Save draft').disabled).toBe(true);
     expect(api.prepare.mock.calls[0][0]).toBe(source.data); expect(latestPreview().pageNumber).toBe(2); expect(latestPreview().data).toEqual(new Uint8Array([9, 8]));
     expect(latestPreview().sourceRect).toEqual(source.block.rect); expect(props.onSave).not.toHaveBeenCalled();

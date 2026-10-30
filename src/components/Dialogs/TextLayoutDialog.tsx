@@ -13,7 +13,7 @@ export type { TextLayoutDialogProps, TextLayoutSource } from './TextLayoutDialog
 interface Loaded { key: object; source: TextLayoutSource; initial: TextEditOperation }
 function signature(edit: TextEditOperation) {
   const layout = edit.layout, rect = layout?.targetRect;
-  return JSON.stringify([edit.newText, rect ? [rect.x, rect.y, rect.width, rect.height] : null, layout?.fontName, layout?.fontSize, layout?.fontColor, layout?.alignment, layout?.lineHeight]);
+  return JSON.stringify([edit.newText, rect ? [rect.x, rect.y, rect.width, rect.height] : null, layout?.fontName, layout?.fontSize, layout?.fontColor, layout?.alignment, layout?.lineHeight, layout?.keepBaseline]);
 }
 export function TextLayoutDialog(props: TextLayoutDialogProps) {
   const [session, setSession] = useState({ key: props.documentKey, revision: props.revision, blockId: props.blockId, sequence: 0 });
@@ -91,7 +91,7 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
   }, [current, draft, requestKey, dragging]);
 
   const change = (patch: TextLayoutOptions) => {
-    setDraft(previous => previous ? { ...previous, layout: { ...previous.layout, ...patch }, timestamp: Date.now() } : previous); setSaveError(null);
+    setDraft(previous => previous ? { ...previous, layout: { ...previous.layout, ...patch, keepBaseline: false }, timestamp: Date.now() } : previous); setSaveError(null);
   };
   const changeRect = (rect: TextRect) => change({ targetRect: rect });
   const numberDraft = (label: string, dirty: boolean) => setDirtyNumbers(previous => {
@@ -137,7 +137,7 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
             <DecorationNumberInput label="Height" value={input.rect.height} min={1} max={Math.min(TEXT_LAYOUT_LIMITS.dimension, page ? page.height - input.rect.y : TEXT_LAYOUT_LIMITS.dimension)} onDraftChange={dirty => numberDraft('height', dirty)} onChange={height => changeRect({ ...input.rect, height })} />
           </div>
           <p className="text-layout-help">Positions use unrotated page points. Drag the blue area or its corner handle to move or resize it.</p>
-          <label>Font<select value={input.fontName} onChange={event => change({ fontName: event.target.value })}>{TEXT_LAYOUT_FONTS.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
+          <label>Font<select value={draft.layout?.fontName ?? 'original'} onChange={event => change({ fontName: event.target.value === 'original' ? undefined : event.target.value })}><option value="original">Original PDF font</option>{TEXT_LAYOUT_FONTS.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
           <div className="text-layout-numbers"><DecorationNumberInput label="Font size" value={input.fontSize} min={1} max={TEXT_LAYOUT_LIMITS.fontSize} onDraftChange={dirty => numberDraft('fontSize', dirty)} onChange={fontSize => change({ fontSize })} />
             <DecorationNumberInput label="Line spacing" value={input.lineHeight} min={1} max={TEXT_LAYOUT_LIMITS.lineHeight} onDraftChange={dirty => numberDraft('lineHeight', dirty)} onChange={lineHeight => change({ lineHeight })} /></div>
           {dirtyNumbers.size > 0 && <p role="status" className="text-layout-help">Press Enter or leave the numeric field to update the preview.</p>}

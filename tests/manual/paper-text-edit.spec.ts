@@ -87,7 +87,7 @@ test('edits a real abstract without merging its heading or changing other pages,
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ });
   const original = await editor.inputValue(), replacement = original.replace('Deep neural nets', 'Deep neural models');
   expect(replacement).not.toBe(original);
-  await editor.fill(replacement); await editor.press('Enter');
+  await editor.fill(replacement); await editor.press('Control+Enter');
   await page.getByRole('button', { name: 'Apply Content Changes', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Apply Content Changes', exact: true })).toHaveCount(0, { timeout: 30_000 });
   await noErrors(page);
@@ -150,7 +150,7 @@ test('edits a figure caption without changing the adjacent neural-network drawin
   await block.click();
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ });
   const replacement = (await editor.inputValue()).replace('thinned net', 'thinned model');
-  await editor.fill(replacement); await editor.press('Enter');
+  await editor.fill(replacement); await editor.press('Control+Enter');
   await page.getByRole('button', { name: 'Apply Content Changes', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Apply Content Changes', exact: true })).toHaveCount(0, { timeout: 30_000 });
   await noErrors(page);
@@ -176,7 +176,7 @@ test('keeps the two-line title separate from authors and supports cancelling and
   await block.click();
   const replacement = original.replace('Overfitting', 'Overtraining');
   expect(replacement).not.toBe(original);
-  await editor.fill(replacement); await editor.press('Enter');
+  await editor.fill(replacement); await editor.press('Control+Enter');
   await page.getByRole('button', { name: 'Apply Content Changes', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Apply Content Changes', exact: true })).toHaveCount(0, { timeout: 30_000 });
   await noErrors(page);

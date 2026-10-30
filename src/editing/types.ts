@@ -37,6 +37,8 @@ export interface TextLayoutOptions {
   fontColor?: string;
   alignment?: 'left' | 'center' | 'right' | 'justify';
   lineHeight?: number;
+  /** Direct edits keep the original baseline when growing into adjacent space. */
+  keepBaseline?: boolean;
 }
 
 export interface TextBlock {

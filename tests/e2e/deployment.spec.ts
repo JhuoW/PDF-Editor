@@ -134,7 +134,7 @@ test('loads the PDF worker and content editing engine under the deployment base'
   await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
   await page.locator('.text-block').dblclick();
   await page.getByRole('textbox', { name: 'Edit text on page 1' }).fill('Local content edit');
-  await page.getByRole('textbox', { name: 'Edit text on page 1' }).press('Enter');
+  await page.getByRole('textbox', { name: 'Edit text on page 1' }).press('Control+Enter');
   await page.getByRole('button', { name: 'Apply Content Changes', exact: true }).click();
   await expect(page.locator('.textLayer')).toContainText('Local content edit');
   const downloadReady = page.waitForEvent('download');

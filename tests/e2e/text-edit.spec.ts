@@ -26,7 +26,7 @@ async function editText(page: Page, original: string, replacement: string) {
   await page.locator('.text-block').filter({ hasText: original }).dblclick();
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ });
   await editor.fill(replacement);
-  await editor.press('Enter');
+  await editor.press('Control+Enter');
   await expect(editor).toHaveCount(0);
   await expect(page.locator('.text-block').filter({ hasText: replacement })).toHaveCount(1);
 }

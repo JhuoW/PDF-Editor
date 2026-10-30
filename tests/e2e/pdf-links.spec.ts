@@ -55,7 +55,7 @@ test('edits native links with current body/forms, follows the saved page target,
   await go(page, 2); await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Links 中文 form'); await go(page, 1);
   await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original link body' }).dblclick();
-  await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill('Edited body'); await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).press('Enter');
+  await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill('Edited body'); await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();
   const panel = await links(page); await select(panel, /example.com\/original/);
   await panel.getByRole('textbox', { name: 'URL', exact: true }).fill('https://example.org/updated');

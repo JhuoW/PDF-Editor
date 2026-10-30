@@ -3,9 +3,10 @@ import { loadMuPDF, toMuPDFPageRect } from '../utils/mupdf';
 import type { TextBlock, TextEditOperation } from './types';
 import { assertTextEditSource } from './TextEditSource';
 import { standardTextFont, TextLayoutSession, type TextLayoutControl, type TextLayoutInput, type TextLayoutResult } from './TextLayout';
+import { readInlineTextBounds } from './InlineTextBounds';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
-export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number } }
+export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number }; availableRect?: import('./types').TextRect }
 interface PreparedBlock extends PreparedTextEditLayout { block: TextBlock }
 function cancelled(control: TextLayoutControl) { if (control.signal?.aborted) throw new DOMException('Text editing cancelled.', 'AbortError'); }
 
@@ -40,15 +41,17 @@ function assertReplaceableTextRendering(engine: Engine, page: PDFPage, pageNumbe
   }
 }
 
-function sourceStyle(engine: Engine, page: PDFPage, block: TextBlock): { name: string; color: Color } {
+function sourceStyle(engine: Engine, page: PDFPage, block: TextBlock, session: TextLayoutSession): { name: string; color: Color; sourceFontKey?: string } {
   let name = block.style.fontName;
   let color: Color = [0, 0, 0];
   const area = toMuPDFPageRect(engine, page, block.rect);
   const text = page.toStructuredText('');
   let found = false;
+  let sourceFontKey: string | undefined;
   try {
     text.walk({
       onChar(character, _origin, font, _size, quad, charColor) {
+        let retained = false;
         try {
           if (found || !character.trim()) return;
           const x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4;
@@ -56,8 +59,11 @@ function sourceStyle(engine: Engine, page: PDFPage, block: TextBlock): { name: s
           if (x < area[0] || x > area[2] || y < area[1] || y > area[3]) return;
           name = `${font.isMono() ? 'Courier' : font.isSerif() ? 'Times' : 'Helvetica'}${font.isBold() ? ' Bold' : ''}${font.isItalic() ? ' Italic' : ''}`;
           color = charColor.length === 3 ? [...charColor] as Color : [0, 0, 0];
+          sourceFontKey = `source:${block.id}`;
+          session.useSourceFont(sourceFontKey, font, standardTextFont(name));
+          retained = true;
           found = true;
-        } finally { font.destroy(); }
+        } finally { if (!retained) font.destroy(); }
       },
     });
   } finally {
@@ -66,7 +72,7 @@ function sourceStyle(engine: Engine, page: PDFPage, block: TextBlock): { name: s
   if (block.style.fontColor && /^#[0-9a-f]{6}$/i.test(block.style.fontColor)) {
     color = [1, 3, 5].map(offset => parseInt(block.style.fontColor!.slice(offset, offset + 2), 16) / 255) as Color;
   }
-  return { name: standardTextFont(name), color };
+  return { name: standardTextFont(name), color, sourceFontKey };
 }
 
 function pageGeometry(engine: Engine, page: PDFPage) {
@@ -79,15 +85,18 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   cancelled(control);
   if (!block.editable) throw new Error(block.unsupportedReason ?? 'This text block is read-only.');
   if (block.lines.some(line => line.items.some(item => Math.abs(item.transform[1]) > 0.001 || Math.abs(item.transform[2]) > 0.001))) throw new Error(`Rotated or vertical text inside page ${block.pageNumber} cannot be replaced yet. Page rotation itself is supported.`);
-  const source = sourceStyle(engine, page, block), overrides = edit.layout ?? {}, geometry = pageGeometry(engine, page);
-  const rect = { ...(overrides.targetRect ?? block.rect) };
+  const source = sourceStyle(engine, page, block, session), overrides = edit.layout ?? {}, geometry = pageGeometry(engine, page);
+  const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height);
+  const rect = { ...(overrides.targetRect ?? (overrides.keepBaseline ? availableRect : block.rect)) };
   if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 || rect.x + rect.width > geometry.width + 0.01 || rect.y + rect.height > geometry.height + 0.01) throw new Error('The text layout region must be completely inside the visible page.');
   const input: TextLayoutInput = { text: edit.newText, rect, fontName: overrides.fontName ?? source.name, fontSize: overrides.fontSize ?? block.style.fontSize,
     fontColor: overrides.fontColor ?? '#' + source.color.map(value => Math.round(Math.max(0, Math.min(1, value)) * 255).toString(16).padStart(2, '0')).join(''),
     alignment: overrides.alignment ?? block.style.alignment, lineHeight: overrides.lineHeight ?? Math.min(5, Math.max(1, Number.isFinite(block.style.lineHeight) ? block.style.lineHeight : 1.2)) };
-  if (!Object.values(overrides).some(value => value !== undefined)) input.legacyBaseline = block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8;
+  if (!overrides.fontName) input.sourceFontKey = source.sourceFontKey;
+  if (overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined)) input.legacyBaseline = block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8;
+  if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === block.style.fontSize) input.sourceRows = block.lines.map(line => ({ text: line.text, width: line.width }));
   const layout = session.layout(input, control);
-  return { block, input, layout, page: { width: geometry.width, height: geometry.height } };
+  return { block, input, layout, page: { width: geometry.width, height: geometry.height }, availableRect };
 }
 
 /** Resolve original PDF style and measure without changing the document. */
@@ -102,7 +111,7 @@ export async function prepareTextEditLayout(data: ArrayBuffer | Uint8Array, bloc
     try {
       assertReplaceableTextRendering(engine, page, block.pageNumber);
       const prepared = prepareBlock(engine, page, block, edit ?? { blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0 }, session, control);
-      return { input: prepared.input, layout: prepared.layout, page: prepared.page };
+      return { input: prepared.input, layout: prepared.layout, page: prepared.page, availableRect: prepared.availableRect };
     } finally { page.destroy(); }
   } finally { session.destroy(); document.destroy(); }
 }
@@ -178,6 +187,15 @@ export async function applyTextEdits(
   edits: TextEditOperation[],
   control: TextLayoutControl = {},
 ): Promise<Uint8Array> {
+  return writeTextEdits(data, blocks, edits, control, false);
+}
+
+/** Visual feedback may show overflowing text; the actual writer still rejects it. */
+export async function previewInlineTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[]): Promise<Uint8Array> {
+  return writeTextEdits(data, blocks, edits, {}, true);
+}
+
+async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], control: TextLayoutControl, preview: boolean): Promise<Uint8Array> {
   cancelled(control);
   if (edits.length === 0) return new Uint8Array(data.slice(0));
   const latest = new Map<string, TextEditOperation>();
@@ -215,7 +233,7 @@ export async function applyTextEdits(
         assertReplaceableTextRendering(engine, page, pageNumber);
         const prepared = entries.map(({ block, edit }) => prepareBlock(engine, page, block, edit, session, control));
         const overflow = prepared.find(item => !item.layout.fits);
-        if (overflow) throw new Error(`Page ${pageNumber}: ${overflow.layout.overflow}`);
+        if (overflow && !preview) throw new Error(`Page ${pageNumber}: ${overflow.layout.overflow}`);
         preparedPages.set(pageNumber, prepared);
       } finally { page.destroy(); }
     }

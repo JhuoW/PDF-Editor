@@ -5,6 +5,16 @@ const input = (overrides: Partial<TextLayoutInput> = {}): TextLayoutInput => ({ 
 const compact = (text: string) => text.replace(/\s/g, '');
 
 describe('shared measured paragraph layout', () => {
+  it('preserves compressed word spacing in an unchanged source row instead of wrapping it again', async () => {
+    const text = 'Original justified source row';
+    const natural = await layoutText(input({ text, rect: { x: 0, y: 0, width: 600, height: 100 } }));
+    const width = natural.lines[0].width - 3;
+    const value = input({ text, legacyBaseline: 12, rect: { x: 0, y: 0, width, height: 12 } });
+    expect((await layoutText(value)).fits).toBe(false);
+    const kept = await layoutText({ ...value, sourceRows: [{ text, width }] });
+    expect(kept.fits).toBe(true); expect(kept.lines).toHaveLength(1); expect(kept.lines[0].text).toBe(text);
+    expect(kept.lines[0].width).toBeCloseTo(width, 3);
+  });
   it('wraps Latin words, retains paragraph endings and returns serializable positions without changing input', async () => {
     const value = input(), copy = structuredClone(value), layout = await layoutText(value);
     expect(layout.fits).toBe(true); expect(layout.lines.length).toBeGreaterThan(2); expect(layout.lines.filter(line => line.paragraphEnd)).toHaveLength(2);

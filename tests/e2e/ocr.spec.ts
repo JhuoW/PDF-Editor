@@ -76,7 +76,7 @@ test('OCR commits searchable scans with pending content edits, preserves overlay
   await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: original }).dblclick();
   const editor = page.getByRole('textbox', { name: 'Edit text on page 2', exact: true });
-  await editor.fill(replacement); await editor.press('Enter');
+  await editor.fill(replacement); await editor.press('Control+Enter');
   await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
   await page.getByRole('button', { name: '🖼 Edit Images', exact: true }).click();
   await page.getByRole('button', { name: 'Select original image 1', exact: true }).click();

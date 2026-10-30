@@ -215,7 +215,7 @@ export function CombinedToolbar({
   }, []);
 
   const { isFormPDF, isDirty: formIsDirty } = useFormStore();
-  const { mode: editingMode, setMode: setEditingMode, hasChanges, redactions, textEdits, imageEdits } = useEditingStore();
+  const { mode: editingMode, setMode: setEditingMode, hasChanges, redactions, textEdits, imageEdits, selectedBlockId } = useEditingStore();
   const hasContentEdits = textEdits.length > 0 || imageEdits.length > 0;
   const pendingRedactions = redactions.filter(r => !r.applied);
 
@@ -548,8 +548,8 @@ export function CombinedToolbar({
           </div>
         )}
 
-        {hasDocument && hasContentEdits && onApplyContent && (
-          <button className="toolbar-btn" onClick={onApplyContent}
+        {hasDocument && (hasContentEdits || editingMode === 'text') && onApplyContent && (
+          <button className="toolbar-btn" onClick={onApplyContent} disabled={!hasContentEdits}
             title="Update the page with your text and image changes. You can undo this operation.">
             Apply Content Changes
           </button>
@@ -609,6 +609,10 @@ export function CombinedToolbar({
       </div>
 
       <div className="toolbar-divider" />
+
+      <div id="pdf-text-edit-controls" className={`pdf-text-edit-controls ${editingMode === 'text' ? 'active' : ''}`}>
+        {editingMode === 'text' && !selectedBlockId && <span>Click text in the PDF to edit</span>}
+      </div>
 
       {/* Page Operations */}
       <div className="toolbar-group">
