@@ -4,10 +4,17 @@
 
 **PDF-Editor** is a free, open-source PDF editor for your browser. View, edit, annotate, and organize PDFs locally without uploading your files. Switch between English and Chinese instantly.
 
-<div align="center">
-  <img src="docs/imgs/example1.png" width="96%" style="margin: 0 1.5%;"/>
-  <img src="docs/imgs/example2.png" width="96%" style="margin: 0 1.5%; border-radius: 0.5rem;"/>
-</div>
+<p align="center">
+  <a href="docs/imgs/new_example_1.png"><img src="docs/imgs/new_example_1.png" width="100%" alt="PDF-Editor workspace overview" /></a>
+</p>
+
+<p align="center">
+  <strong>Home · Edit · Annotate · Organize</strong><br /><br />
+  <a href="docs/imgs/new_example_2.png"><img src="docs/imgs/new_example_2.png" width="100%" alt="Home toolbar with common PDF tools" /></a><br /><br />
+  <a href="docs/imgs/new_example_3.png"><img src="docs/imgs/new_example_3.png" width="100%" alt="Edit toolbar for text, images, links, and bookmarks" /></a><br /><br />
+  <a href="docs/imgs/new_example_4.png"><img src="docs/imgs/new_example_4.png" width="100%" alt="Annotate toolbar for markup, drawing, notes, and stamps" /></a><br /><br />
+  <a href="docs/imgs/new_example_5.png"><img src="docs/imgs/new_example_5.png" width="100%" alt="Organize toolbar for page management" /></a>
+</p>
 
 ## Features
 

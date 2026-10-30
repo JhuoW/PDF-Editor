@@ -4,10 +4,17 @@
 
 **PDF-Editor** 是免费、开源的浏览器端 PDF 编辑器，可在本地阅读、编辑、批注和整理 PDF，无需上传文件，支持即时中英文切换。
 
-<div align="center">
-  <img src="docs/imgs/example1.png" width="96%" style="margin: 0 1.5%;"/>
-  <img src="docs/imgs/example2.png" width="96%" style="margin: 0 1.5%; border-radius: 0.5rem;"/>
-</div>
+<p align="center">
+  <a href="docs/imgs/new_example_1.png"><img src="docs/imgs/new_example_1.png" width="100%" alt="PDF-Editor 主界面概览" /></a>
+</p>
+
+<p align="center">
+  <strong>主页 · 编辑 · 注释 · 页面管理</strong><br /><br />
+  <a href="docs/imgs/new_example_2.png"><img src="docs/imgs/new_example_2.png" width="100%" alt="主页工具栏：常用 PDF 工具" /></a><br /><br />
+  <a href="docs/imgs/new_example_3.png"><img src="docs/imgs/new_example_3.png" width="100%" alt="编辑工具栏：文字、图片、链接与书签" /></a><br /><br />
+  <a href="docs/imgs/new_example_4.png"><img src="docs/imgs/new_example_4.png" width="100%" alt="注释工具栏：标记、绘图、便签与图章" /></a><br /><br />
+  <a href="docs/imgs/new_example_5.png"><img src="docs/imgs/new_example_5.png" width="100%" alt="页面管理工具栏：提取、复制、替换、裁剪与重排页面" /></a>
+</p>
 
 ## 功能特性
 
