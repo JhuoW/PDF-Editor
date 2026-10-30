@@ -1,6 +1,7 @@
 import type { WorkspaceSnapshot } from '../store/workspaceSnapshot';
 import { createWorkspace } from '../store/workspaceSnapshot';
-import { extractFormFields, updateFormFieldValues } from '../forms/FormFieldExtractor';
+import { extractFormFields } from '../forms/FormFieldExtractor';
+import { applyCurrentWorkspaceFormValues } from '../forms/WorkspaceFormValues';
 import { serializeAnnotationsToPDF } from '../annotations/AnnotationSerializer';
 import { applyWorkspaceContent } from './PDFExport';
 import { cleanPDF, inspectPDFCleanup } from './DocumentCleanup';
@@ -12,9 +13,7 @@ const check = (signal?: AbortSignal) => signal?.throwIfAborted();
 async function pendingContent(data: ArrayBuffer, workspace: WorkspaceSnapshot, signal?: AbortSignal) {
   let prepared = await applyWorkspaceContent(data, workspace);
   check(signal);
-  const changedFields = workspace.form.fields.filter(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature'
-    && JSON.stringify(field.value) !== JSON.stringify(workspace.form.originalValues.get(field.id)));
-  if (changedFields.length) prepared = new Uint8Array(await updateFormFieldValues(buffer(prepared), new Map(changedFields.map(field => [field.name, field.value]))));
+  prepared = await applyCurrentWorkspaceFormValues(buffer(prepared), workspace, signal);
   check(signal);
   return buffer(prepared);
 }
@@ -26,10 +25,9 @@ export async function prepareCleanupPDF(data: ArrayBuffer, workspace: WorkspaceS
   const report = await inspectPDFCleanup(data, { signal });
   check(signal);
   if (!report.canClean) return { data, report };
-  const hasEdits = workspace.editing.textEdits.length > 0 || workspace.editing.imageEdits.length > 0
-    || workspace.form.fields.some(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature'
-      && JSON.stringify(field.value) !== JSON.stringify(workspace.form.originalValues.get(field.id)));
-  if (!hasEdits) return { data, report };
+  const mayHaveEdits = workspace.editing.textEdits.length > 0 || workspace.editing.imageEdits.length > 0
+    || workspace.form.fields.some(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature');
+  if (!mayHaveEdits) return { data, report };
   const preparedData = await pendingContent(data, workspace, signal);
   return { data: preparedData, report: await inspectPDFCleanup(preparedData, { signal }) };
 }

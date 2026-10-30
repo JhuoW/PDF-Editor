@@ -44,7 +44,8 @@ import { ImageToolbar } from './components/ImageToolbar';
 import type { ImageAnnotation } from './annotations/types';
 import { serializeAnnotationsToPDF } from './annotations/AnnotationSerializer';
 import { useFormStore } from './store/formStore';
-import { extractFormFields, updateFormFieldValues } from './forms/FormFieldExtractor';
+import { extractFormFields } from './forms/FormFieldExtractor';
+import { applyCurrentWorkspaceFormValues } from './forms/WorkspaceFormValues';
 import { applyWorkspaceContent, exportWorkspacePDF, flattenWorkspaceForm } from './core/PDFExport';
 import { exportToJSON, exportToFDF, exportToXFDF, importFromJSON, importFromFDF, importFromXFDF, normalizeImportedFormValues, downloadFormData, readFileAsText } from './forms/FormDataIO';
 import { useEditingStore } from './store/editingStore';
@@ -87,10 +88,7 @@ async function prepareFormDesignPDF(data: ArrayBuffer, workspace: WorkspaceSnaps
 }
 
 async function applyWorkspaceFormValues(data: ArrayBuffer, workspace: WorkspaceSnapshot) {
-  const fields = workspace.form.fields.filter(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature'
-    && JSON.stringify(field.value) !== JSON.stringify(workspace.form.originalValues.get(field.id)));
-  if (!fields.length) return data;
-  return new Uint8Array(await updateFormFieldValues(data, new Map(fields.map(field => [field.name, field.value])))).buffer;
+  return new Uint8Array(await applyCurrentWorkspaceFormValues(data, workspace)).buffer;
 }
 
 type SidebarTab = 'thumbnails' | 'outline';

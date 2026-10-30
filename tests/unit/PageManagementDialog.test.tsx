@@ -38,6 +38,41 @@ async function selectSource(data: Uint8Array) {
 }
 
 describe('PageManagementDialog', () => {
+  it('ignores late submits and duplicate close events after cancellation', async () => {
+    const { onRun, onClose } = await render('duplicate');
+    await act(async () => { host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })); });
+    await submit();
+    await act(async () => { host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })); });
+    expect(onRun).not.toHaveBeenCalled(); expect(onClose).toHaveBeenCalledOnce();
+    expect(host.querySelector('dialog')!.open).toBe(false);
+  });
+
+  it('does not parse a replacement file that finishes reading after the dialog was cancelled', async () => {
+    const pdf = await PDFDocument.create(); pdf.addPage(); const data = await pdf.save();
+    await render('replace');
+    let finish!: (buffer: ArrayBuffer) => void;
+    const file = new File([], 'pending.pdf');
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; }) });
+    await act(async () => {
+      const element = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+      Object.defineProperty(element, 'files', { configurable: true, value: [file] });
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const load = vi.spyOn(PDFDocument, 'load');
+    await act(async () => { host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })); finish(data.slice().buffer); });
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('clears a failed crop error when choosing restore so retry reflects the new operation', async () => {
+    const onRun = vi.fn().mockRejectedValueOnce(new Error('Crop margins leave no visible area on page 1.')).mockResolvedValue(undefined);
+    await render('crop', onRun); await input('Top margin (mm)', '25.4'); await submit();
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('no visible area');
+    await act(async () => { host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    await submit();
+    expect(onRun).toHaveBeenLastCalledWith({ action: 'crop', pages: [1], resetCrop: true }, expect.any(AbortSignal), expect.any(Function));
+  });
+
   it('duplicates the selected pages in their requested order after the current page', async () => {
     const { onRun, onClose } = await render('duplicate', undefined, [3, 1]);
     expect(host.querySelector('dialog')!.open).toBe(true);
@@ -67,9 +102,32 @@ describe('PageManagementDialog', () => {
     await input('Top margin (mm)', '25.4'); await input('Right margin (mm)', '12.7');
     await submit();
     expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ action: 'crop', pages: [1], margins: { top: 72, right: 36, bottom: 0, left: 0 }, resetCrop: false }), expect.any(AbortSignal), expect.any(Function));
+  });
+
+  it('restores page boundaries without emitting obsolete crop margins', async () => {
+    const { onRun } = await render('crop');
     await act(async () => { host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
     await submit();
     expect(onRun).toHaveBeenLastCalledWith({ action: 'crop', pages: [1], resetCrop: true }, expect.any(AbortSignal), expect.any(Function));
+  });
+
+  it('blocks an immediate submit while a new replacement is being read instead of using the previous file', async () => {
+    const { onRun } = await render('replace');
+    const original = await PDFDocument.create(); original.addPage(); await selectSource(await original.save());
+    const next = await PDFDocument.create(); next.addPage([300, 300]); const nextData = await next.save();
+    let finish!: (buffer: ArrayBuffer) => void;
+    const file = new File([], 'next.pdf');
+    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; }) });
+    await act(async () => {
+      const element = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+      Object.defineProperty(element, 'files', { configurable: true, value: [file] });
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(onRun).not.toHaveBeenCalled();
+    await act(async () => { finish(nextData.slice().buffer); });
+    await submit();
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ source: { data: nextData.slice().buffer, pages: [1] } }), expect.any(AbortSignal), expect.any(Function));
   });
 
   it('reads a real replacement PDF, rejects unequal counts, and preserves each selected order', async () => {

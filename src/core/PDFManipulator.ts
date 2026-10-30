@@ -1,4 +1,4 @@
-import { PDFDocument, PDFDict, PDFRadioGroup, PDFCheckBox, degrees } from 'pdf-lib';
+import { PDFDocument, PDFArray, PDFDict, PDFName, PDFRadioGroup, PDFCheckBox, degrees, type PDFObject } from 'pdf-lib';
 import { deletionPageMap, insertionPageMap, reorderedPageMap } from './pageMapping';
 import { copyPagesWithForms } from './copyPagesWithForms';
 import { removePDFLinksToPages, stabilizePDFLinkPageReferences } from './PDFLinkDestinations';
@@ -148,6 +148,7 @@ export async function deletePages(
   removePDFLinksToPages(pdf, new Set(pages.flatMap((_, index) => pageMap.has(index + 1) ? [] : [index + 1])));
   const deletedRefs = new Set(deletedPages.map(page => page.ref));
   const deletedAnnotations = new Set<PDFDict>();
+  const removedFields = new Set<PDFObject>();
   for (const page of deletedPages) {
     const annots = page.node.Annots();
     if (!annots) continue;
@@ -170,8 +171,17 @@ export async function deletePages(
         field.acroField.removeWidget(index);
       }
     }
-    if (field.acroField.getWidgets().length === 0) form.removeField(field);
+    if (field.acroField.getWidgets().length === 0) {
+      removedFields.add(field.ref); removedFields.add(field.acroField.dict);
+      form.removeField(field);
+    }
     else if (field instanceof PDFRadioGroup && selected && !field.getOptions().includes(selected)) field.clear();
+  }
+  const acro = pdf.catalog.getAcroForm(), order = acro?.dict.lookup(PDFName.of('CO'));
+  if (order instanceof PDFArray && removedFields.size) {
+    const retained = order.asArray().filter(raw => !removedFields.has(raw) && !removedFields.has(pdf.context.lookup(raw)!));
+    if (retained.length) acro!.dict.set(PDFName.of('CO'), pdf.context.obj(retained));
+    else acro!.dict.delete(PDFName.of('CO'));
   }
   for (let index = pages.length - 1; index >= 0; index--) {
     if (!pageMap.has(index + 1)) pdf.removePage(index);

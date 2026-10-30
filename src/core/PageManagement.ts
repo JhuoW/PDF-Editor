@@ -93,6 +93,7 @@ export async function duplicatePDFPages(source: ArrayBuffer, pageNumbers: number
 
 function removeReplacedWidgets(pdf: PDFDocument, pages: PDFPage[]) {
   const refs = new Set(pages.map(page => page.ref)), annotations = new Set<PDFDict>();
+  const removedFields = new Set<PDFObject>();
   for (const page of pages) for (const raw of page.node.Annots()?.asArray() ?? []) {
     const annotation = pdf.context.lookup(raw); if (annotation instanceof PDFDict) annotations.add(annotation);
   }
@@ -105,8 +106,19 @@ function removeReplacedWidgets(pdf: PDFDocument, pages: PDFPage[]) {
       if (field instanceof PDFRadioGroup || field instanceof PDFCheckBox) field.acroField.removeExportValue(index);
       field.acroField.removeWidget(index);
     }
-    if (!field.acroField.getWidgets().length) form.removeField(field);
+    if (!field.acroField.getWidgets().length) {
+      removedFields.add(field.ref); removedFields.add(field.acroField.dict);
+      form.removeField(field);
+    }
     else if (field instanceof PDFRadioGroup && selected && !field.getOptions().includes(selected)) field.clear();
+  }
+  // pdf-lib removes the field objects but leaves /CO unchanged. Keeping those
+  // references makes the saved PDF dangling and breaks subsequent page edits.
+  const acro = pdf.catalog.getAcroForm(), order = acro?.dict.lookup(key('CO'));
+  if (order instanceof PDFArray && removedFields.size) {
+    const retained = order.asArray().filter(raw => !removedFields.has(raw) && !removedFields.has(pdf.context.lookup(raw)!));
+    if (retained.length) acro!.dict.set(key('CO'), pdf.context.obj(retained));
+    else acro!.dict.delete(key('CO'));
   }
 }
 

@@ -17,6 +17,15 @@ beforeEach(() => { FakeWorker.instances = []; vi.stubGlobal('Worker', FakeWorker
 afterEach(() => vi.unstubAllGlobals());
 
 describe('page export worker lifecycle', () => {
+  it('rejects and terminates if a progress callback throws, rather than leaving the export pending', async () => {
+    const error = new Error('Progress observer failed');
+    const pending = exportPagesInWorker(new Uint8Array([1]), settings, { onProgress: () => { throw error; } });
+    const rejected = expect(pending).rejects.toBe(error), worker = FakeWorker.instances[0];
+    expect(() => worker.send({ type: 'progress', progress: { completed: 0, total: 1, phase: 'pages' } })).not.toThrow();
+    await rejected;
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
   it('transfers an exact private byte view and terminates after a successful result', async () => {
     const original = new Uint8Array([9, 1, 2, 8]), onProgress = vi.fn();
     const pending = exportPagesInWorker(original.subarray(1, 3), settings, { onProgress });

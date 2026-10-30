@@ -1,7 +1,8 @@
 import { PDFDocument, PDFNumber, PDFName } from 'pdf-lib';
 import type { Annotation } from '../annotations/types';
 import { importEditableAnnotations } from '../annotations/AnnotationImporter';
-import { extractFormFields, updateFormFieldValues } from '../forms/FormFieldExtractor';
+import { extractFormFields } from '../forms/FormFieldExtractor';
+import { applyCurrentWorkspaceFormValues } from '../forms/WorkspaceFormValues';
 import { assertTextEditSource } from '../editing/TextEditSource';
 import { remapWorkspacePages, type WorkspaceSnapshot } from '../store/workspaceSnapshot';
 import { applyWorkspaceContent } from './PDFExport';
@@ -64,12 +65,7 @@ export async function performPageManagement(
   }
   if (workspace.editing.textEdits.length) { await assertTextEditSource(data, signal); signal?.throwIfAborted(); }
   let prepared = await applyWorkspaceContent(data.slice(0), workspace); signal?.throwIfAborted();
-  const changed = workspace.form.fields.filter(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature'
-    && JSON.stringify(field.value) !== JSON.stringify(workspace.form.originalValues.get(field.id)));
-  if (changed.length) {
-    prepared = new Uint8Array(await updateFormFieldValues(buffer(prepared), new Map(changed.map(field => [field.name, field.value]))));
-    signal?.throwIfAborted();
-  }
+  prepared = await applyCurrentWorkspaceFormValues(buffer(prepared), workspace, signal);
   const identity = new Map(Array.from({ length: total }, (_, index) => [index + 1, index + 1]));
   let pageMap = identity, next = structuredClone(workspace), result: Uint8Array;
   if (request.action === 'duplicate') {

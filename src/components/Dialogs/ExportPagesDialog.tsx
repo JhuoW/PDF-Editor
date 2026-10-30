@@ -20,7 +20,7 @@ export function ExportPagesDialog({ readPDF, onClose, imagesOnly = false, totalP
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const firstInput = useRef<HTMLSelectElement>(null);
-  const mounted = useRef(false), submitting = useRef(false);
+  const mounted = useRef(false), submitting = useRef(false), closed = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const [format, setFormat] = useState<PageExportSettings['format']>('png');
   const [range, setRange] = useState('');
@@ -51,30 +51,33 @@ export function ExportPagesDialog({ readPDF, onClose, imagesOnly = false, totalP
     firstInput.current?.focus();
     return () => { mounted.current = false; controller.current?.abort(); element?.close(); };
   }, []);
-  const close = () => { controller.current?.abort(); onClose(); };
+  const close = () => {
+    if (closed.current) return;
+    closed.current = true; controller.current?.abort(); dialog.current?.close(); onClose();
+  };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (submitting.current) return;
+    if (closed.current || !mounted.current || submitting.current) return;
     if (rangeError) { setRangeAttempted(true); return; }
     submitting.current = true;
     const request = new AbortController(); controller.current = request;
     setBusy(true); setError(null); setProgress(null);
     try {
       const source = await readPDF();
-      if (!mounted.current || request.signal.aborted) return;
+      if (!mounted.current || closed.current || request.signal.aborted) return;
       const result = await exportPagesInWorker(source.data, { format, range: exportRange, dpi, quality, fileName: source.fileName }, {
         signal: request.signal,
-        onProgress: value => { if (mounted.current && !request.signal.aborted) setProgress(value); },
+        onProgress: value => { if (mounted.current && !closed.current && !request.signal.aborted) setProgress(value); },
       });
-      if (!mounted.current || request.signal.aborted) return;
+      if (!mounted.current || closed.current || request.signal.aborted) return;
       downloadPageExport(result);
-      onClose();
+      close();
     } catch (cause) {
-      if (mounted.current && !request.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not export pages.');
+      if (mounted.current && !closed.current && !request.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not export pages.');
     } finally {
       if (controller.current === request) controller.current = null;
       submitting.current = false;
-      if (mounted.current) setBusy(false);
+      if (mounted.current && !closed.current) setBusy(false);
     }
   };
   return (
@@ -87,7 +90,7 @@ export function ExportPagesDialog({ readPDF, onClose, imagesOnly = false, totalP
         <header><h2 id="export-pages-title">{imagesOnly ? t('pdf.images.title') : t("m.export.pages.93a12e")}</h2><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.page.export.dialog.54da7b")} onClick={close}>×</button></header>
         <p id="export-pages-description">{imagesOnly ? t('pdf.images.description') : t("m.export.selected.pages.with.your.current.edits.mu.752b04")}</p>
         <fieldset disabled={busy}>
-          <label>{t("m.export.format.483a5d")}<select ref={firstInput} aria-label={t("m.export.format.483a5d")} value={format} onChange={event => setFormat(event.target.value as PageExportSettings['format'])}>
+          <label>{t("m.export.format.483a5d")}<select ref={firstInput} aria-label={t("m.export.format.483a5d")} value={format} onChange={event => { setFormat(event.target.value as PageExportSettings['format']); setError(null); }}>
             <option value="png">{t("m.png.images.66f5d9")}</option><option value="jpeg">{t("m.jpeg.images.1eed6d")}</option>{!imagesOnly && <option value="text">{t("m.utf.8.text.0f62e2")}</option>}
           </select></label>
           {imagesOnly && totalPages !== undefined && <fieldset className="page-export-scope">
@@ -112,10 +115,10 @@ export function ExportPagesDialog({ readPDF, onClose, imagesOnly = false, totalP
             <p className="conversion-hint" id="export-pages-range-help">{imagesOnly ? t('pdf.images.range.help') : t("m.leave.blank.for.all.pages.pages.follow.the.liste.deab9c")}</p>
           </>}
           {visibleRangeError && <p className="conversion-error" id="export-pages-range-error" role="alert">{translateError(rangeError)}</p>}
-          {format !== 'text' && <label>{t("m.resolution.516aae")}<select aria-label={t("m.resolution.516aae")} value={dpi} onChange={event => setDpi(Number(event.target.value) as 150 | 300)}>
+          {format !== 'text' && <label>{t("m.resolution.516aae")}<select aria-label={t("m.resolution.516aae")} value={dpi} onChange={event => { setDpi(Number(event.target.value) as 150 | 300); setError(null); }}>
             <option value={150}>{t("m.150.dpi.88e3c1")}</option><option value={300}>{t("m.300.dpi.c735d3")}</option>
           </select></label>}
-          {format === 'jpeg' && <label>{t("m.jpeg.quality.8fba9c")}{' '}{quality}%<input aria-label={t("m.jpeg.quality.e85408")} type="range" min="1" max="100" value={quality} onChange={event => setQuality(Number(event.target.value))} /></label>}
+          {format === 'jpeg' && <label>{t("m.jpeg.quality.8fba9c")}{' '}{quality}%<input aria-label={t("m.jpeg.quality.e85408")} type="range" min="1" max="100" value={quality} onChange={event => { setQuality(Number(event.target.value)); setError(null); }} /></label>}
           <p className="conversion-hint">{format === 'text' ? t("m.extracts.existing.text.including.visible.form.va.444490") : t("m.images.use.the.visible.page.area.including.its.r.9117b8")}</p>
           {pages && !busy && <div className="page-export-summary" role="status" aria-live="polite">
             <strong>{t('pdf.images.count', { count: pages.length, total: totalPages })}</strong>

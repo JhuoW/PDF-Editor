@@ -30,6 +30,29 @@ async function enterRange(value: string) {
 }
 
 describe('ExportPagesDialog', () => {
+  it('closes once and rejects late submissions even if the parent has not unmounted it yet', async () => {
+    const readPDF = vi.fn().mockResolvedValue(source), onClose = vi.fn();
+    await act(async () => { root.render(<ExportPagesDialog readPDF={readPDF} onClose={onClose} />); });
+    await act(async () => { host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })); });
+    await submit();
+    await act(async () => { host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })); });
+    expect(host.querySelector('dialog')!.open).toBe(false);
+    expect(readPDF).not.toHaveBeenCalled(); expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('clears an obsolete render-limit error when resolution changes and retries with the corrected settings', async () => {
+    vi.mocked(exportPagesInWorker).mockRejectedValueOnce(new Error('Page 1 exceeds the 40 megapixel export limit at 300 dpi. Choose 150 dpi or a smaller page.'));
+    await act(async () => { root.render(<ExportPagesDialog readPDF={async () => source} onClose={vi.fn()} />); });
+    const resolution = host.querySelector<HTMLSelectElement>('select[aria-label="Resolution"]')!;
+    await act(async () => { resolution.value = '300'; resolution.dispatchEvent(new Event('change', { bubbles: true })); });
+    await submit(); expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    await act(async () => { resolution.value = '150'; resolution.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    await submit();
+    expect(exportPagesInWorker).toHaveBeenLastCalledWith(source.data, expect.objectContaining({ dpi: 150 }), expect.anything());
+    expect(downloadPageExport).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ['all', '', '8 of 8'], ['current', '4', '1 of 8'], ['selection', '2,7', '2 of 8'],
   ])('converts %s pages from document navigation without exposing text formats', async (scope, range, count) => {

@@ -21,7 +21,9 @@ export function exportPagesInWorker(data: Uint8Array | ArrayBuffer, settings: Pa
     worker.onmessageerror = () => fail(new Error('The page export worker returned unreadable data.'));
     worker.onmessage = (event: MessageEvent<{ type: string; progress?: PageExportProgress; result?: PageExportResult; message?: string }>) => {
       if (settled) return;
-      if (event.data?.type === 'progress' && event.data.progress) control.onProgress?.(event.data.progress);
+      if (event.data?.type === 'progress' && event.data.progress) {
+        try { control.onProgress?.(event.data.progress); } catch (error) { fail(error); }
+      }
       else if (event.data?.type === 'result' && event.data.result) { if (finish()) resolve(event.data.result); }
       else if (event.data?.type === 'error') fail(new Error(event.data.message || 'Could not export pages.'));
       else fail(new Error('The page export worker returned an unexpected response.'));

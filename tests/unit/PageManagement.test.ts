@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFString, degrees } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFString, degrees } from 'pdf-lib';
 import * as mupdf from 'mupdf';
 import { assertPageManagementSource, cropPDFPages, duplicatePDFPages, replacePDFPages, resetPageCrop } from '../../src/core/PageManagement';
 import { resolvePDFLinkDestination } from '../../src/core/PDFLinkDestinations';
@@ -30,6 +30,20 @@ function pageTexts(bytes: Uint8Array) {
 }
 
 describe('high-priority page management', () => {
+  it('removes deleted fields from calculation order while retaining surviving and imported calculations', async () => {
+    const target = await fixture(), donor = await fixture('REPLACEMENT');
+    const retained = target.pdf.getForm().createTextField('Retained'); retained.addToPage(target.pages[2], { x: 5, y: 20, width: 100, height: 20 });
+    target.pdf.catalog.getOrCreateAcroForm().dict.set(key('CO'), target.pdf.context.obj([
+      target.pdf.getForm().getTextField('Name').ref, retained.ref,
+    ]));
+    donor.pdf.catalog.getOrCreateAcroForm().dict.set(key('CO'), donor.pdf.context.obj([donor.pdf.getForm().getTextField('Name').ref]));
+    const result = await replacePDFPages(buffer(await target.pdf.save()), [2], buffer(await donor.pdf.save()), [2]);
+    const loaded = await PDFDocument.load(result), fields = loaded.getForm().getFields();
+    const calculationOrder = loaded.catalog.getOrCreateAcroForm().dict.lookup(key('CO'), PDFArray);
+    expect(calculationOrder.asArray().map(ref => fields.find(field => field.ref === ref)?.getName())).toEqual(['Retained', 'Name']);
+    await expect(assertPageManagementSource(buffer(result))).resolves.toBeUndefined();
+  });
+
   it('duplicates selected pages in their requested order with independent forms and the original catalog', async () => {
     const { pdf } = await fixture(), original = buffer(await pdf.save());
     const modified = await duplicatePDFPages(original, [3, 2], 2), loaded = await PDFDocument.load(modified);
@@ -83,6 +97,41 @@ describe('high-priority page management', () => {
     expect(resolvePDFLinkDestination(loaded, link.get(key('Dest')))?.pageNumber).toBe(1);
     expect(pageTexts(result).map(text => /(?:REPLACEMENT|ORIGINAL) PAGE (\d)/.exec(text)?.[0])).toEqual(['REPLACEMENT PAGE 2', 'ORIGINAL PAGE 2', 'REPLACEMENT PAGE 1']);
     expect(loaded.getForm().getFields().map(field => field.getName())).toEqual(['Name', 'Name_2']);
+  });
+
+  it('replaces every page in a reordered pairing without dangling form, link or outline references', async () => {
+    const target = await fixture(), donor = await fixture('REPLACEMENT');
+    target.pdf.catalog.getOrCreateAcroForm().dict.set(key('CO'), target.pdf.context.obj([target.pdf.getForm().getTextField('Name').ref]));
+    donor.pdf.catalog.getOrCreateAcroForm().dict.set(key('CO'), donor.pdf.context.obj([donor.pdf.getForm().getTextField('Name').ref]));
+    const result = await replacePDFPages(buffer(await target.pdf.save()), [3, 1, 2], buffer(await donor.pdf.save()), [1, 2, 3]);
+    const loaded = await PDFDocument.load(result), field = loaded.getForm().getTextField('Name');
+    expect(pageTexts(result).map(text => /REPLACEMENT PAGE (\d)/.exec(text)?.[1])).toEqual(['2', '3', '1']);
+    expect(loaded.getTitle()).toBe('ORIGINAL title');
+    expect(field.acroField.getWidgets()[0].P()).toBe(loaded.getPage(0).ref);
+    expect(loaded.catalog.getOrCreateAcroForm().dict.lookup(key('CO'), PDFArray).asArray()).toEqual([field.ref]);
+    const link = loaded.getPage(2).node.Annots()!.lookup(0, PDFDict);
+    expect(resolvePDFLinkDestination(loaded, link.get(key('Dest')))?.pageNumber).toBe(1);
+    const originalBookmark = loaded.catalog.lookup(key('Outlines'), PDFDict).lookup(key('First'), PDFDict);
+    expect(resolvePDFLinkDestination(loaded, originalBookmark.get(key('Dest')))?.pageNumber).toBe(2);
+    await expect(assertPageManagementSource(buffer(result))).resolves.toBeUndefined();
+  });
+
+  it('repeated crop operations shrink the displayed UserUnit page by physical margins and reset restores MediaBox', async () => {
+    const pdf = await PDFDocument.create(), page = pdf.addPage([220, 340]);
+    page.setMediaBox(-20, -40, 220, 340); page.setCropBox(-10, -20, 210, 300);
+    page.setRotation(degrees(90)); page.node.set(key('UserUnit'), PDFNumber.of(2));
+    const bounds = (bytes: Uint8Array) => {
+      const pdf = new mupdf.PDFDocument(bytes), page = pdf.loadPage(0);
+      try { const [x0, y0, x1, y1] = page.getBounds(); return [x1 - x0, y1 - y0]; }
+      finally { page.destroy(); pdf.destroy(); }
+    };
+    const margins = { top: 10, right: 20, bottom: 30, left: 40 };
+    const first = await cropPDFPages(buffer(await pdf.save()), [1], margins);
+    expect(bounds(first)).toEqual([540, 380]);
+    const second = await cropPDFPages(buffer(first), [1], margins);
+    expect(bounds(second)).toEqual([480, 340]);
+    const restored = await resetPageCrop(buffer(second), [1]);
+    expect(bounds(restored)).toEqual([680, 440]);
   });
 
   it.each([

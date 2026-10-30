@@ -165,7 +165,9 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     const layout = inlineLayout ?? existing?.layout;
     const originalText = existing?.originalText ?? block.text;
     const textEdits = state.textEdits.filter(edit => edit.blockId !== blockId);
-    if (newText !== originalText || (layout && (layout.translate || !layout.keepBaseline))) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}) });
+    const retainsFormatting = layout && (layout.fitToContent || ['fontName', 'fontSize', 'fontColor', 'alignment', 'lineHeight']
+      .some(key => layout[key as keyof TextLayoutOptions] !== undefined));
+    if (newText !== originalText || (layout && (layout.translate || !layout.keepBaseline || retainsFormatting))) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}) });
     const textBlocks = new Map(state.textBlocks);
     textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === blockId ? { ...item, text: newText } : item));
     set({ textBlocks, textEdits, isDirty: textEdits.length > 0 || state.imageEdits.length > 0 || state.redactions.some(area => !area.applied) });

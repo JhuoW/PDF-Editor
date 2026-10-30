@@ -20,8 +20,8 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
   const current = result?.key === key ? result : null, layout = edits.find(edit => edit.blockId === block.id)?.layout;
   useEffect(() => {
     if (!document || !block.editable) return;
-    const controller = new AbortController(), initial = useEditingStore.getState().textEdits.find(edit => edit.blockId === block.id);
-    void document.getData().then(data => prepareTextEditLayoutInWorker(data, block, initial, { signal: controller.signal }))
+    const controller = new AbortController();
+    void document.getData().then(data => prepareTextEditLayoutInWorker(data, block, undefined, { signal: controller.signal }))
       .then(prepared => { if (!controller.signal.aborted) setResult({ key, prepared }); })
       .catch(cause => { if (!controller.signal.aborted) setResult({ key, error: cause instanceof Error ? cause.message : 'Could not prepare text formatting.' }); });
     return () => controller.abort();
@@ -30,9 +30,18 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
   }, [key]);
   const prepared = current?.prepared, disabled = !block.editable || !prepared || !!current?.error;
   const font = layout?.fontName ?? prepared?.input.fontName ?? standardTextFont(block.style.fontName);
+  const commitTextEditor = () => {
+    const selected = useEditingStore.getState().selectedBlockId === block.id;
+    commitPendingEditors();
+    // Finishing inline typing clears its selection. A property change still
+    // belongs to this block and must not unmount its own controls on focus.
+    if (selected && useDocumentStore.getState().document === key.document && useEditingStore.getState().getBlock(block.id)) {
+      useEditingStore.getState().selectBlock(block.id);
+    }
+  };
   const change = (patch: TextLayoutOptions, groupKey?: string) => {
     if (disabled) return;
-    if (!groupKey) commitPendingEditors();
+    if (!groupKey) commitTextEditor();
     const state = useEditingStore.getState(), latest = state.getBlock(block.id), previous = state.textEdits.find(edit => edit.blockId === block.id);
     if (!latest?.editable || useDocumentStore.getState().document !== key.document) return;
     const previousLayout = previous?.layout;
@@ -57,12 +66,12 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
       <div className="native-field-grid"><DecorationNumberInput label={t('m.font.size.83ca9e')} value={layout?.fontSize ?? prepared?.input.fontSize ?? block.style.fontSize} min={1} max={500} onChange={fontSize => change({ fontSize })} />
         <DecorationNumberInput label={t('m.line.spacing.18f550')} value={layout?.lineHeight ?? prepared?.input.lineHeight ?? block.style.lineHeight} min={layout?.keepBaseline === false ? 1 : .25} max={5} step={.1} onChange={lineHeight => change({ lineHeight })} /></div>
       <div className="native-button-grid"><button type="button" aria-pressed={bold} onClick={() => change({ fontName: variant(!bold, italic) })}>{t('text.format.bold')}</button><button type="button" aria-pressed={italic} onClick={() => change({ fontName: variant(bold, !italic) })}>{t('text.format.italic')}</button></div>
-      <label>{t('m.text.color.1c7a30')}<input type="color" aria-label={t('m.text.color.1c7a30')} value={layout?.fontColor ?? prepared?.input.fontColor ?? '#000000'} onFocus={() => { commitPendingEditors(); colorGroup.current = `format:${block.id}:${crypto.randomUUID()}`; }} onBlur={() => { useHistoryStore.getState().endGroup(); colorGroup.current = undefined; }} onChange={event => change({ fontColor: event.target.value }, colorGroup.current)} /></label>
+      <label>{t('m.text.color.1c7a30')}<input type="color" aria-label={t('m.text.color.1c7a30')} value={layout?.fontColor ?? prepared?.input.fontColor ?? '#000000'} onFocus={() => { commitTextEditor(); colorGroup.current = `format:${block.id}:${crypto.randomUUID()}`; }} onBlur={() => { useHistoryStore.getState().endGroup(); colorGroup.current = undefined; }} onChange={event => change({ fontColor: event.target.value }, colorGroup.current)} /></label>
       <label>{t('m.alignment.7f8c51')}<select aria-label={t('text.format.alignment')} value={layout?.alignment ?? prepared?.input.alignment ?? block.style.alignment} onChange={event => change({ alignment: event.target.value as TextLayoutOptions['alignment'] })}>
         {(['left', 'center', 'right', 'justify'] as const).map(value => <option key={value} value={value}>{t(`text.format.align.${value}`)}</option>)}
       </select></label>
     </fieldset>
-    <button className="inspector-primary" disabled={!block.editable} onClick={() => { commitPendingEditors(); onTextLayout(block.id); }}>{t('m.text.layout.661a8e')}</button>
+    <button className="inspector-primary" disabled={!block.editable} onClick={() => { commitTextEditor(); onTextLayout(block.id); }}>{t('m.text.layout.661a8e')}</button>
     <p>{t('text.format.help')}</p>
   </section>;
 }

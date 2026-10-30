@@ -1,5 +1,6 @@
 import type { WorkspaceSnapshot } from '../store/workspaceSnapshot';
-import { extractFormFields, updateFormFieldValues } from '../forms/FormFieldExtractor';
+import { extractFormFields } from '../forms/FormFieldExtractor';
+import { applyCurrentWorkspaceFormValues } from '../forms/WorkspaceFormValues';
 import { serializeAnnotationsToPDF } from '../annotations/AnnotationSerializer';
 import { applyWorkspaceContent } from './PDFExport';
 import { applyPDFBookmarks, inspectPDFBookmarks } from './PDFBookmarks';
@@ -18,9 +19,7 @@ export async function preparePDFBookmarksWorkspace(data: ArrayBuffer, workspace:
   }
   let prepared = await applyWorkspaceContent(data.slice(0), workspace);
   control.signal?.throwIfAborted();
-  const changed = workspace.form.fields.filter(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature'
-    && JSON.stringify(field.value) !== JSON.stringify(workspace.form.originalValues.get(field.id)));
-  if (changed.length) prepared = new Uint8Array(await updateFormFieldValues(buffer(prepared), new Map(changed.map(field => [field.name, field.value]))));
+  prepared = await applyCurrentWorkspaceFormValues(buffer(prepared), workspace, control.signal);
   control.signal?.throwIfAborted();
   const result = buffer(prepared);
   return { data: result, report: await inspectPDFBookmarks(result, { signal: control.signal }) };

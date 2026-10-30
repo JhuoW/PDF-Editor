@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { PDFDocument, PDFName } from 'pdf-lib';
+import { PDFArray, PDFDocument, PDFName } from 'pdf-lib';
 import { deletePages, reorderPages } from '../../src/core/PDFManipulator';
+import { assertPageManagementSource } from '../../src/core/PageManagement';
 import { extractFormFields, updateFormFieldValues } from '../../src/forms/FormFieldExtractor';
 
 const asBuffer = (bytes: Uint8Array): ArrayBuffer => new Uint8Array(bytes).buffer;
 const position = { x: 10, y: 20, width: 100, height: 20, borderWidth: 0 };
 
 describe('page operations preserve forms and metadata', () => {
+  it('removes deleted fields from native calculation order so later page management still accepts the PDF', async () => {
+    const pdf = await PDFDocument.create(), first = pdf.addPage(), second = pdf.addPage();
+    const removed = pdf.getForm().createTextField('Removed'); removed.addToPage(first, position);
+    const retained = pdf.getForm().createTextField('Retained'); retained.addToPage(second, position);
+    pdf.catalog.getOrCreateAcroForm().dict.set(PDFName.of('CO'), pdf.context.obj([removed.ref, retained.ref]));
+    const modified = await deletePages(asBuffer(await pdf.save()), [1]), loaded = await PDFDocument.load(modified);
+    expect(loaded.catalog.getOrCreateAcroForm().dict.lookup(PDFName.of('CO'), PDFArray).asArray())
+      .toEqual([loaded.getForm().getTextField('Retained').ref]);
+    await expect(assertPageManagementSource(asBuffer(modified))).resolves.toBeUndefined();
+  });
+
   it('deletes page one while keeping page two fields, their identities, and metadata', async () => {
     const pdf = await PDFDocument.create();
     const firstPage = pdf.addPage();

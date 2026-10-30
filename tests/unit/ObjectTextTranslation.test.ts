@@ -5,6 +5,7 @@ import { applyTextEdits, prepareTextEditLayout } from '../../src/editing/TextEdi
 import { useEditingStore } from '../../src/store/editingStore';
 import { useHistoryStore } from '../../src/store/historyStore';
 import type { TextBlock } from '../../src/editing/types';
+import { textObjectEdit } from '../../src/editing/objectOperations';
 
 const text = 'Move this paragraph';
 const transform = (point: number[], matrix: number[]) => [matrix[0] * point[0] + matrix[2] * point[1] + matrix[4], matrix[1] * point[0] + matrix[3] * point[1] + matrix[5]];
@@ -53,6 +54,25 @@ describe('moving original PDF text', () => {
     expect(useEditingStore.getState().textEdits[0].layout).toEqual(layout);
     state.requestTextEdit(block.id); expect(useEditingStore.getState().pendingTextEditId).toBe(block.id);
     state.setMode('object'); expect(useEditingStore.getState().pendingTextEditId).toBeNull();
+  });
+  it('retains quick formatting when wording returns to the original, then moves the formatted glyphs', async () => {
+    const { data, block } = await fixture(false), state = useEditingStore.getState(); state.setTextBlocks(1, [block]);
+    const layout = { keepBaseline: true, fitToContent: true, fontName: 'Courier-Bold', fontSize: 16, fontColor: '#ff0000', targetRect: { ...block.rect, width: 250, height: 30 } };
+    state.updateBlockLayout({ blockId: block.id, originalText: text, newText: text, timestamp: 1, layout });
+    state.updateBlockText(block.id, 'Temporary wording'); state.updateBlockText(block.id, text);
+    expect(useEditingStore.getState().textEdits).toHaveLength(1);
+    expect(useEditingStore.getState().textEdits[0].layout).toEqual(layout);
+    const latest = useEditingStore.getState().getBlock(block.id)!, moved = textObjectEdit(latest, { x: 70, y: 120, width: 250, height: 30 });
+    expect(moved.layout).toMatchObject({ fontName: 'Courier-Bold', fontSize: 16, fontColor: '#ff0000', translate: true });
+    const result = await applyTextEdits(data, new Map([[1, [latest]]]), [moved]), pdf = new mupdf.PDFDocument(result), page = pdf.loadPage(0), content = page.toStructuredText('');
+    const fonts: string[] = [], colors: number[][] = [], sizes: number[] = [];
+    try {
+      content.walk({ onChar(character, _origin, font, size, _quad, color) {
+        try { if (character === 'M') { fonts.push(font.getName()); colors.push([...color]); sizes.push(size); } } finally { font.destroy(); }
+      } });
+      expect(content.asText()).toContain(text); expect(content.asText()).toContain('Neighbor stays');
+      expect(fonts[0]).toMatch(/^(Courier|NimbusMonoPS)-Bold$/); expect(colors[0]).toEqual([1, 0, 0]); expect(sizes[0]).toBe(16);
+    } finally { content.destroy(); page.destroy(); pdf.destroy(); }
   });
   it('measures room for continued typing at the moved destination while keeping its baseline', async () => {
     const { data, block } = await fixture(false), targetRect = { ...block.rect, x: 85, y: 133 };

@@ -34,7 +34,7 @@ export default function PageManagementDialog({ action, totalPages, currentPage, 
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null), firstInput = useRef<HTMLInputElement>(null);
   const sourceInput = useRef<HTMLInputElement>(null);
-  const mounted = useRef(false), submitting = useRef(false), fileJob = useRef(0);
+  const mounted = useRef(false), submitting = useRef(false), fileJob = useRef(0), closed = useRef(false), readingSource = useRef(false);
   const committing = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const [range, setRange] = useState(() => (selectedPages.length ? selectedPages : [currentPage]).join(', '));
@@ -54,7 +54,11 @@ export default function PageManagementDialog({ action, totalPages, currentPage, 
     firstInput.current?.focus();
     return () => { mounted.current = false; controller.current?.abort(); element?.close(); };
   }, []);
-  const close = () => { if (committing.current) return; fileJob.current++; controller.current?.abort(); onClose(); };
+  const finishClose = () => {
+    if (closed.current) return;
+    closed.current = true; fileJob.current++; readingSource.current = false; dialog.current?.close(); onClose();
+  };
+  const close = () => { if (committing.current || closed.current) return; controller.current?.abort(); finishClose(); };
   let request: PageManagementRequest | null = null, validation: string | null = null;
   let pages: number[] = [], replacementPages: number[] = [];
   try {
@@ -81,28 +85,32 @@ export default function PageManagementDialog({ action, totalPages, currentPage, 
     }
   } catch (cause) { validation = (cause as Error).message; }
   const selectSource = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || closed.current || submitting.current) return;
     const job = ++fileJob.current;
+    readingSource.current = true;
     setSource(null); setSourceRange(''); setError(null); setReading(true); setAttempted(false);
     try {
       if (file.size > 256 * 1024 * 1024) throw new Error('Replacement PDFs must be smaller than 256 MB.');
       const data = await file.arrayBuffer();
+      if (!mounted.current || closed.current || job !== fileJob.current) return;
       const pdf = await PDFDocument.load(data);
       if (pdf.isEncrypted) throw new Error('Unlock the replacement PDF before selecting it.');
       const count = pdf.getPageCount();
       if (!count) throw new Error('The PDF has no readable pages.');
-      if (!mounted.current || job !== fileJob.current) return;
+      if (!mounted.current || closed.current || job !== fileJob.current) return;
       setSource({ data, count, name: file.name });
       setSourceRange(Array.from({ length: Math.min(count, pages.length || 1) }, (_, index) => index + 1).join(', '));
     } catch (cause) {
-      if (mounted.current && job === fileJob.current) setError(cause instanceof Error && /encrypted/i.test(cause.message)
+      if (mounted.current && !closed.current && job === fileJob.current) setError(cause instanceof Error && /encrypted/i.test(cause.message)
         ? 'Unlock the replacement PDF before selecting it.' : cause instanceof Error && cause.message === 'Replacement PDFs must be smaller than 256 MB.'
           ? cause.message : 'Could not read the replacement PDF. Choose a valid, unlocked PDF.');
-    } finally { if (mounted.current && job === fileJob.current) setReading(false); }
+    } finally {
+      if (mounted.current && !closed.current && job === fileJob.current) { readingSource.current = false; setReading(false); }
+    }
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (submitting.current || reading) return;
+    if (closed.current || !mounted.current || submitting.current || readingSource.current) return;
     setAttempted(true);
     if (validation || !request) return;
     submitting.current = true; setBusy(true); setError(null);
@@ -110,17 +118,17 @@ export default function PageManagementDialog({ action, totalPages, currentPage, 
     try {
       await onRun(request, pending.signal, () => {
         pending.signal.throwIfAborted();
-        if (!mounted.current) throw new DOMException('Operation cancelled', 'AbortError');
+        if (!mounted.current || closed.current) throw new DOMException('Operation cancelled', 'AbortError');
         committing.current = true; setCommitStarted(true);
       });
-      if (mounted.current && !pending.signal.aborted) onClose();
+      if (mounted.current && !closed.current && !pending.signal.aborted) finishClose();
     } catch (cause) {
-      if (mounted.current && !pending.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not update PDF pages.');
+      if (mounted.current && !closed.current && !pending.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not update PDF pages.');
     } finally {
       submitting.current = false;
       committing.current = false;
       if (controller.current === pending) controller.current = null;
-      if (mounted.current) { setBusy(false); setCommitStarted(false); }
+      if (mounted.current && !closed.current) { setBusy(false); setCommitStarted(false); }
     }
   };
   const updateRange = (value: string) => { setRange(value); setAttempted(false); setError(null); };
@@ -165,7 +173,7 @@ export default function PageManagementDialog({ action, totalPages, currentPage, 
           </>}
         </>}
         {action === 'crop' && <>
-          <label className="page-management-checkbox"><input type="checkbox" checked={resetCrop} onChange={event => setResetCrop(event.target.checked)} />{t('pages.restore.crop')}</label>
+          <label className="page-management-checkbox"><input type="checkbox" checked={resetCrop} onChange={event => { setResetCrop(event.target.checked); setError(null); }} />{t('pages.restore.crop')}</label>
           <div className="page-management-margins">{sides.map(side => <label key={side}>{t(`pages.crop.${side}`)}<input type="number" min={0} max={10000} step="0.1" disabled={resetCrop} aria-label={t(`pages.crop.${side}`)} value={margins[side]} onChange={event => { setMargins(value => ({ ...value, [side]: event.target.value })); setError(null); }} /></label>)}</div>
           <p className="conversion-hint">{t('pages.crop.help')}</p>
         </>}

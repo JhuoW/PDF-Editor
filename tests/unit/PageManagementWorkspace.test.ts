@@ -39,6 +39,20 @@ function inspect(data: Uint8Array | ArrayBuffer) {
 }
 
 describe('page management with editable workspace state', () => {
+  it('keeps a form reset when a later page operation follows an operation that baked edited values', async () => {
+    const { data, workspace } = await fixture();
+    const first = await performPageManagement(data, workspace, { action: 'duplicate', pages: [1], beforePage: 1 });
+    const reset = structuredClone(first.workspace);
+    for (const field of reset.form.fields) field.value = structuredClone(reset.form.originalValues.get(field.id)!);
+    reset.form.isDirty = false;
+    const second = await performPageManagement(buffer(first.data), reset, { action: 'crop', pages: [2], margins: { top: 2, right: 2, bottom: 2, left: 2 } });
+    const native = await PDFDocument.load(second.data);
+    expect(native.getForm().getTextField('Contact').getText()).toBe('Original form');
+    expect(native.getForm().getTextField('Contact_2').getText()).toBe('Current 中文 form');
+    expect(second.workspace.form.fields.find(field => field.name === 'Contact')!.value).toBe('Original form');
+    expect(second.workspace.form.isDirty).toBe(false);
+  });
+
   it('duplicates current body/form edits and independent editable annotations while preserving the input snapshot', async () => {
     const { data, workspace } = await fixture(), source = data.slice(0), before = structuredClone(workspace);
     workspace.editing.redactions.push({ id: 'pending', pageNumber: 1, rect: { x: 280, y: 180, width: 20, height: 10 }, overlayColor: '#000000', applied: false });
