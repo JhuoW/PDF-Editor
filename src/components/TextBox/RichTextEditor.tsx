@@ -1,3 +1,4 @@
+import { useLocale } from "../../i18n";
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import type { RichTextSegment, TextStyle } from '../../annotations/types';
 import { useTextBoxStore } from '../../store/textBoxStore';
@@ -56,6 +57,7 @@ export function RichTextEditor({
   onBlur,
   autoFocus = true,
 }: RichTextEditorProps) {
+  useLocale();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);

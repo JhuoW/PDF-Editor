@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { pdfDocumentOptions, pdfjsLib } from '../../utils/pdfConfig';
@@ -15,6 +16,7 @@ interface Props {
 }
 interface Gesture { pointer: number; kind: 'create' | 'move' | 'resize'; start: [number, number]; id?: string; rect?: ViewportRect }
 export function PDFLinksPreview({ data, pageNumber, links, selectedId, placing, disabled, scale, showAreas, onSelect, onCreate, onMove, onDelete, onInteractionChange, onReady, onError }: Props) {
+  useLocale();
   const host = useRef<HTMLDivElement>(null), overlay = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), gesture = useRef<Gesture | null>(null);
   const callbacks = useRef({ onReady, onError, onInteractionChange });
   const [availableWidth, setAvailableWidth] = useState(600), [loaded, setLoaded] = useState<{ data: Uint8Array; number: number; page: PDFPageProxy } | null>(null), [rendered, setRendered] = useState<object | null>(null), [ghost, setGhost] = useState<ViewportRect | null>(null);
@@ -79,11 +81,11 @@ export function PDFLinksPreview({ data, pageNumber, links, selectedId, placing, 
   };
   const style = (rect: ViewportRect) => { if (!source || !viewport) return {}; const mapped = mapViewportRect(rect, source, viewport); return { left: mapped.x, top: mapped.y, width: mapped.width, height: mapped.height }; };
   return <div ref={host} className="pdf-links-preview" aria-busy={!ready}>
-    {!ready && <p role="status">Rendering PDF preview…</p>}
+    {!ready && <p role="status">{t("m.rendering.pdf.preview.6934dd")}</p>}
     {source && viewport && <div className="pdf-links-page" style={{ width: viewport.width, height: viewport.height }}>
-      <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} aria-label={`Links page ${pageNumber} preview`} style={{ width: viewport.width, height: viewport.height }} />
+      <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} aria-label={t("m.links.page.preview.c28586", { v0: pageNumber })} style={{ width: viewport.width, height: viewport.height }} />
       <NativeLinkBorderLayer page={page!} viewport={viewport} onReady={() => setBordersRendered(viewport)} onError={message => { setFailedViewport(viewport); callbacks.current.onError(message); }} />
-      <div ref={overlay} className={`pdf-links-overlay ${placing ? 'placing' : ''}`} tabIndex={0} role="region" aria-label="Link areas" onPointerDown={event => { if (placing) begin(event, 'create'); else if (event.target === event.currentTarget && !disabled) onSelect(null); }} onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onKeyDown={event => {
+      <div ref={overlay} className={`pdf-links-overlay ${placing ? 'placing' : ''}`} tabIndex={0} role="region" aria-label={t("m.link.areas.d5e715")} onPointerDown={event => { if (placing) begin(event, 'create'); else if (event.target === event.currentTarget && !disabled) onSelect(null); }} onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onKeyDown={event => {
         if (disabled) return;
         const selected = links.find(item => item.id === selectedId && item.pageNumber === pageNumber); if (!selected) return;
         if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); onDelete(selected.id); return; }
@@ -95,8 +97,8 @@ export function PDFLinksPreview({ data, pageNumber, links, selectedId, placing, 
         {showAreas && links.filter(item => item.pageNumber === pageNumber && item.rect && [item.rect.x, item.rect.y, item.rect.width, item.rect.height].every(Number.isFinite) && item.rect.width > 0 && item.rect.height > 0 && item.rect.x + item.rect.width > 0 && item.rect.y + item.rect.height > 0 && item.rect.x < source.width && item.rect.y < source.height).map(item => {
           const selected = item.id === selectedId, original = item.rect!, rect = { x: Math.max(0, original.x), y: Math.max(0, original.y), width: Math.min(source.width, original.x + original.width) - Math.max(0, original.x), height: Math.min(source.height, original.y + original.height) - Math.max(0, original.y) }, corner = mapViewportPoint(rect.x + rect.width, rect.y + rect.height, source, viewport);
           return <div key={item.id}>
-            <button type="button" disabled={disabled} className={`pdf-links-area ${selected ? 'selected' : ''} ${!item.editable ? 'readonly' : ''}`} aria-label={`Select link ${item.label}`} style={style(rect)} onPointerDown={event => { if (placing) return; if (item.editable) begin(event, 'move', item); else { event.stopPropagation(); onSelect(item.id); } }} onClick={event => { event.stopPropagation(); if (!placing) onSelect(item.id); }} />
-            {selected && item.editable && !disabled && !placing && <button type="button" className="pdf-links-resize" aria-label="Resize link area" style={{ left: corner.x - 7, top: corner.y - 7 }} onPointerDown={event => begin(event, 'resize', item)} />}
+            <button type="button" disabled={disabled} className={`pdf-links-area ${selected ? 'selected' : ''} ${!item.editable ? 'readonly' : ''}`} aria-label={t("m.select.link.cc7ea8", { v0: item.label })} style={style(rect)} onPointerDown={event => { if (placing) return; if (item.editable) begin(event, 'move', item); else { event.stopPropagation(); onSelect(item.id); } }} onClick={event => { event.stopPropagation(); if (!placing) onSelect(item.id); }} />
+            {selected && item.editable && !disabled && !placing && <button type="button" className="pdf-links-resize" aria-label={t("m.resize.link.area.45f56d")} style={{ left: corner.x - 7, top: corner.y - 7 }} onPointerDown={event => begin(event, 'resize', item)} />}
           </div>;
         })}
         {ghost && <div className="pdf-links-ghost" style={style(ghost)} />}

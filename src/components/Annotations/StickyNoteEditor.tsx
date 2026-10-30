@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t } from "../../i18n";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StickyNoteAnnotation, StickyNoteReply } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
@@ -12,6 +14,7 @@ function findNote(id: string): StickyNoteAnnotation | undefined {
 }
 
 function NotePanel({ note }: { note: StickyNoteAnnotation }) {
+  useLocale();
   const batch = useRef<{ before: StickyNoteAnnotation; after: StickyNoteAnnotation } | null>(null);
   const [replyContent, setReplyContent] = useState('');
   const [replyAuthor, setReplyAuthor] = useState('');
@@ -61,11 +64,11 @@ function NotePanel({ note }: { note: StickyNoteAnnotation }) {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
         else event.stopPropagation();
       }}>
-      <header><h2 id="sticky-note-editor-title">Note · Page {note.pageNumber}</h2><button type="button" onClick={close} aria-label="Close note editor">×</button></header>
-      <label>Author<input aria-label="Note author" value={note.author ?? ''} onChange={event => change({ author: event.target.value })} onBlur={finishEdit} /></label>
-      <label>Note<textarea ref={contentRef} aria-label="Note content" rows={5} value={note.content} onChange={event => change({ content: event.target.value })} onBlur={finishEdit} /></label>
+      <header><h2 id="sticky-note-editor-title">{t("m.note.page.ea08c3")}{' '}{note.pageNumber}</h2><button type="button" onClick={close} aria-label={t("m.close.note.editor.bb637c")}>×</button><div className="dialog-language"><LanguageSwitcher /></div></header>
+      <label>{t("m.author.5fda23")}<input aria-label={t("m.note.author.843bdb")} value={note.author ?? ''} onChange={event => change({ author: event.target.value })} onBlur={finishEdit} /></label>
+      <label>{t("m.note.2c924e")}<textarea ref={contentRef} aria-label={t("m.note.content.319782")} rows={5} value={note.content} onChange={event => change({ content: event.target.value })} onBlur={finishEdit} /></label>
       <div className="sticky-note-actions">
-        <button type="button" onClick={finishEdit}>Save note</button>
+        <button type="button" onClick={finishEdit}>{t("m.save.note.d69ca0")}</button>
         <button type="button" className="danger" onClick={() => {
           finishEdit();
           const current = findNote(note.id);
@@ -73,22 +76,22 @@ function NotePanel({ note }: { note: StickyNoteAnnotation }) {
           useAnnotationHistoryStore.getState().recordDelete(structuredClone(current));
           useAnnotationStore.getState().deleteAnnotation(note.id);
           close();
-        }}>Delete note</button>
+        }}>{t("m.delete.note.a8ed43")}</button>
       </div>
-      <p className="sticky-note-hint">Changes stay editable. Export to include them in the PDF.</p>
-      <h3>Replies</h3>
+      <p className="sticky-note-hint">{t("m.changes.stay.editable.export.to.include.them.in..ce3891")}</p>
+      <h3>{t("m.replies.c8a103")}</h3>
       {(note.replies ?? []).map((reply, index) => (
         <fieldset key={reply.id} className="sticky-note-reply">
-          <legend>Reply {index + 1}</legend>
-          <label>Author<input aria-label={`Reply ${index + 1} author`} value={reply.author ?? ''} onChange={event => changeReply(reply, { author: event.target.value })} onBlur={finishEdit} /></label>
-          <label>Reply<textarea aria-label={`Reply ${index + 1} content`} rows={3} value={reply.content} onChange={event => changeReply(reply, { content: event.target.value })} onBlur={finishEdit} /></label>
-          <button type="button" className="danger" aria-label={`Delete reply ${index + 1}`} onClick={() => {
+          <legend>{t("m.reply.6c2bb7")}{' '}{index + 1}</legend>
+          <label>{t("m.author.5fda23")}<input aria-label={t("m.reply.author.183b32", { v0: index + 1 })} value={reply.author ?? ''} onChange={event => changeReply(reply, { author: event.target.value })} onBlur={finishEdit} /></label>
+          <label>{t("m.reply.6c2bb7")}<textarea aria-label={t("m.reply.content.2ff1b5", { v0: index + 1 })} rows={3} value={reply.content} onChange={event => changeReply(reply, { content: event.target.value })} onBlur={finishEdit} /></label>
+          <button type="button" className="danger" aria-label={t("m.delete.reply.09b892", { v0: index + 1 })} onClick={() => {
             finishEdit();
             const current = findNote(note.id);
             if (!current) return;
             change({ replies: (current.replies ?? []).filter(item => item.id !== reply.id) });
             finishEdit();
-          }}>Delete reply</button>
+          }}>{t("m.delete.reply.2538fc")}</button>
         </fieldset>
       ))}
       <form className="sticky-note-reply" onSubmit={event => {
@@ -103,9 +106,9 @@ function NotePanel({ note }: { note: StickyNoteAnnotation }) {
         setReplyContent('');
         setReplyAuthor('');
       }}>
-        <label>Reply author<input aria-label="New reply author" value={replyAuthor} onChange={event => setReplyAuthor(event.target.value)} /></label>
-        <label>New reply<textarea aria-label="New reply content" rows={3} value={replyContent} onChange={event => setReplyContent(event.target.value)} /></label>
-        <button type="submit" disabled={!replyContent.trim()}>Add reply</button>
+        <label>{t("m.reply.author.c1978e")}<input aria-label={t("m.new.reply.author.9c17e1")} value={replyAuthor} onChange={event => setReplyAuthor(event.target.value)} /></label>
+        <label>{t("m.new.reply.48e28e")}<textarea aria-label={t("m.new.reply.content.a80b3f")} rows={3} value={replyContent} onChange={event => setReplyContent(event.target.value)} /></label>
+        <button type="submit" disabled={!replyContent.trim()}>{t("m.add.reply.a2ac61")}</button>
       </form>
     </section>
   );
@@ -113,6 +116,7 @@ function NotePanel({ note }: { note: StickyNoteAnnotation }) {
 
 /** Independent of virtualized page layers so typing survives page scrolling. */
 export function StickyNoteEditor() {
+  useLocale();
   const note = useAnnotationStore(state => {
     for (const annotations of state.annotations.values()) {
       const selected = annotations.find(annotation => annotation.id === state.selectedAnnotationId);

@@ -23,7 +23,7 @@ async function fixture() {
 }
 
 async function openOCR(page: Page) {
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Scan OCR…', exact: true }).click();
   return page.getByRole('dialog', { name: 'Scan OCR', exact: true });
 }
@@ -72,13 +72,13 @@ test('OCR commits searchable scans with pending content edits, preserves overlay
   await navigation.fill('2'); await navigation.press('Enter');
   await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
   await page.getByRole('textbox', { name: 'OCR preserved field', exact: true }).fill('Unsaved form value');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: original }).dblclick();
   const editor = page.getByRole('textbox', { name: 'Edit text on page 2', exact: true });
   await editor.fill(replacement); await editor.press('Control+Enter');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '🖼 Edit Images', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Images', exact: true }).click();
   await page.getByRole('button', { name: 'Select original image 1', exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByTitle('Rectangle', { exact: true }).click();
@@ -101,8 +101,8 @@ test('OCR commits searchable scans with pending content edits, preserves overlay
   // Hidden OCR glyphs support search/copy, but changing them would leave the
   // original scanned pixels underneath. The editor must refuse that operation.
   await navigation.fill('1'); await navigation.press('Enter');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await expect(page.locator('.text-edit-readonly')).toContainText('invisible OCR text layer');
   await page.locator('.text-block').first().dblclick();
   await expect(page.getByRole('textbox', { name: 'Edit text on page 1', exact: true })).toHaveCount(0);

@@ -1,3 +1,4 @@
+import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createVisibleCopyInWorker, inspectVisibleCopyInWorker } from '../../core/VisibleCopyClient';
 import { DEFAULT_VISIBLE_COPY_SETTINGS, type VisibleCopyInspection, type VisibleCopyProgress, type VisibleCopyResult, type VisibleCopySettings } from '../../core/VisibleCopyTypes';
@@ -17,6 +18,7 @@ function downloadCopy(data: Uint8Array, fileName: string) {
 }
 
 export function CleanVisibleCopyPanel({ source, currentPage, active, onClose, onBusy }: Props) {
+  useLocale();
   const mounted = useRef(false), isActive = useRef(active), onBusyRef = useRef(onBusy);
   const generation = useRef<AbortController | null>(null);
   const cache = useRef<{ data: ArrayBuffer; dpi: number; inspection: VisibleCopyInspection } | null>(null);
@@ -92,32 +94,32 @@ export function CleanVisibleCopyPanel({ source, currentPage, active, onClose, on
   return <section role="tabpanel" id="clean-visible-panel" aria-labelledby="clean-visible-tab" className="clean-panel" hidden={!active}>
     <div className="clean-body">
       <div className="clean-settings">
-        <h3>Save a visible pages copy</h3>
-        <p className="clean-notice">Creates a new PDF containing page images only. Text cannot be searched or copied. Forms and links are no longer interactive, and digital signatures are not retained.</p>
-        <p className="clean-help">All pages and their current visible edits are included. Visible sensitive information stays visible. Your open document and its history remain unchanged.</p>
-        {source.pendingRedactions > 0 && <p role="alert" className="clean-error">Apply or discard the {source.pendingRedactions} marked content {source.pendingRedactions === 1 ? 'area' : 'areas'} before creating a visible copy.</p>}
+        <h3>{t("m.save.a.visible.pages.copy.3f9e74")}</h3>
+        <p className="clean-notice">{t("m.creates.a.new.pdf.containing.page.images.only.te.f94466")}</p>
+        <p className="clean-help">{t("m.all.pages.and.their.current.visible.edits.are.in.03eabc")}</p>
+        {source.pendingRedactions > 0 && <p role="alert" className="clean-error">{t("m.apply.or.discard.the.marked.content.areas.before.37f984", { v0: source.pendingRedactions })}</p>}
         <fieldset disabled={busy || !!source.pendingRedactions}>
-          <label>Resolution<select value={dpi} onChange={event => setDpi(Number(event.target.value) as 150 | 300)}><option value={150}>150 dpi</option><option value={300}>300 dpi</option></select></label>
-          <label>Image compression<select value={compression} onChange={event => setCompression(event.target.value as VisibleCopySettings['compression'])}><option value="lossless">Lossless</option><option value="jpeg">JPEG (smaller file)</option></select></label>
-          {compression === 'jpeg' && <label>JPEG quality: {quality}%<input aria-label="JPEG quality" type="range" min={1} max={100} value={quality} onChange={event => setQuality(Number(event.target.value))} /></label>}
-          <label>PDF file name<input value={fileName} onChange={event => setFileName(event.target.value)} /></label>
+          <label>{t("m.resolution.516aae")}<select value={dpi} onChange={event => setDpi(Number(event.target.value) as 150 | 300)}><option value={150}>{t("m.150.dpi.88e3c1")}</option><option value={300}>{t("m.300.dpi.c735d3")}</option></select></label>
+          <label>{t("m.image.compression.e535f7")}<select value={compression} onChange={event => setCompression(event.target.value as VisibleCopySettings['compression'])}><option value="lossless">{t("m.lossless.f3b36f")}</option><option value="jpeg">{t("m.jpeg.smaller.file.a97871")}</option></select></label>
+          {compression === 'jpeg' && <label>{t("m.jpeg.quality.8fba9c")}{' '}{quality}%<input aria-label={t("m.jpeg.quality.e85408")} type="range" min={1} max={100} value={quality} onChange={event => setQuality(Number(event.target.value))} /></label>}
+          <label>{t("m.pdf.file.name.917f85")}<input value={fileName} onChange={event => setFileName(event.target.value)} /></label>
         </fieldset>
-        {inspected && <p className="clean-size">{inspected.pageCount} pages · {(inspected.totalPixels / 1_000_000).toFixed(1)} megapixels at {dpi} dpi.</p>}
-        {sample && <p className="clean-size">Preview page PDF: {size(sample.data.byteLength)}.{estimate !== null && <> Rough total estimate: {size(estimate)}.</>}</p>}
-        {estimate !== null && <p className="clean-help">The estimate uses this preview page's image size. Different page content can make the final file much smaller or larger.</p>}
-        {!!inspected?.warnings.length && <details className="clean-font-warnings"><summary>Font substitutions ({inspected.warnings.length}{inspected.warningsTruncated ? '+' : ''})</summary><p className="clean-help">Review the affected pages: substitute fonts can change their appearance.</p><ul>{inspected.warnings.map((warning, index) => <li key={index}>Page {warning.pageNumber} · {warning.fontName}: {warning.message}</li>)}</ul>{inspected.warningsTruncated && <p>Additional substitutions are not listed.</p>}</details>}
-        {read?.source === source && read.error && <><p role="alert" className="clean-error">{read.error}</p><button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></>}
+        {inspected && <p className="clean-size">{inspected.pageCount}{' '}{t("m.pages.d7f872")}{' '}{(inspected.totalPixels / 1_000_000).toFixed(1)}{' '}{t("m.megapixels.at.cbe158")}{' '}{dpi}{' '}{t("m.dpi.f0e55c")}</p>}
+        {sample && <p className="clean-size">{t("m.preview.page.pdf.6ab1a8")}{' '}{size(sample.data.byteLength)}.{estimate !== null && <> {' '}{t("m.rough.total.estimate.d1f0b4")}{' '}{size(estimate)}.</>}</p>}
+        {estimate !== null && <p className="clean-help">{t("m.the.estimate.uses.this.preview.page.s.image.size.33726a")}</p>}
+        {!!inspected?.warnings.length && <details className="clean-font-warnings"><summary>{t("m.font.substitutions.1e0e7d")}{inspected.warnings.length}{inspected.warningsTruncated ? '+' : ''})</summary><p className="clean-help">{t("m.review.the.affected.pages.substitute.fonts.can.c.ef9f86")}</p><ul>{inspected.warnings.map((warning, index) => <li key={index}>{t("m.page.fb0627")}{' '}{warning.pageNumber} · {warning.fontName}: {translateMessage(warning.message)}</li>)}</ul>{inspected.warningsTruncated && <p>{t("m.additional.substitutions.are.not.listed.30441e")}</p>}</details>}
+        {read?.source === source && read.error && <><p role="alert" className="clean-error">{translateError(read.error)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></>}
       </div>
-      <div className="clean-preview" aria-label="Visible copy preview">
-        <div className="clean-preview-toolbar"><label>Copy preview page<select value={pageNumber} disabled={busy || !inspected} onChange={event => setPageNumber(Number(event.target.value))}>{(inspected?.pages ?? [{ pageNumber }]).map(page => <option key={page.pageNumber} value={page.pageNumber}>Page {page.pageNumber}</option>)}</select></label>
-          {!source.pendingRedactions && !read?.error && <p role="status">{sample ? 'Visible copy preview ready' : 'Preparing image-only preview…'}</p>}</div>
+      <div className="clean-preview" aria-label={t("m.visible.copy.preview.05484f")}>
+        <div className="clean-preview-toolbar"><label>{t("m.copy.preview.page.7c0ab1")}<select value={pageNumber} disabled={busy || !inspected} onChange={event => setPageNumber(Number(event.target.value))}>{(inspected?.pages ?? [{ pageNumber }]).map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label>
+          {!source.pendingRedactions && !read?.error && <p role="status">{sample ? t("m.visible.copy.preview.ready.e158ae") : t("m.preparing.image.only.preview.e4903b")}</p>}</div>
         {sample && <DecorationPDFPreview data={sample.data} pageNumber={1} onError={message => setPreview({ key: previewKey, error: message })} />}
-        {current?.error && <p role="alert" className="clean-error">{current.error}</p>}
+        {current?.error && <p role="alert" className="clean-error">{translateError(current.error)}</p>}
       </div>
     </div>
-    <footer>{busy && <div className="clean-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{progressLabel(progress)}</span></div>}
-      {error && <p role="alert" className="clean-error">{error}</p>}{success && <p role="status">{success}</p>}
-      <div><button type="button" onClick={() => { if (busy) generation.current?.abort(); else onClose(); }}>{busy ? 'Cancel generation' : 'Close'}</button><button type="button" className="clean-primary" disabled={!canGenerate} onClick={() => void generate()}>Download image-only PDF</button></div>
+    <footer>{busy && <div className="clean-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{translateMessage(progressLabel(progress))}</span></div>}
+      {error && <p role="alert" className="clean-error">{translateError(error)}</p>}{success && <p role="status">{translateMessage(success)}</p>}
+      <div><button type="button" onClick={() => { if (busy) generation.current?.abort(); else onClose(); }}>{busy ? t("m.cancel.generation.282748") : t("m.close.bbfa77")}</button><button type="button" className="clean-primary" disabled={!canGenerate} onClick={() => void generate()}>{t("m.download.image.only.pdf.873eed")}</button></div>
     </footer>
   </section>;
 }

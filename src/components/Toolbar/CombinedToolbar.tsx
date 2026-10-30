@@ -8,6 +8,10 @@ import { PREDEFINED_STAMPS, SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations
 import type { EditingMode } from '../../editing/types';
 import { useToolbarMenus } from './useToolbarMenus';
 import './CombinedToolbar.css';
+import { translateMessage, useLocale , t } from '../../i18n';
+import { useUIStore } from '../../store/uiStore';
+import { ToolButton, type WorkspaceCommand } from '../Workspace/ToolButton';
+import { House, Type, ImagePlus, Image as ImageIcon, Highlighter, Underline, Strikethrough, Pencil, MoveUpRight, Minus, RectangleHorizontal, Circle, StickyNote, Stamp, MousePointer2, Hand, Files, Scissors, RotateCcw, RotateCw, Rotate3D, Trash2, FilePlus2, FileInput, FileOutput, ScanText, FileImage, FileDown, FilePenLine, Signature, FileJson, ListRestart, Layers, ShieldCheck, Eraser, EyeOff, FileKey2, Settings2, Link, BookMarked, Paintbrush, Undo2, Redo2, Check, LayoutGrid, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
 
 // Image data passed when inserting an image
 export interface PendingImageData {
@@ -131,6 +135,8 @@ interface CombinedToolbarProps {
   onApplyContent?: () => void;
   // Image insertion
   onInsertImage?: (images: PendingImageData[]) => void;
+  onCreatePDF?: () => void;
+  onExportPages?: () => void;
 }
 
 export function CombinedToolbar({
@@ -174,11 +180,14 @@ export function CombinedToolbar({
   onRemoveContent,
   onApplyContent,
   onInsertImage,
+  onCreatePDF,
+  onExportPages,
 }: CombinedToolbarProps) {
+  useLocale();
   const [showDocumentMenu, setShowDocumentMenu] = useState(false);
-  const [showInsertMenu, setShowInsertMenu] = useState(false);
-  const [showFormMenu, setShowFormMenu] = useState(false);
-  const [showEditMenu, setShowEditMenu] = useState(false);
+  const [, setShowInsertMenu] = useState(false);
+
+
   const [showStampMenu, setShowStampMenu] = useState(false);
   const [selectedStamp, setSelectedStamp] = useState<SelectedStamp>(() => (window as unknown as { __selectedStamp?: SelectedStamp }).__selectedStamp ?? { type: 'predefined', name: 'Approved' });
   const stampInputRef = useRef<HTMLInputElement>(null);
@@ -203,8 +212,6 @@ export function CombinedToolbar({
       if (toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
         setShowDocumentMenu(false);
         setShowInsertMenu(false);
-        setShowFormMenu(false);
-        setShowEditMenu(false);
         setShowStampMenu(false);
       }
     };
@@ -216,7 +223,7 @@ export function CombinedToolbar({
   }, []);
 
   const { isFormPDF, isDirty: formIsDirty } = useFormStore();
-  const { mode: editingMode, setMode: setEditingMode, hasChanges, redactions, textEdits, imageEdits, selectedBlockId } = useEditingStore();
+  const { mode: editingMode, setMode: setEditingMode, redactions, textEdits, imageEdits, selectedBlockId } = useEditingStore();
   const hasContentEdits = textEdits.length > 0 || imageEdits.length > 0;
   const pendingRedactions = redactions.filter(r => !r.applied);
 
@@ -230,9 +237,7 @@ export function CombinedToolbar({
   } = useAnnotationStore();
 
   const pagesToOperate = selectedPages.length > 0 ? selectedPages : [currentPage];
-  const pageLabel = selectedPages.length > 1
-    ? `${selectedPages.length} pages`
-    : `page ${currentPage}`;
+
 
   // Page operation handlers
   const handleRotateCW = () => onRotatePages(pagesToOperate, 90);
@@ -241,13 +246,13 @@ export function CombinedToolbar({
 
   const handleDelete = () => {
     if (totalPages <= pagesToOperate.length) {
-      alert('Cannot delete all pages');
+      alert(translateMessage('Cannot delete all pages'));
       return;
     }
     const confirmMsg = selectedPages.length > 1
       ? `Delete ${selectedPages.length} selected pages?`
       : `Delete page ${currentPage}?`;
-    if (confirm(confirmMsg)) {
+    if (confirm(translateMessage(confirmMsg))) {
       onDeletePages(pagesToOperate);
     }
   };
@@ -399,7 +404,7 @@ export function CombinedToolbar({
   const handleEditingModeChange = (mode: EditingMode) => {
     if (imageJob.current?.kind === 'stamp') cancelImageRead();
     setEditingMode(editingMode === mode ? 'none' : mode);
-    setShowEditMenu(false);
+
     // Clear annotation tool when entering editing mode
     if (mode !== 'none') {
       setCurrentTool('select');
@@ -410,508 +415,116 @@ export function CombinedToolbar({
   const closeMenus = () => {
     setShowDocumentMenu(false);
     setShowInsertMenu(false);
-    setShowFormMenu(false);
-    setShowEditMenu(false);
     setShowStampMenu(false);
   };
-  const activeMenu = showDocumentMenu ? 'document' : showInsertMenu ? 'insert' : showFormMenu ? 'form' : showEditMenu ? 'edit' : showStampMenu && currentTool === 'stamp' ? 'stamp' : null;
+  const activeMenu = showDocumentMenu ? 'document' : showStampMenu && currentTool === 'stamp' ? 'stamp' : null;
   const menuEvents = useToolbarMenus(toolbarRef, activeMenu, closeMenus);
   const toggleMenu = (name: string) => {
     const wasOpen = activeMenu === name; closeMenus();
     if (wasOpen) return;
     if (name === 'document') setShowDocumentMenu(true);
-    if (name === 'insert') setShowInsertMenu(true);
-    if (name === 'form') setShowFormMenu(true);
-    if (name === 'edit') setShowEditMenu(true);
     if (name === 'stamp') { setEditingMode('none'); setCurrentTool('stamp'); setShowStampMenu(true); }
   };
 
-  return (
-    <div ref={toolbarRef} {...menuEvents} className="combined-toolbar" inert={isBusy} aria-busy={isBusy} onClick={(e) => e.target === e.currentTarget && closeMenus()}>
-      {/* Undo/Redo */}
-      <div className="toolbar-group">
-        <button
-          className="toolbar-btn"
-          onClick={onUndo}
-          disabled={!canUndo}
-          title={undoActionName ? `Undo ${undoActionName} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
-          aria-label={undoActionName ? `Undo ${undoActionName}` : 'Undo'}
-        >
-          ↶
-        </button>
-        <button
-          className="toolbar-btn"
-          onClick={onRedo}
-          disabled={!canRedo}
-          title={redoActionName ? `Redo ${redoActionName} (Ctrl+Shift+Z)` : 'Redo (Ctrl+Shift+Z)'}
-          aria-label={redoActionName ? `Redo ${redoActionName}` : 'Redo'}
-        >
-          ↷
-        </button>
+  const { workspace, setWorkspace, inspectorOpen, setInspectorOpen } = useUIStore();
+  const changeWorkspace = (next: typeof workspace) => {
+    commitPendingEditors(); closeMenus(); setEditingMode('none'); setCurrentTool('select'); setWorkspace(next);
+  };
+  const command = (id: string, label: string, shortLabel: string, group: string, icon: WorkspaceCommand['icon'], run: WorkspaceCommand['run'], enabled = hasDocument, active?: boolean, danger = false): WorkspaceCommand => ({ id, label: translateMessage(label), shortLabel: translateMessage(shortLabel), group, icon, run, disabled: !enabled || isBusy, active, danger });
+  const commands: WorkspaceCommand[] = [
+    command('edit-text', t("m.edit.text.f5f4f6"), t("m.edit.text.6597b9"), 'Edit', Type, () => handleEditingModeChange('text'), hasDocument, editingMode === 'text'),
+    command('edit-images', t("m.edit.images.ce2267"), t("m.edit.images.b368ef"), 'Edit', ImageIcon, () => handleEditingModeChange('image'), hasDocument, editingMode === 'image'),
+    command('insert-image', t("m.insert.images.f4a261"), t("m.insert.image.c8141e"), 'Edit', ImagePlus, handleInsertImageClick, hasDocument && !!onInsertImage),
+    command('links', t("m.links.9f8853"), t("m.links.014bcd"), 'Edit', Link, () => onManageLinks?.(), hasDocument && !!onManageLinks),
+    command('bookmarks', t("m.bookmarks.ffd34e"), t("m.bookmarks.ca3cdd"), 'Edit', BookMarked, () => onManageBookmarks?.(), hasDocument && !!onManageBookmarks),
+    command('appearance', t("m.watermarks.headers.backgrounds.bb98b0"), t("m.page.appearance.ed9e8a"), 'Edit', Paintbrush, () => onPageDecorations?.(), hasDocument && !!onPageDecorations),
+    command('merge', t("m.merge.pdfs.6471ae"), t("m.merge.ea8f0d"), 'Organize', Files, () => onMerge(), true),
+    command('split', t("m.split.pdf.9c654c"), t("m.split.fc8230"), 'Organize', Scissors, () => onSplit()),
+    command('rotate-left', t("m.rotate.pages.left.8402cf"), t("m.rotate.left.6f72f3"), 'Organize', RotateCcw, handleRotateCCW),
+    command('rotate-right', t("m.rotate.pages.right.58a421"), t("m.rotate.right.b75f23"), 'Organize', RotateCw, handleRotateCW),
+    command('rotate-180', t("m.rotate.pages.180.85a24e"), t("m.rotate.180.8c8d54"), 'Organize', Rotate3D, handleRotate180),
+    command('delete-pages', t("m.delete.pages.33fdff"), t("m.delete.pages.33fdff"), 'Organize', Trash2, handleDelete, hasDocument && totalPages > pagesToOperate.length, undefined, true),
+    command('blank-before', t("m.before.current.acddd8"), t("m.blank.page.before.3a3a17"), 'Organize', FilePlus2, handleInsertBlankBefore),
+    command('blank-after', t("m.after.current.fd981d"), t("m.blank.page.after.7febbe"), 'Organize', FilePlus2, handleInsertBlankAfter),
+    command('blank-end', t("m.at.end.242e6c"), t("m.blank.page.at.end.0669bd"), 'Organize', FilePlus2, handleInsertBlankAtEnd),
+    command('pdf-before', t("m.insert.pdf.before.33c3be"), t("m.insert.pdf.before.33c3be"), 'Organize', FileInput, handleInsertFromFileBefore),
+    command('pdf-after', t("m.insert.pdf.after.282440"), t("m.insert.pdf.after.282440"), 'Organize', FileInput, handleInsertFromFileAfter),
+    command('create-pdf', t("m.create.pdf.from.images.74adad"), t("m.images.to.pdf.9710a6"), 'Convert', FileImage, () => onCreatePDF?.(), !!onCreatePDF),
+    command('export-pages', t("m.export.pages.8f8203"), t("m.pdf.to.images.c96714"), 'Convert', FileOutput, () => onExportPages?.(), hasDocument && !!onExportPages),
+    command('ocr', t("m.scan.ocr.5304f2"), t("m.recognize.text.7f8640"), 'Convert', ScanText, () => onOCR?.(), hasDocument && !!onOCR),
+    command('compress', t("m.compress.pdf.2ae903"), t("m.compress.pdf.c81566"), 'Convert', FileDown, () => onCompressPDF?.(), hasDocument && !!onCompressPDF),
+    command('form-designer', t("m.design.form.b154f0"), t("m.form.designer.e0fd9d"), 'Forms & Sign', FilePenLine, () => onDesignForm?.(), hasDocument && !!onDesignForm),
+    command('signature', t("m.signature.ee20cd"), t("m.signature.2f32be"), 'Forms & Sign', Signature, () => onSignature?.(), hasDocument && !!onSignature),
+    command('form-import', t("m.import.form.data.dd132b"), t("m.import.data.d82c93"), 'Forms & Sign', FileInput, () => onImportFormData?.(), hasDocument && isFormPDF),
+    command('form-json', t("m.export.as.json.491c45"), t("m.export.json.bc3990"), 'Forms & Sign', FileJson, () => onExportFormData?.('json'), hasDocument && isFormPDF),
+    command('form-fdf', t("m.export.as.fdf.b608d6"), t("m.export.fdf.350b85"), 'Forms & Sign', FileOutput, () => onExportFormData?.('fdf'), hasDocument && isFormPDF),
+    command('form-xfdf', t("m.export.as.xfdf.0a2274"), t("m.export.xfdf.2ddc7d"), 'Forms & Sign', FileOutput, () => onExportFormData?.('xfdf'), hasDocument && isFormPDF),
+    command('form-reset', t("m.reset.form.values.1f87ce"), t("m.reset.values.4bfd35"), 'Forms & Sign', ListRestart, () => onResetForm?.(), hasDocument && isFormPDF && formIsDirty),
+    command('form-flatten', t("m.flatten.form.make.static.9e82b8"), t("m.flatten.fields.b6e5a8"), 'Forms & Sign', Layers, () => onFlattenForm?.(), hasDocument && isFormPDF),
+    command('encrypt', t("m.password.protected.export.3e1d4c"), t("m.secure.export.a5c909"), 'Protect', FileKey2, () => onEncryptExport?.(), hasDocument && !!onEncryptExport),
+    command('mark-content', t("m.mark.content.areas.0e71a7"), t("m.mark.content.areas.0eb39f"), 'Protect', EyeOff, () => handleEditingModeChange('redact'), hasDocument, editingMode === 'redact'),
+    command('remove-content', t("m.remove.selected.page.content.5a41ea"), t("m.remove.content.bff132"), 'Protect', Eraser, () => onRemoveContent?.(), hasDocument && pendingRedactions.length > 0, undefined, true),
+    command('apply-marks', t("m.apply.visual.covers.23b782"), t("m.apply.marked.areas.1e16af"), 'Protect', Check, () => onApplyRedactions?.(), hasDocument && pendingRedactions.length > 0),
+    command('clean', t("m.clean.document.20fbfe"), t("m.clean.document.752a0f"), 'Protect', ShieldCheck, () => onCleanDocument?.(), hasDocument && !!onCleanDocument),
+    command('properties', t("m.document.properties.attachments.e8ebbd"), t("m.properties.bc6c88"), 'Document', Settings2, () => onDocumentProperties?.(), hasDocument && !!onDocumentProperties),
+    command('reset', t("m.reset.to.original.9430bc"), t("m.reset.document.466f3c"), 'Document', ListRestart, onResetToOriginal, hasDocument && canResetToOriginal, undefined, true),
+    command('close', t("m.close.document.5739e1"), t("m.close.document.7866c7"), 'Document', X, onCloseDocument),
+  ];
+  const annotationCommands: WorkspaceCommand[] = [
+    ['select', 'Select (V)', MousePointer2], ['pan', 'Pan (H) - Hold Space for temp pan', Hand],
+    ['highlight', 'Highlight', Highlighter], ['underline', 'Underline', Underline], ['strikeout', 'Strikeout', Strikethrough],
+    ['ink', 'Freehand', Pencil], ['line', 'Line', Minus], ['arrow', 'Arrow', MoveUpRight],
+    ['rectangle', 'Rectangle', RectangleHorizontal], ['ellipse', 'Ellipse', Circle],
+    ['sticky-note', 'Sticky Note', StickyNote], ['freetext', 'Text Box', Type],
+  ].map(([id, label, icon]) => command(id as string, label as string, label as string, 'Annotate', icon as WorkspaceCommand['icon'], () => handleToolClick(id as AnnotationTool), hasDocument, currentTool === id && editingMode === 'none'));
+  const find = (id: string) => [...commands, ...annotationCommands].find(item => item.id === id)!;
+  const group = (label: string, ids: string[]) => <div className="ribbon-group"><div className="ribbon-group-tools">{ids.map(id => <ToolButton key={id} command={find(id)} />)}</div><span className="ribbon-group-label">{translateMessage(label)}</span></div>;
+  const tabs = [
+    ['home', 'Home', House], ['edit', 'Edit', Type], ['annotate', 'Annotate', Highlighter], ['organize', 'Organize', Files],
+    ['convert', 'Convert', FileOutput], ['forms', 'Forms & Sign', Signature], ['protect', 'Protect', ShieldCheck],
+  ] as const;
+  return <section ref={toolbarRef} {...menuEvents} className="combined-toolbar workspace-toolbar" inert={isBusy} aria-busy={isBusy}>
+    <div className="workspace-tab-row">
+      <nav className="workspace-tabs" role="tablist" aria-label={t("m.workspace.tools.7b36c6")}>{tabs.map(([id, label, Icon]) => <button key={id} type="button" role="tab" id={`workspace-${id}`} aria-selected={workspace === id} aria-controls="workspace-ribbon" tabIndex={workspace === id ? 0 : -1} onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault(); event.stopPropagation();
+          const position = tabs.findIndex(tab => tab[0] === id);
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (position + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+          changeWorkspace(tabs[next][0]); document.getElementById(`workspace-${tabs[next][0]}`)?.focus();
+        }} onClick={() => changeWorkspace(id)}><Icon size={16} /><span>{translateMessage(label)}</span></button>)}</nav>
+      <div className="workspace-history">
+        <button className="toolbar-btn icon-only" onClick={onUndo} disabled={!canUndo} title={undoActionName ? t("m.undo.ctrl.z.60a1ee", { v0: translateMessage(undoActionName) }) : t("m.undo.ctrl.z.26039c")} aria-label={undoActionName ? t("m.undo.dbfb05", { v0: translateMessage(undoActionName) }) : t("m.undo.39fc72")}><Undo2 size={17} /></button>
+        <button className="toolbar-btn icon-only" onClick={onRedo} disabled={!canRedo} title={redoActionName ? t("m.redo.ctrl.shift.z.f1f904", { v0: translateMessage(redoActionName) }) : t("m.redo.ctrl.shift.z.c4d794")} aria-label={redoActionName ? t("m.redo.1a011b", { v0: translateMessage(redoActionName) }) : t("m.redo.471b94")}><Redo2 size={17} /></button>
+        <button type="button" className="toolbar-btn all-tools-trigger" onClick={() => toggleMenu('document')} data-toolbar-menu-trigger="document" aria-expanded={showDocumentMenu} aria-controls="toolbar-document-menu"><LayoutGrid size={16} /><span>{t("m.all.tools.b390ab")}</span><ChevronDown size={12} /></button>
+        <button type="button" className={`toolbar-btn icon-only ${inspectorOpen ? 'active' : ''}`} title={t("m.properties.bc6c88")} aria-label={t("m.toggle.properties.c12733")} aria-pressed={inspectorOpen} onClick={() => setInspectorOpen(!inspectorOpen)}><SlidersHorizontal size={17} /></button>
       </div>
-
-      <div className="toolbar-divider" />
-
-      {/* Document Menu */}
-      <div className="toolbar-group">
-        <div className="toolbar-dropdown">
-          <button
-            className="toolbar-btn dropdown-trigger"
-            onClick={() => toggleMenu('document')}
-            data-toolbar-menu-trigger="document" aria-expanded={showDocumentMenu} aria-controls="toolbar-document-menu"
-          >
-            Document ▾
-          </button>
-          {showDocumentMenu && (
-            <div className="toolbar-menu" id="toolbar-document-menu" data-toolbar-menu="document" role="group" aria-label="Document menu">
-              <button onClick={() => { onMerge(); setShowDocumentMenu(false); }}>
-                Merge PDFs
-              </button>
-              <button onClick={() => { onSplit(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Split PDF
-              </button>
-              {onDocumentProperties && <button onClick={() => { onDocumentProperties(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Document Properties &amp; Attachments…
-              </button>}
-              {onOCR && <button onClick={() => { onOCR(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Scan OCR…
-              </button>}
-              {onPageDecorations && <button onClick={() => { onPageDecorations(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Watermarks, Headers &amp; Backgrounds…
-              </button>}
-              {onCleanDocument && <button onClick={() => { onCleanDocument(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Clean Document…
-              </button>}
-              {onManageBookmarks && <button onClick={() => { onManageBookmarks(); setShowDocumentMenu(false); }} disabled={!hasDocument}>Bookmarks…</button>}
-              {onManageLinks && <button onClick={() => { onManageLinks(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Links…
-              </button>}
-              {onCompressPDF && <button onClick={() => { onCompressPDF(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Compress PDF…
-              </button>}
-              {onEncryptExport && <button onClick={() => { onEncryptExport(); setShowDocumentMenu(false); }} disabled={!hasDocument}>
-                Encrypt and Export…
-              </button>}
-              <div className="menu-divider" />
-              <button onClick={() => { onResetToOriginal(); setShowDocumentMenu(false); }} disabled={!canResetToOriginal}>
-                ⟲ Reset to Original
-              </button>
-              <button
-                className="menu-item-danger"
-                onClick={() => { onCloseDocument(); setShowDocumentMenu(false); }}
-                disabled={!hasDocument}
-              >
-                ✕ Close Document
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Form Menu - only show if document has form fields */}
-        {(isFormPDF || hasDocument && onDesignForm) && (
-          <div className="toolbar-dropdown">
-            <button
-              className={`toolbar-btn dropdown-trigger ${formIsDirty ? 'has-changes' : ''}`}
-              onClick={() => toggleMenu('form')}
-            data-toolbar-menu-trigger="form" aria-expanded={showFormMenu} aria-controls="toolbar-form-menu"
-            >
-              Form {formIsDirty ? '•' : ''} ▾
-            </button>
-            {showFormMenu && (
-              <div className="toolbar-menu" id="toolbar-form-menu" data-toolbar-menu="form" role="group" aria-label="Form menu">
-                {onDesignForm && <button onClick={() => { onDesignForm(); setShowFormMenu(false); }} disabled={!hasDocument}>Design Form…</button>}
-                {isFormPDF && <>
-                {onDesignForm && <div className="menu-divider" />}
-                <span className="menu-section-label">Export Form Data</span>
-                <button onClick={() => { onExportFormData?.('json'); setShowFormMenu(false); }}>
-                  Export as JSON
-                </button>
-                <button onClick={() => { onExportFormData?.('fdf'); setShowFormMenu(false); }}>
-                  Export as FDF
-                </button>
-                <button onClick={() => { onExportFormData?.('xfdf'); setShowFormMenu(false); }}>
-                  Export as XFDF
-                </button>
-                <div className="menu-divider" />
-                <button onClick={() => { onImportFormData?.(); setShowFormMenu(false); }}>
-                  Import Form Data...
-                </button>
-                <div className="menu-divider" />
-                <button onClick={() => { onResetForm?.(); setShowFormMenu(false); }} disabled={!formIsDirty}>
-                  Reset Form Values
-                </button>
-                <button onClick={() => { onFlattenForm?.(); setShowFormMenu(false); }}>
-                  Flatten Form (Make Static)
-                </button>
-                </>}
-              </div>
-            )}
-          </div>
-        )}
-
-        {hasDocument && (hasContentEdits || editingMode === 'text') && onApplyContent && (
-          <button className="toolbar-btn" onClick={onApplyContent} disabled={!hasContentEdits}
-            title="Update the page with your text and image changes. You can undo this operation.">
-            Apply Content Changes
-          </button>
-        )}
-        {/* Content Editing Menu - only show if document is loaded */}
-        {hasDocument && (
-          <div className="toolbar-dropdown">
-            <button
-              className={`toolbar-btn dropdown-trigger ${editingMode !== 'none' ? 'active' : ''} ${hasChanges() ? 'has-changes' : ''}`}
-              onClick={() => toggleMenu('edit')}
-            data-toolbar-menu-trigger="edit" aria-expanded={showEditMenu} aria-controls="toolbar-edit-menu"
-            >
-              Edit {hasChanges() ? '•' : ''} ▾
-            </button>
-            {showEditMenu && (
-              <div className="toolbar-menu" id="toolbar-edit-menu" data-toolbar-menu="edit" role="group" aria-label="Edit menu">
-                <button
-                  className={editingMode === 'text' ? 'active' : ''}
-                  onClick={() => handleEditingModeChange('text')}
-                >
-                  ✎ Edit Text
-                </button>
-                <button
-                  className={editingMode === 'image' ? 'active' : ''}
-                  onClick={() => handleEditingModeChange('image')}
-                >
-                  🖼 Edit Images
-                </button>
-                <div className="menu-divider" />
-                <button
-                  className={`${editingMode === 'redact' ? 'active' : ''} menu-item-warning`}
-                  onClick={() => handleEditingModeChange('redact')}
-                >
-                  ■ Mark Content Areas
-                </button>
-                {pendingRedactions.length > 0 && (
-                  <>
-                    <div className="menu-divider" />
-                    <button
-                      className="menu-item-danger"
-                      onClick={() => {
-                        onApplyRedactions?.();
-                        setShowEditMenu(false);
-                      }}
-                    >
-                      Apply {pendingRedactions.length} Visual Cover{pendingRedactions.length !== 1 ? 's' : ''}
-                    </button>
-                    <button className="menu-item-danger" onClick={() => { onRemoveContent?.(); setShowEditMenu(false); }}>
-                      Remove Selected Page Content
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="toolbar-divider" />
-
-      <div id="pdf-text-edit-controls" className={`pdf-text-edit-controls ${editingMode === 'text' ? 'active' : ''}`}>
-        {editingMode === 'text' && <button type="button" className="toolbar-btn" onClick={() => { commitPendingEditors(); handleToolClick('select'); }}>Done</button>}
-        {editingMode === 'text' && !selectedBlockId && <span>Click text in the PDF to edit</span>}
-      </div>
-
-      {/* Page Operations */}
-      <div className="toolbar-group">
-        <span className="toolbar-label">
-          {selectedPages.length > 1 ? `${selectedPages.length} sel:` : 'Page:'}
-        </span>
-        <button
-          className="toolbar-btn"
-          onClick={handleRotateCCW}
-          disabled={!hasDocument}
-          title={`Rotate ${pageLabel} 90° CCW`}
-        >
-          ↺
-        </button>
-        <button
-          className="toolbar-btn"
-          onClick={handleRotateCW}
-          disabled={!hasDocument}
-          title={`Rotate ${pageLabel} 90° CW`}
-        >
-          ↻
-        </button>
-        <button
-          className="toolbar-btn"
-          onClick={handleRotate180}
-          disabled={!hasDocument}
-          title={`Rotate ${pageLabel} 180°`}
-        >
-          ⟳
-        </button>
-        <button
-          className="toolbar-btn toolbar-btn-danger"
-          onClick={handleDelete}
-          disabled={!hasDocument || totalPages <= 1}
-          title={`Delete ${pageLabel}`}
-        >
-          🗑
-        </button>
-
-        {/* Insert dropdown */}
-        <div className="toolbar-dropdown">
-          <button
-            className="toolbar-btn"
-            onClick={() => toggleMenu('insert')}
-            data-toolbar-menu-trigger="insert" aria-expanded={showInsertMenu} aria-controls="toolbar-insert-menu"
-            disabled={!hasDocument}
-          >
-            + Insert ▾
-          </button>
-          {showInsertMenu && (
-            <div className="toolbar-menu" id="toolbar-insert-menu" data-toolbar-menu="insert" role="group" aria-label="Insert menu">
-              <span className="menu-section-label">Content</span>
-              {onSignature && <button onClick={() => { onSignature(); setShowInsertMenu(false); }}>Signature…</button>}
-              <button onClick={handleInsertImageClick} disabled={isBusy || !onInsertImage}>
-                🖼 Image
-              </button>
-              <div className="menu-divider" />
-              <span className="menu-section-label">Blank Page</span>
-              <button onClick={handleInsertBlankBefore}>Before current</button>
-              <button onClick={handleInsertBlankAfter}>After current</button>
-              <button onClick={handleInsertBlankAtEnd}>At end</button>
-              <div className="menu-divider" />
-              <span className="menu-section-label">From File</span>
-              <button onClick={handleInsertFromFileBefore}>Before current</button>
-              <button onClick={handleInsertFromFileAfter}>After current</button>
-            </div>
-          )}
-        </div>
-
-        {/* Hidden file input for image insertion */}
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept={SUPPORTED_IMAGE_EXTENSIONS}
-          multiple
-          disabled={isBusy || !hasDocument || !onInsertImage}
-          aria-label="Insert images"
-          onChange={handleImageFileChange}
-          style={{ display: 'none' }}
-        />
-        <input ref={stampInputRef} type="file" accept="image/*" aria-label="Custom stamp image"
-          disabled={isBusy || !hasDocument} onChange={handleStampFileChange} style={{ display: 'none' }} />
-      </div>
-        {shownImageRead && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexBasis: '100%', minWidth: 0, maxWidth: '100%', fontSize: 12 }}>
-          <span role={shownImageRead.status === 'error' ? 'alert' : 'status'} style={{ overflowWrap: 'anywhere' }}>{shownImageRead.message}</span>
-          <button type="button" className="toolbar-btn" onClick={cancelImageRead}>{shownImageRead.status === 'loading' ? 'Cancel image loading' : 'Dismiss image error'}</button>
-        </div>}
-      {hasDocument && (
-        <>
-          <div className="toolbar-divider" />
-
-          {/* Annotation Tools */}
-          <div className="toolbar-group annotation-group">
-            <button
-              className={`toolbar-btn ${currentTool === 'select' ? 'active' : ''}`}
-              onClick={() => handleToolClick('select')}
-              title="Select (V)"
-            >
-              <svg className="tool-icon-svg select-cursor-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4 4L10 22L13 13L22 10L4 4Z" fill="white" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'pan' ? 'active' : ''}`}
-              onClick={() => handleToolClick('pan')}
-              title="Pan (H) - Hold Space for temp pan"
-            >
-              <svg className="tool-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M18 11V6C18 5.45 17.55 5 17 5C16.45 5 16 5.45 16 6V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M14 11V4C14 3.45 13.55 3 13 3C12.45 3 12 3.45 12 4V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M10 11V6C10 5.45 9.55 5 9 5C8.45 5 8 5.45 8 6V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M20 11V17C20 19.21 18.21 21 16 21H12C9.79 21 8 19.21 8 17V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M6 11V9C6 8.45 5.55 8 5 8C4.45 8 4 8.45 4 9V15C4 18.31 6.69 21 10 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-
-            <div className="toolbar-separator" />
-
-            {/* Text Markup */}
-            <button
-              className={`toolbar-btn ${currentTool === 'highlight' ? 'active' : ''}`}
-              onClick={() => handleToolClick('highlight')}
-              title="Highlight"
-            >
-              <span className="highlight-icon">H</span>
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'underline' ? 'active' : ''}`}
-              onClick={() => handleToolClick('underline')}
-              title="Underline"
-            >
-              <span className="underline-icon">U</span>
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'strikeout' ? 'active' : ''}`}
-              onClick={() => handleToolClick('strikeout')}
-              title="Strikeout"
-            >
-              <span className="strikeout-icon">S</span>
-            </button>
-
-            <div className="toolbar-separator" />
-
-            {/* Drawing */}
-            <button
-              className={`toolbar-btn ${currentTool === 'ink' ? 'active' : ''}`}
-              onClick={() => handleToolClick('ink')}
-              title="Freehand"
-            >
-              ✏
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'line' ? 'active' : ''}`}
-              onClick={() => handleToolClick('line')}
-              title="Line"
-            >
-              ╱
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'arrow' ? 'active' : ''}`}
-              onClick={() => handleToolClick('arrow')}
-              title="Arrow"
-            >
-              →
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'rectangle' ? 'active' : ''}`}
-              onClick={() => handleToolClick('rectangle')}
-              title="Rectangle"
-            >
-              ▢
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'ellipse' ? 'active' : ''}`}
-              onClick={() => handleToolClick('ellipse')}
-              title="Ellipse"
-            >
-              ○
-            </button>
-
-            <div className="toolbar-separator" />
-
-            {/* Notes */}
-            <button
-              className={`toolbar-btn ${currentTool === 'sticky-note' ? 'active' : ''}`}
-              onClick={() => handleToolClick('sticky-note')}
-              title="Sticky Note"
-            >
-              📝
-            </button>
-            <button
-              className={`toolbar-btn ${currentTool === 'freetext' ? 'active' : ''}`}
-              onClick={() => handleToolClick('freetext')}
-              title="Text Box"
-            >
-              T
-            </button>
-
-            <div className="toolbar-separator" />
-
-            {/* Stamps */}
-            <div className="toolbar-dropdown">
-              <button
-                className={`toolbar-btn ${currentTool === 'stamp' ? 'active' : ''}`}
-                onClick={() => toggleMenu('stamp')}
-                data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"
-                title="Stamp"
-              >
-                🔖
-              </button>
-              {activeMenu === 'stamp' && (
-                <div className="toolbar-menu stamp-menu" id="toolbar-stamp-menu" data-toolbar-menu="stamp" role="group" aria-label="Stamp menu">
-                  <span className="menu-section-label">Predefined</span>
-                  {PREDEFINED_STAMPS.map((stamp) => (
-                    <button
-                      key={stamp}
-                      aria-pressed={selectedStamp.type === 'predefined' && selectedStamp.name === stamp}
-                      onClick={() => chooseStamp({ type: 'predefined', name: stamp })}
-                    >
-                      {stamp}
-                    </button>
-                  ))}
-                  {customStamps.length > 0 && (
-                    <>
-                      <div className="menu-divider" />
-                      <span className="menu-section-label">Custom</span>
-                      {customStamps.map((stamp, index) => (
-                        <button
-                          key={`${stamp.name}-${index}`}
-                          aria-pressed={selectedStamp.type === 'custom' && selectedStamp.name === stamp.name}
-                          onClick={() => chooseCustomStamp(stamp)}
-                        >
-                          {stamp.name}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  <div className="menu-divider" />
-                  <button onClick={() => stampInputRef.current?.click()}>+ Add Custom</button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Tool Settings */}
-          {currentTool !== 'select' && currentTool !== 'pan' && (
-            <>
-              <div className="toolbar-divider" />
-              <div className="toolbar-group tool-settings">
-                {currentTool === 'stamp' && <span className="setting-item" role="status" style={{ overflowWrap: 'anywhere' }}>Stamp: {selectedStamp.name} — click the page to place</span>}
-                {currentTool !== 'stamp' && <label className="setting-item" title="Color">
-                  <input
-                    type="color"
-                    value={toolSettings.color}
-                    onChange={handleColorChange}
-                    className="color-input"
-                  />
-                </label>}
-
-                {(currentTool === 'highlight' ||
-                  currentTool === 'rectangle' ||
-                  currentTool === 'ellipse') && (
-                  <label className="setting-item" title="Opacity">
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="1"
-                      step="0.1"
-                      value={toolSettings.opacity}
-                      onChange={handleOpacityChange}
-                      className="range-input"
-                    />
-                  </label>
-                )}
-
-                {(currentTool === 'ink' ||
-                  currentTool === 'line' ||
-                  currentTool === 'arrow' ||
-                  currentTool === 'rectangle' ||
-                  currentTool === 'ellipse') && (
-                  <label className="setting-item" title="Stroke Width">
-                    <input
-                      type="range"
-                      min="1"
-                      max="10"
-                      step="1"
-                      value={toolSettings.strokeWidth}
-                      onChange={handleStrokeWidthChange}
-                      className="range-input"
-                    />
-                  </label>
-                )}
-              </div>
-            </>
-          )}
-        </>
-      )}
     </div>
-  );
+    <div className="workspace-ribbon" id="workspace-ribbon" role="tabpanel" aria-labelledby={`workspace-${workspace}`}>
+      {workspace === 'home' && <>{group(t("m.text.images.25bcef"), ['edit-text', 'edit-images', 'insert-image'])}{group(t("m.review.sign.acf4a5"), ['highlight', 'freetext', 'signature'])}{group(t("m.document.tools.044791"), ['merge', 'split', 'ocr', 'compress'])}</>}
+      {workspace === 'edit' && <>{group(t("m.text.images.25bcef"), ['edit-text', 'edit-images', 'insert-image', 'freetext'])}{group(t("m.document.tools.044791"), ['links', 'bookmarks', 'appearance'])}</>}
+      {workspace === 'annotate' && <>{group(t("m.markup.3d221e"), ['highlight', 'underline', 'strikeout'])}{group(t("m.draw.bfa50c"), ['ink', 'line', 'arrow', 'rectangle', 'ellipse'])}{group(t("m.notes.stamps.a8aea3"), ['sticky-note', 'freetext'])}<div className="ribbon-group"><button type="button" className="workspace-tool" disabled={!hasDocument || isBusy} title={t("m.stamp.973fc7")} onClick={() => toggleMenu('stamp')} data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"><Stamp size={21} /><span>{t("m.stamp.973fc7")}</span></button></div></>}
+      {workspace === 'organize' && <>{group(t("m.pages.600584"), ['merge', 'split', 'rotate-left', 'rotate-right', 'rotate-180', 'delete-pages'])}{group(t("m.insert.pages.5cca93"), ['blank-before', 'blank-after', 'blank-end', 'pdf-before', 'pdf-after'])}</>}
+      {workspace === 'convert' && <>{group(t("m.create.export.ced19b"), ['create-pdf', 'export-pages'])}{group(t("m.recognize.optimize.c5cdd5"), ['ocr', 'compress'])}</>}
+      {workspace === 'forms' && <>{group(t("m.form.tools.b442aa"), ['form-designer', 'signature'])}{group(t("m.form.data.97ee0f"), ['form-import', 'form-json', 'form-fdf', 'form-xfdf', 'form-reset', 'form-flatten'])}</>}
+      {workspace === 'protect' && <>{group(t("m.document.protection.3f11e2"), ['encrypt', 'clean'])}{group(t("m.content.removal.5f172b"), ['mark-content', 'apply-marks', 'remove-content'])}</>}
+      <div className="ribbon-context">
+        {hasDocument && (hasContentEdits || editingMode === 'text') && onApplyContent && <button className="toolbar-btn apply-content" disabled={!hasContentEdits} onClick={onApplyContent}>{t("m.apply.content.changes.ccfad2")}</button>}
+        <div id="pdf-text-edit-controls" className={`pdf-text-edit-controls ${editingMode === 'text' ? 'active' : ''}`}>
+          {editingMode === 'text' && <button type="button" className="toolbar-btn" onClick={() => { commitPendingEditors(); handleToolClick('select'); }}><Check size={15} />{t("m.done.e9b450")}</button>}
+          {editingMode === 'text' && !selectedBlockId && <span>{t("m.click.text.in.the.pdf.to.edit.cd73d4")}</span>}
+        </div>
+      </div>
+    </div>
+    {hasDocument && <div className="quick-tools" role="toolbar" aria-label={t("m.quick.annotation.tools.b6b90d")}>{annotationCommands.map(item => <ToolButton key={item.id} command={item} compact />)}<button type="button" className={`workspace-tool compact ${currentTool === 'stamp' ? 'active' : ''}`} title={t("m.stamp.973fc7")} aria-label={t("m.stamp.973fc7")} disabled={isBusy} onClick={() => toggleMenu('stamp')} data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"><Stamp size={18} /></button></div>}
+    {showDocumentMenu && <div className="toolbar-menu workspace-all-tools" id="toolbar-document-menu" data-toolbar-menu="document" role="group" aria-label={t("m.all.tools.b390ab")}>{['Edit', 'Organize', 'Convert', 'Forms & Sign', 'Protect', 'Document'].map(section => <div className="all-tools-section" key={section}><h3>{translateMessage(section)}</h3>{commands.filter(item => item.group === section).map(item => <button key={item.id} type="button" disabled={item.disabled} data-command={item.id} onClick={event => { closeMenus(); item.run(event); }}><item.icon size={16} /><span>{item.label}</span></button>)}</div>)}</div>}
+    {activeMenu === 'stamp' && <div className="toolbar-menu stamp-menu" id="toolbar-stamp-menu" data-toolbar-menu="stamp" role="group" aria-label={t("m.stamp.menu.2171e3")}><span className="menu-section-label">{t("m.predefined.bc3e74")}</span>{PREDEFINED_STAMPS.map(stamp => <button key={stamp} aria-pressed={selectedStamp.type === 'predefined' && selectedStamp.name === stamp} onClick={() => chooseStamp({ type: 'predefined', name: stamp })}>{translateMessage(stamp)}</button>)}{customStamps.length > 0 && <span className="menu-section-label">{t("m.custom.081ae3")}</span>}{customStamps.map((stamp, index) => <button key={`${stamp.name}-${index}`} aria-pressed={selectedStamp.type === 'custom' && selectedStamp.name === stamp.name} onClick={() => chooseCustomStamp(stamp)}>{stamp.name}</button>)}<button onClick={() => stampInputRef.current?.click()}>{t("m.add.custom.63c20a")}</button></div>}
+    {hasDocument && currentTool !== 'select' && currentTool !== 'pan' && <div className="workspace-tool-options" role="group" aria-label={t("m.tool.properties.ae93ea")}>
+      {currentTool === 'stamp' ? <span role="status">{t("m.stamp.5c5029")}{' '}{selectedStamp.type === 'predefined' ? translateMessage(selectedStamp.name) : selectedStamp.name}{' '}{t("m.click.the.page.to.place.1a34c4")}</span> : <label>{t("m.color.1d0c83")}<input type="color" aria-label={t("m.annotation.color.c86abe")} className="color-input" value={toolSettings.color} onChange={handleColorChange} /></label>}
+      {['highlight', 'rectangle', 'ellipse'].includes(currentTool) && <label>{t("m.opacity.f0fa69")}<input type="range" aria-label={t("m.annotation.opacity.7ca132")} min="0.1" max="1" step="0.1" value={toolSettings.opacity} onChange={handleOpacityChange} /></label>}
+      {['ink', 'line', 'arrow', 'rectangle', 'ellipse'].includes(currentTool) && <label>{t("m.stroke.width.07d2ad")}<input type="range" aria-label={t("m.stroke.width.71c051")} min="1" max="10" step="1" value={toolSettings.strokeWidth} onChange={handleStrokeWidthChange} /></label>}
+    </div>}
+    {shownImageRead && <div className="image-read-feedback"><span role={shownImageRead.status === 'error' ? 'alert' : 'status'}>{translateMessage(shownImageRead.message)}</span><button className="toolbar-btn" onClick={cancelImageRead}>{shownImageRead.status === 'loading' ? t("m.cancel.image.loading.6ec197") : t("m.dismiss.image.error.a0b1d9")}</button></div>}
+    <input ref={imageInputRef} type="file" accept={SUPPORTED_IMAGE_EXTENSIONS} multiple disabled={isBusy || !hasDocument || !onInsertImage} aria-label={t("m.insert.images.f4a261")} onChange={handleImageFileChange} hidden />
+    <input ref={stampInputRef} type="file" accept="image/*" aria-label={t("m.custom.stamp.image.96a754")} disabled={isBusy || !hasDocument} onChange={handleStampFileChange} hidden />
+  </section>;
 }

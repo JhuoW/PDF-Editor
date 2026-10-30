@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from '../Workspace/LanguageSwitcher';
+import { useLocale, t } from "../../i18n";
 import { useEffect, useRef } from 'react';
 import type { PDFPasswordRequest } from '../../hooks/usePDFDocument';
 import './PasswordDialog.css';
@@ -9,6 +11,7 @@ interface PasswordDialogProps {
 }
 
 export function PasswordDialog({ request, onSubmit, onCancel }: PasswordDialogProps) {
+  useLocale();
   const input = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
 
@@ -36,15 +39,15 @@ export function PasswordDialog({ request, onSubmit, onCancel }: PasswordDialogPr
         }} onKeyDown={event => {
           event.stopPropagation();
         }}>
-        <h2 id="pdf-password-title">Unlock PDF</h2>
+        <div className="dialog-language"><LanguageSwitcher /></div><h2 id="pdf-password-title">{t("m.unlock.pdf.f7ea75")}</h2>
         <p className="password-dialog-filename">{request.fileName}</p>
-        <p id="pdf-password-description">Enter the PDF password to create an unlocked working copy. Your password is not saved. The unlocked copy is saved in this browser for recovery. Ordinary exports are unencrypted; use encrypted export to protect the result.</p>
-        {request.reason === 'incorrect' && <p className="password-dialog-error" role="alert">Incorrect password. Please try again.</p>}
-        <label htmlFor="pdf-open-password">PDF password</label>
+        <p id="pdf-password-description">{t("m.enter.the.pdf.password.to.create.an.unlocked.wor.5d9721")}</p>
+        {request.reason === 'incorrect' && <p className="password-dialog-error" role="alert">{t("m.incorrect.password.please.try.again.f6a1b2")}</p>}
+        <label htmlFor="pdf-open-password">{t("m.pdf.password.6a7921")}</label>
         <input ref={input} id="pdf-open-password" name="pdf-password" type="password" autoComplete="off" />
         <div className="password-dialog-actions">
-          <button type="submit" className="password-dialog-submit">Unlock PDF</button>
-          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="password-dialog-submit">{t("m.unlock.pdf.f7ea75")}</button>
+          <button type="button" onClick={onCancel}>{t("m.cancel.77dfd2")}</button>
         </div>
       </form>
     </dialog>

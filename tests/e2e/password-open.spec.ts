@@ -92,8 +92,8 @@ test('unlocks with retry, edits forms, restores without storing passwords, and r
   await expect(page.getByRole('textbox', { name: 'Customer name', exact: true })).toHaveValue('Edited after unlock');
   await expect(dialog).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
-  await page.getByRole('button', { name: '⟲ Reset to Original', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset to Original', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(dialog).toBeVisible();
   await page.getByLabel('PDF password', { exact: true }).fill(password);

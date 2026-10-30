@@ -51,8 +51,8 @@ function redo(page: Page) { return page.locator('.combined-toolbar button[title^
 
 async function startOriginalTextEdit(page: Page, content: string) {
   if (!(await page.locator('.text-block').count())) {
-    await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-    await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+    await page.getByRole('button', { name: 'All tools' }).click();
+    await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   }
   await page.locator('.text-block').filter({ hasText: content }).dblclick();
   const editor = page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });
@@ -67,7 +67,7 @@ test.beforeEach(async ({ page }) => {
 
 test('text box drafts save while focused, undo as one edit, and export immediately', async ({ page }) => {
   await openSource(page);
-  await page.getByTitle('Text Box', { exact: true }).click();
+  await page.locator('.quick-tools').getByTitle('Text Box', { exact: true }).click();
   const bounds = (await page.locator('canvas.page-canvas').boundingBox())!;
   await page.mouse.move(bounds.x + 30, bounds.y + 200);
   await page.mouse.down();

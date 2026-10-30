@@ -10,7 +10,7 @@ async function openPDF(page: Page, bytes: Uint8Array) {
   await expect(page.locator('canvas.page-canvas')).toBeVisible(); await expect(page.locator('.page-loading-overlay')).toHaveCount(0);
 }
 async function openDecorations(page: Page) {
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Watermarks, Headers & Backgrounds…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Watermarks, Headers & Backgrounds', exact: true });
   await expect(dialog.getByRole('combobox', { name: 'Decorations', exact: true })).toBeVisible(); return dialog;
@@ -60,7 +60,7 @@ test('previews and applies Unicode watermarks, page/Bates headers, and backgroun
   const field = source.getForm().createTextField('Preserved value'); field.setText('Original'); field.addToPage(source.getPage(0), { x: 80, y: 320, width: 180, height: 24 });
   await openPDF(page, await source.save());
   await page.getByRole('textbox', { name: 'Preserved value', exact: true }).fill('Pending 中文 value');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original on page 1' }).dblclick();
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Edited body'); await editor.press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();
@@ -168,12 +168,12 @@ test('keeps owned text and image decorations separate from body editing and pres
   expect(originalMarks).toHaveLength(3); expect(originalMarks.every(mark => mark.managed)).toBe(true);
 
   // This uses real PDF.js marked-content records; no store injection or detector mocks.
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await expect(page.locator('.text-block').filter({ hasText: 'Original body text' })).toHaveCount(1);
   await expect(page.locator('.text-block').filter({ hasText: 'OWNED WATERMARK' })).toHaveCount(0);
   await page.locator('.text-block').filter({ hasText: 'Original body text' }).dblclick();
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Control+Enter');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '🖼 Edit Images', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Images', exact: true }).click();
   await expect(page.locator('.image-box')).toHaveCount(3);
   // Background image precedes the body image; foreground logo follows it. Detaching
   // both owned images must remap the original occurrence from index 1 to index 0.

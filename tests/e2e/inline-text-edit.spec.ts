@@ -22,8 +22,8 @@ async function open(page: Page, rotation = 0, interactive = false) {
   await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'direct-edit.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) });
   await expect(page.locator('canvas.page-canvas')).toBeVisible();
   await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   return page.locator('.text-block').filter({ hasText: original });
 }
 async function bytes(page: Page) {

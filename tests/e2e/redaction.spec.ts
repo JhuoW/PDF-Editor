@@ -49,8 +49,8 @@ async function open(page: Page, bytes: Buffer) {
 }
 
 async function markRegion(page: Page, source: Awaited<ReturnType<typeof fixture>>) {
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '■ Mark Content Areas', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Mark Content Areas', exact: true }).click();
   const layer = page.locator('.redaction-layer');
   await expect(layer).toBeVisible();
   const box = (await layer.boundingBox())!;
@@ -65,7 +65,7 @@ async function markRegion(page: Page, source: Awaited<ReturnType<typeof fixture>
 }
 
 async function removeContent(page: Page) {
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
   const confirmation = page.waitForEvent('dialog');
   const click = page.getByRole('button', { name: 'Remove Selected Page Content', exact: true }).click();
   const dialog = await confirmation;
@@ -107,8 +107,8 @@ for (const croppedRotated of [false, true]) {
     await page.getByTitle('Undo Remove selected page content (Ctrl+Z)', { exact: true }).click();
     await expect(page.getByTitle('Redo Remove selected page content (Ctrl+Shift+Z)', { exact: true })).toBeEnabled();
     expect(textOf(await download(page))).toContain(secret);
-    await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-    await page.getByRole('button', { name: '■ Mark Content Areas', exact: true }).click();
+    await page.getByRole('button', { name: 'All tools' }).click();
+    await page.getByRole('button', { name: 'Mark Content Areas', exact: true }).click();
     await expect(page.locator('.redaction-box.pending')).toHaveCount(1);
   });
 }

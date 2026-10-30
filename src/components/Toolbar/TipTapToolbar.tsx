@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useCallback, useEffect, useState } from 'react';
 import type { Editor } from '@tiptap/react';
 import { AVAILABLE_FONTS, FONT_SIZE_PRESETS } from '../../annotations/types';
@@ -25,6 +26,7 @@ const COLOR_PRESETS = [
 ];
 
 export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
+  useLocale();
   // Force re-render when editor selection changes
   const [, setUpdateTrigger] = useState(0);
 
@@ -95,7 +97,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
           className="font-family-select"
           value={state.fontFamily}
           onChange={handleFontFamilyChange}
-          title="Font Family"
+          title={t("m.font.family.694eff")}
         >
           {AVAILABLE_FONTS.map((font) => (
             <option key={font} value={font} style={{ fontFamily: font }}>
@@ -111,7 +113,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
           className="font-size-select"
           value={state.fontSize}
           onChange={handleFontSizeChange}
-          title="Font Size"
+          title={t("m.font.size.b456f4")}
         >
           {FONT_SIZE_PRESETS.map((size) => (
             <option key={size} value={size}>
@@ -126,7 +128,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
           min={1}
           max={200}
           onChange={handleCustomFontSize}
-          title="Custom Font Size"
+          title={t("m.custom.font.size.a8f2e2")}
         />
       </div>
 
@@ -137,30 +139,30 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
         <button
           className={`toolbar-btn ${state.isBold ? 'active' : ''}`}
           onClick={() => toggleBold(editor)}
-          title="Bold (Ctrl+B)"
+          title={t("m.bold.ctrl.b.022c0e")}
         >
-          <strong>B</strong>
+          <strong>{t("m.b.ae4f28")}</strong>
         </button>
         <button
           className={`toolbar-btn ${state.isItalic ? 'active' : ''}`}
           onClick={() => toggleItalic(editor)}
-          title="Italic (Ctrl+I)"
+          title={t("m.italic.ctrl.i.48bead")}
         >
-          <em>I</em>
+          <em>{t("m.i.ca73ab")}</em>
         </button>
         <button
           className={`toolbar-btn ${state.isUnderline ? 'active' : ''}`}
           onClick={() => toggleUnderline(editor)}
-          title="Underline (Ctrl+U)"
+          title={t("m.underline.ctrl.u.a39b55")}
         >
-          <u>U</u>
+          <u>{t("m.u.b2c7c0")}</u>
         </button>
         <button
           className={`toolbar-btn ${state.isStrikethrough ? 'active' : ''}`}
           onClick={() => toggleStrikethrough(editor)}
-          title="Strikethrough"
+          title={t("m.strikethrough.a93b9a")}
         >
-          <s>S</s>
+          <s>{t("m.s.02aa62")}</s>
         </button>
       </div>
 
@@ -174,7 +176,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
             className="color-picker"
             value={state.color}
             onChange={handleColorChange}
-            title="Text Color"
+            title={t("m.text.color.3a53d5")}
           />
           <span
             className="color-indicator"
@@ -201,7 +203,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
         <button
           className={`toolbar-btn ${state.textAlign === 'left' ? 'active' : ''}`}
           onClick={() => handleAlignChange('left')}
-          title="Align Left"
+          title={t("m.align.left.9fb06a")}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M3 3h18v2H3V3zm0 4h12v2H3V7zm0 4h18v2H3v-2zm0 4h12v2H3v-2zm0 4h18v2H3v-2z"/>
@@ -210,7 +212,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
         <button
           className={`toolbar-btn ${state.textAlign === 'center' ? 'active' : ''}`}
           onClick={() => handleAlignChange('center')}
-          title="Align Center"
+          title={t("m.align.center.472e0d")}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M3 3h18v2H3V3zm3 4h12v2H6V7zm-3 4h18v2H3v-2zm3 4h12v2H6v-2zm-3 4h18v2H3v-2z"/>
@@ -219,7 +221,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
         <button
           className={`toolbar-btn ${state.textAlign === 'right' ? 'active' : ''}`}
           onClick={() => handleAlignChange('right')}
-          title="Align Right"
+          title={t("m.align.right.2e324b")}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M3 3h18v2H3V3zm6 4h12v2H9V7zm-6 4h18v2H3v-2zm6 4h12v2H9v-2zm-6 4h18v2H3v-2z"/>
@@ -228,7 +230,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
         <button
           className={`toolbar-btn ${state.textAlign === 'justify' ? 'active' : ''}`}
           onClick={() => handleAlignChange('justify')}
-          title="Justify"
+          title={t("m.justify.536d27")}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M3 3h18v2H3V3zm0 4h18v2H3V7zm0 4h18v2H3v-2zm0 4h18v2H3v-2zm0 4h18v2H3v-2z"/>
@@ -239,7 +241,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
       {onClose && (
         <>
           <div className="toolbar-divider" />
-          <button className="toolbar-btn close-btn" onClick={onClose} title="Close">
+          <button className="toolbar-btn close-btn" onClick={onClose} title={t("m.close.bbfa77")}>
             &times;
           </button>
         </>

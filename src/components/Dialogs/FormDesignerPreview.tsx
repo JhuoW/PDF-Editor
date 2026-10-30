@@ -1,3 +1,4 @@
+import { useLocale, translateError, t } from "../../i18n";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { AnnotationMode, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist';
 import type { DesignableFieldType, FormDesignField, FormDesignWidget } from '../../forms/FormDesignerTypes';
@@ -21,6 +22,7 @@ interface Props {
 interface Gesture { pointer: number; kind: 'create' | 'move' | 'resize'; start: [number, number]; selection?: FormDesignSelection; rect?: FormFieldRect }
 
 export function FormDesignerPreview({ document: pdfDocument, pageNumber, fields, selected, tool, disabled, onSelect, onCreate, onMove, onDeleteWidget }: Props) {
+  useLocale();
   const container = useRef<HTMLDivElement>(null), overlay = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const [page, setPage] = useState<{ number: number; document: PDFDocumentProxy; proxy: PDFPageProxy } | null>(null);
@@ -102,11 +104,11 @@ export function FormDesignerPreview({ document: pdfDocument, pageNumber, fields,
   };
 
   return <div ref={container} className="form-designer-preview">
-    {error && <p role="alert" className="form-designer-error">{error}</p>}
-    {!viewport && !error && <p role="status">Loading page preview…</p>}
+    {error && <p role="alert" className="form-designer-error">{translateError(error)}</p>}
+    {!viewport && !error && <p role="status">{t("m.loading.page.preview.a26e3d")}</p>}
     {viewport && source && <div className="form-designer-page" style={{ width: viewport.width, height: viewport.height }}>
-      <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} style={{ width: viewport.width, height: viewport.height }} aria-label={`Page ${pageNumber} preview`} />
-      <div ref={overlay} className={`form-designer-overlay ${tool ? 'placing' : ''}`} tabIndex={0} role="region" aria-label={`Form design page ${pageNumber}`}
+      <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} style={{ width: viewport.width, height: viewport.height }} aria-label={t("m.page.preview.3cb45f", { v0: pageNumber })} />
+      <div ref={overlay} className={`form-designer-overlay ${tool ? 'placing' : ''}`} tabIndex={0} role="region" aria-label={t("m.form.design.page.620178", { v0: pageNumber })}
         onPointerDown={event => { if (tool) begin(event, 'create'); else if (event.target === event.currentTarget) onSelect(null); }}
         onPointerMove={move} onPointerUp={finish} onPointerCancel={() => { gesture.current = null; setGhost(null); }}
         onKeyDown={event => {
@@ -128,12 +130,12 @@ export function FormDesignerPreview({ document: pdfDocument, pageNumber, fields,
           const chosen = selected?.fieldId === field.id && selected.widgetId === widget.id;
           const { x: cornerX, y: cornerY } = mapViewportPoint(widget.rect.x + widget.rect.width, widget.rect.y + widget.rect.height, source, viewport);
           return <div key={widget.id} className="form-designer-widget-wrapper">
-            <button type="button" className={`form-designer-widget ${chosen ? 'selected' : ''} ${widget.hidden ? 'hidden-widget' : ''}`} style={positionStyle(widget.rect)} aria-label={`Select field ${field.name}, widget ${field.widgets.indexOf(widget) + 1}`}
+            <button type="button" className={`form-designer-widget ${chosen ? 'selected' : ''} ${widget.hidden ? 'hidden-widget' : ''}`} style={positionStyle(widget.rect)} aria-label={t("m.select.field.widget.965853", { v0: field.name, v1: field.widgets.indexOf(widget) + 1 })}
               onPointerDown={event => { if (tool) return; if (field.supported) begin(event, 'move', { fieldId: field.id, widgetId: widget.id }, widget); else { event.stopPropagation(); onSelect({ fieldId: field.id, widgetId: widget.id }); } }}
               onClick={event => { event.stopPropagation(); if (!tool) onSelect({ fieldId: field.id, widgetId: widget.id }); }}>
               <span>{field.type === 'checkbox' ? '☑' : field.type === 'radio' ? '◉' : field.name}</span>
             </button>
-            {chosen && field.supported && !disabled && !tool && <button type="button" className="form-designer-resize" aria-label={`Resize field ${field.name}`} style={{ left: cornerX - 6, top: cornerY - 6 }} onPointerDown={event => begin(event, 'resize', { fieldId: field.id, widgetId: widget.id }, widget)} />}
+            {chosen && field.supported && !disabled && !tool && <button type="button" className="form-designer-resize" aria-label={t("m.resize.field.9c3a1e", { v0: field.name })} style={{ left: cornerX - 6, top: cornerY - 6 }} onPointerDown={event => begin(event, 'resize', { fieldId: field.id, widgetId: widget.id }, widget)} />}
           </div>;
         })}
         {ghost && <div className="form-designer-ghost" style={positionStyle(ghost)} />}

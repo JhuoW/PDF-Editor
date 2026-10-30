@@ -43,7 +43,7 @@ async function waitForSaved(page: Page) {
 }
 
 async function insertBlankPage(page: Page) {
-  await page.getByRole('button', { name: '+ Insert ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   // The first section inserts a blank page; the second inserts pages from a file.
   await page.getByRole('button', { name: 'After current', exact: true }).first().click();
   await expect(page.locator('.page-total')).toHaveText('3');
@@ -65,8 +65,8 @@ test('refresh restores annotations and form edits, and Reset keeps the initial o
   await expect(page.getByRole('textbox', { name: 'Customer name' })).toHaveValue('Saved customer');
   await expect.poll(() => hasDrawing(page)).toBe(true);
 
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
-  await page.getByRole('button', { name: '⟲ Reset to Original', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset to Original', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(page.locator('.page-total')).toHaveText('2');
   await expect(page.getByRole('textbox', { name: 'Customer name' })).toHaveValue('Original value');
@@ -92,8 +92,8 @@ test('closing a saved editing session prevents it from returning on refresh', as
   await openFormDocument(page);
   await page.getByRole('textbox', { name: 'Customer name' }).fill('Do not restore after close');
   await waitForSaved(page);
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
-  await page.getByRole('button', { name: '✕ Close Document', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Document', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Close Without Saving', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Open a PDF' })).toBeVisible();
   await page.reload();

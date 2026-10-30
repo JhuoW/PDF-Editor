@@ -58,11 +58,11 @@ async function openAndFill(page: Page, contentImage = false) {
 }
 
 async function flatten(page: Page) {
-  await page.getByRole('button', { name: /^Form .*▾$/ }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
   await page.getByRole('button', { name: 'Flatten Form (Make Static)', exact: true }).click();
   await expect(page.locator('.form-field')).toHaveCount(0);
   // Design Form remains available on a static PDF after the filling controls disappear.
-  await expect(page.getByRole('button', { name: /^Form .*▾$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All tools' })).toBeVisible();
   await expect(page.locator('.error-state')).toHaveCount(0);
 }
 
@@ -134,8 +134,8 @@ test('flattening preserves Unicode text, checkbox and image appearances, links, 
 
 test('flattening also applies a pending original-image deletion and restores it as a pending edit on undo', async ({ page }) => {
   await openAndFill(page, true);
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '🖼 Edit Images', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Images', exact: true }).click();
   await expect(page.locator('.image-box')).toHaveCount(1);
   await page.getByRole('button', { name: 'Select original image 1', exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();

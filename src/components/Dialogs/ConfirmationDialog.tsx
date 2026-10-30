@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, translateMessage } from "../../i18n";
 import { useEffect, useRef } from 'react';
 import './ConfirmationDialog.css';
 
@@ -22,6 +24,7 @@ export function ConfirmationDialog({
   onConfirm,
   onCancel,
 }: ConfirmationDialogProps) {
+  useLocale();
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -59,10 +62,10 @@ export function ConfirmationDialog({
     <div className="confirmation-dialog-overlay" onClick={handleBackdropClick}>
       <div className="confirmation-dialog" ref={dialogRef} role="dialog" aria-modal="true">
         <div className="confirmation-dialog-header">
-          <h2 className="confirmation-dialog-title">{title}</h2>
-        </div>
+          <h2 className="confirmation-dialog-title">{translateMessage(title)}</h2>
+        <div className="dialog-language"><LanguageSwitcher /></div></div>
         <div className="confirmation-dialog-body">
-          <p className="confirmation-dialog-message">{message}</p>
+          <p className="confirmation-dialog-message">{translateMessage(message)}</p>
         </div>
         <div className="confirmation-dialog-footer">
           <button
@@ -70,13 +73,13 @@ export function ConfirmationDialog({
             className="confirmation-dialog-button cancel"
             onClick={onCancel}
           >
-            {cancelLabel}
+            {translateMessage(cancelLabel)}
           </button>
           <button
             className={`confirmation-dialog-button confirm ${confirmVariant}`}
             onClick={onConfirm}
           >
-            {confirmLabel}
+            {translateMessage(confirmLabel)}
           </button>
         </div>
       </div>

@@ -45,8 +45,8 @@ async function download(page: Page) {
   return readFile((await (await pending).path())!);
 }
 async function enterImages(page: Page) {
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '🖼 Edit Images', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Images', exact: true }).click();
   await expect(page.locator('.image-box')).toHaveCount(2);
   await page.getByRole('button', { name: 'Select original image 1', exact: true }).click();
 }

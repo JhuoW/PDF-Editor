@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useCallback, useState } from 'react';
 import type { ImageAnnotation } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
@@ -10,6 +11,7 @@ interface ImageToolbarProps {
 }
 
 export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
+  useLocale();
   const { updateAnnotation, deleteAnnotation, getAnnotationsForPage, enterCropMode } = useAnnotationStore();
   const { recordUpdate, recordDelete } = useAnnotationHistoryStore();
   const [showOpacitySlider, setShowOpacitySlider] = useState(false);
@@ -129,14 +131,14 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
         <button
           className="image-toolbar-button"
           onClick={handleFlipHorizontal}
-          title="Flip Horizontal"
+          title={t("m.flip.horizontal.33045f")}
         >
           <span className="icon">↔</span>
         </button>
         <button
           className="image-toolbar-button"
           onClick={handleFlipVertical}
-          title="Flip Vertical"
+          title={t("m.flip.vertical.2871c0")}
         >
           <span className="icon">↕</span>
         </button>
@@ -144,14 +146,14 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
         <button
           className="image-toolbar-button"
           onClick={handleRotateLeft}
-          title="Rotate Left 90°"
+          title={t("m.rotate.left.90.d02095")}
         >
           <span className="icon">↺</span>
         </button>
         <button
           className="image-toolbar-button"
           onClick={handleRotateRight}
-          title="Rotate Right 90°"
+          title={t("m.rotate.right.90.d5176e")}
         >
           <span className="icon">↻</span>
         </button>
@@ -159,7 +161,7 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
           <button
             className="image-toolbar-button small"
             onClick={handleResetRotation}
-            title="Reset Rotation"
+            title={t("m.reset.rotation.76139f")}
           >
             <span className="icon">⟲</span>
           </button>
@@ -171,7 +173,7 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
         <button
           className="image-toolbar-button"
           onClick={handleCrop}
-          title="Crop Image"
+          title={t("m.crop.image.eb485a")}
         >
           <span className="icon">⛶</span>
         </button>
@@ -179,7 +181,7 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
           <button
             className="image-toolbar-button small"
             onClick={handleResetCrop}
-            title="Reset Crop"
+            title={t("m.reset.crop.ecee53")}
           >
             <span className="icon">⟲</span>
           </button>
@@ -191,28 +193,28 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
         <button
           className="image-toolbar-button"
           onClick={handleBringToFront}
-          title="Bring to Front"
+          title={t("m.bring.to.front.8a0950")}
         >
           <span className="icon">⬆</span>
         </button>
         <button
           className="image-toolbar-button"
           onClick={handleSendToBack}
-          title="Send to Back"
+          title={t("m.send.to.back.887995")}
         >
           <span className="icon">⬇</span>
         </button>
         <button
           className="image-toolbar-button small"
           onClick={handleBringForward}
-          title="Bring Forward"
+          title={t("m.bring.forward.3a5a62")}
         >
           <span className="icon">↑</span>
         </button>
         <button
           className="image-toolbar-button small"
           onClick={handleSendBackward}
-          title="Send Backward"
+          title={t("m.send.backward.70dd87")}
         >
           <span className="icon">↓</span>
         </button>
@@ -223,7 +225,7 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
         <button
           className={`image-toolbar-button ${showOpacitySlider ? 'active' : ''}`}
           onClick={() => setShowOpacitySlider(!showOpacitySlider)}
-          title="Opacity"
+          title={t("m.opacity.f0fa69")}
         >
           <span className="icon">◐</span>
           <span className="value">{Math.round(annotation.opacity * 100)}%</span>
@@ -249,7 +251,7 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
         <button
           className="image-toolbar-button danger"
           onClick={handleDelete}
-          title="Delete Image"
+          title={t("m.delete.image.d86725")}
         >
           <span className="icon">🗑</span>
         </button>

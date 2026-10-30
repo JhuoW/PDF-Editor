@@ -13,7 +13,7 @@ async function open(page: Page) {
   await expect(page.getByRole('textbox', { name: 'Contact', exact: true })).toBeVisible();
 }
 async function dialog(page: Page) {
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Clean Document…', exact: true }).click();
   const result = page.getByRole('dialog', { name: 'Clean Document', exact: true });
   await expect(result.getByRole('checkbox', { name: 'Document metadata', exact: true })).toBeVisible();
@@ -43,7 +43,7 @@ test('reviews and removes selected data with current text/forms, native and work
   test.setTimeout(120_000);
   await open(page);
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Current 中文 value');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original body text' }).dblclick();
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();

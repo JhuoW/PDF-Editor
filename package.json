@@ -12,7 +12,8 @@
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
     "audit:dependencies": "npm audit --audit-level=high",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@radix-ui/themes": "^3.2.1",

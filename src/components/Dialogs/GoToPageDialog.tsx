@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError } from "../../i18n";
 import { useState, useEffect, useRef } from 'react';
 import './GoToPageDialog.css';
 
@@ -14,6 +16,7 @@ export function GoToPageDialog({
   onGoToPage,
   onClose,
 }: GoToPageDialogProps) {
+  useLocale();
   const [pageInput, setPageInput] = useState(currentPage.toString());
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -74,16 +77,16 @@ export function GoToPageDialog({
       }
     }}>
         <div className="goto-page-header">
-          <h3 id="goto-page-title">Go to Page</h3>
-          <button className="goto-page-close" onClick={onClose} aria-label="Close go to page">
+          <h3 id="goto-page-title">{t("m.go.to.page.af1382")}</h3>
+          <div className="dialog-language"><LanguageSwitcher /></div>
+        <button className="goto-page-close" onClick={onClose} aria-label={t("m.close.go.to.page.93ce04")}>
             &times;
-          </button>
-        </div>
+          </button></div>
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="goto-page-content">
             <label htmlFor="page-input">
-              Enter page number (1 - {totalPages}):
+              {t("m.enter.page.number.1.6cc7ab")}{' '}{totalPages}):
             </label>
             <input
               ref={inputRef}
@@ -98,16 +101,14 @@ export function GoToPageDialog({
               onChange={handleInputChange}
               className={error ? 'error' : ''}
             />
-            {error && <div className="goto-page-error" id="goto-page-error" role="alert">{error}</div>}
+            {error && <div className="goto-page-error" id="goto-page-error" role="alert">{translateError(error)}</div>}
           </div>
 
           <div className="goto-page-actions">
             <button type="button" className="goto-page-cancel" onClick={onClose}>
-              Cancel
-            </button>
+              {t("m.cancel.77dfd2")}</button>
             <button type="submit" className="goto-page-submit">
-              Go
-            </button>
+              {t("m.go.2e0b45")}</button>
           </div>
         </form>
     </dialog>

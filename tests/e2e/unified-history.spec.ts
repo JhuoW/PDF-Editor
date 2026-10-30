@@ -45,8 +45,8 @@ async function drawRectangle(page: Page) {
 }
 
 async function editOriginalText(page: Page) {
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'ORIGINAL CONTENT' }).dblclick();
   const editor = page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });
   await editor.fill('');
@@ -56,8 +56,8 @@ async function editOriginalText(page: Page) {
 }
 
 async function deleteOriginalImage(page: Page) {
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '🖼 Edit Images', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Images', exact: true }).click();
   await page.getByRole('button', { name: 'Select original image 1', exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
 }
@@ -125,7 +125,8 @@ test('mixed edits undo and redo in exact order across page operations and refres
   await drawRectangle(page);
   await editOriginalText(page);
   await deleteOriginalImage(page);
-  await page.getByTitle('Rotate page 1 90° CW', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Organize', exact: true }).click();
+  await page.locator('.workspace-ribbon [data-command="rotate-right"]').click();
   await expect(page.getByTitle('Undo Rotate page 1 90° (Ctrl+Z)', { exact: true })).toBeEnabled();
   await expect(page.locator('.loading-state')).toHaveCount(0);
   await page.getByRole('button', { name: 'Move page 1 later', exact: true }).click();

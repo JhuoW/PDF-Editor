@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useCallback, useState, useRef } from 'react';
 import type { ImageAnnotation } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
@@ -10,6 +11,7 @@ interface ImagePropertiesPanelProps {
 }
 
 export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPanelProps) {
+  useLocale();
   const { updateAnnotation, deleteAnnotation } = useAnnotationStore();
   const { recordUpdate, recordDelete } = useAnnotationHistoryStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -202,36 +204,36 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
   return (
     <div className="image-properties-panel">
       <div className="panel-header">
-        <h3>Image Properties</h3>
+        <h3>{t("m.image.properties.70dd8a")}</h3>
         <button className="close-button" onClick={onClose}>×</button>
       </div>
 
       <div className="panel-content">
         {/* Position & Size Section */}
         <div className="panel-section">
-          <h4>Position & Size</h4>
+          <h4>{t("m.position.size.3c8106")}</h4>
           <div className="property-row">
-            <label>X:</label>
+            <label>{t("m.x.9cca99")}</label>
             <input
               type="number"
               value={x}
               onChange={handleXChange}
               className="property-input"
             />
-            <span className="unit">pt</span>
+            <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
           <div className="property-row">
-            <label>Y:</label>
+            <label>{t("m.y.aebff3")}</label>
             <input
               type="number"
               value={y}
               onChange={handleYChange}
               className="property-input"
             />
-            <span className="unit">pt</span>
+            <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
           <div className="property-row">
-            <label>Width:</label>
+            <label>{t("m.width.bff1e2")}</label>
             <input
               type="number"
               value={width}
@@ -239,10 +241,10 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
               min={10}
               className="property-input"
             />
-            <span className="unit">pt</span>
+            <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
           <div className="property-row">
-            <label>Height:</label>
+            <label>{t("m.height.c58a28")}</label>
             <input
               type="number"
               value={height}
@@ -250,7 +252,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
               min={10}
               className="property-input"
             />
-            <span className="unit">pt</span>
+            <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
           <div className="property-row checkbox-row">
             <label>
@@ -259,11 +261,10 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                 checked={lockAspectRatio}
                 onChange={(e) => setLockAspectRatio(e.target.checked)}
               />
-              Lock aspect ratio
-            </label>
+              {t("m.lock.aspect.ratio.370bda")}</label>
           </div>
           <div className="property-row">
-            <label>Rotation:</label>
+            <label>{t("m.rotation.0f7802")}</label>
             <input
               type="number"
               value={rotation}
@@ -275,43 +276,41 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
             <span className="unit">°</span>
           </div>
           <button className="action-button" onClick={handleResetSize}>
-            Reset Size
-          </button>
+            {t("m.reset.size.709a3f")}</button>
         </div>
 
         {/* Crop Section */}
         {hasCrop && (
           <div className="panel-section">
-            <h4>Crop</h4>
+            <h4>{t("m.crop.c5db3d")}</h4>
             <div className="crop-info">
               <div className="property-row">
-                <label>Top:</label>
+                <label>{t("m.top.088caa")}</label>
                 <span>{cropBounds.top.toFixed(1)}%</span>
               </div>
               <div className="property-row">
-                <label>Right:</label>
+                <label>{t("m.right.3a8231")}</label>
                 <span>{cropBounds.right.toFixed(1)}%</span>
               </div>
               <div className="property-row">
-                <label>Bottom:</label>
+                <label>{t("m.bottom.77d589")}</label>
                 <span>{cropBounds.bottom.toFixed(1)}%</span>
               </div>
               <div className="property-row">
-                <label>Left:</label>
+                <label>{t("m.left.d6f8ca")}</label>
                 <span>{cropBounds.left.toFixed(1)}%</span>
               </div>
             </div>
             <button className="action-button" onClick={handleResetCrop}>
-              Reset Crop
-            </button>
+              {t("m.reset.crop.ecee53")}</button>
           </div>
         )}
 
         {/* Appearance Section */}
         <div className="panel-section">
-          <h4>Appearance</h4>
+          <h4>{t("m.appearance.41def7")}</h4>
           <div className="property-row">
-            <label>Opacity:</label>
+            <label>{t("m.opacity.d20ab2")}</label>
             <input
               type="range"
               min={0}
@@ -334,7 +333,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
 
         {/* Border Section */}
         <div className="panel-section">
-          <h4>Border</h4>
+          <h4>{t("m.border.5d10d3")}</h4>
           <div className="property-row checkbox-row">
             <label>
               <input
@@ -342,13 +341,12 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                 checked={borderEnabled}
                 onChange={handleBorderEnabledChange}
               />
-              Enable border
-            </label>
+              {t("m.enable.border.fa3c12")}</label>
           </div>
           {borderEnabled && (
             <>
               <div className="property-row">
-                <label>Color:</label>
+                <label>{t("m.color.511a00")}</label>
                 <input
                   type="color"
                   value={borderColor}
@@ -357,7 +355,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                 />
               </div>
               <div className="property-row">
-                <label>Width:</label>
+                <label>{t("m.width.bff1e2")}</label>
                 <input
                   type="number"
                   value={borderWidth}
@@ -367,22 +365,22 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                   step={0.5}
                   className="property-input"
                 />
-                <span className="unit">pt</span>
+                <span className="unit">{t("m.pt.bc8112")}</span>
               </div>
               <div className="property-row">
-                <label>Style:</label>
+                <label>{t("m.style.4020c0")}</label>
                 <select
                   value={borderStyle}
                   onChange={handleBorderStyleChange}
                   className="property-select"
                 >
-                  <option value="solid">Solid</option>
-                  <option value="dashed">Dashed</option>
-                  <option value="dotted">Dotted</option>
+                  <option value="solid">{t("m.solid.d00635")}</option>
+                  <option value="dashed">{t("m.dashed.7b0a09")}</option>
+                  <option value="dotted">{t("m.dotted.149492")}</option>
                 </select>
               </div>
               <div className="property-row">
-                <label>Radius:</label>
+                <label>{t("m.radius.96f54c")}</label>
                 <input
                   type="number"
                   value={borderRadius}
@@ -391,7 +389,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                   max={100}
                   className="property-input"
                 />
-                <span className="unit">pt</span>
+                <span className="unit">{t("m.pt.bc8112")}</span>
               </div>
             </>
           )}
@@ -399,21 +397,21 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
 
         {/* Image Info Section */}
         <div className="panel-section">
-          <h4>Image Info</h4>
+          <h4>{t("m.image.info.70e72d")}</h4>
           <div className="info-row">
-            <label>Filename:</label>
+            <label>{t("m.filename.08231f")}</label>
             <span className="info-value" title={filename}>{filename}</span>
           </div>
           <div className="info-row">
-            <label>Original Size:</label>
+            <label>{t("m.original.size.02401a")}</label>
             <span className="info-value">{originalDimensions}</span>
           </div>
           <div className="info-row">
-            <label>File Size:</label>
+            <label>{t("m.file.size.69a70f")}</label>
             <span className="info-value">{fileSize}</span>
           </div>
           <div className="info-row">
-            <label>Format:</label>
+            <label>{t("m.format.d6400d")}</label>
             <span className="info-value">{mimeType}</span>
           </div>
         </div>
@@ -428,14 +426,11 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
             style={{ display: 'none' }}
           />
           <button className="action-button" onClick={handleReplaceImage}>
-            Replace Image
-          </button>
+            {t("m.replace.image.6cba62")}</button>
           <button className="action-button" onClick={handleResetAll}>
-            Reset All
-          </button>
+            {t("m.reset.all.58f5fb")}</button>
           <button className="action-button danger" onClick={handleDelete}>
-            Delete Image
-          </button>
+            {t("m.delete.image.d86725")}</button>
         </div>
       </div>
     </div>

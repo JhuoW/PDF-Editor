@@ -16,8 +16,8 @@ async function openTightParagraph(page: Page) {
   await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'tight-paragraph.pdf', mimeType: 'application/pdf', buffer: source });
   await expect(page.locator('canvas.page-canvas')).toBeVisible();
   await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   const block = page.locator('.text-block').filter({ hasText: 'alpha beta' });
   await expect(block).toContainText('gamma delta'); await block.click({ position: { x: 10, y: 5 } });
   return { source, input: page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }) };
@@ -78,8 +78,8 @@ test('deleting from the first PDF row pulls following words up, while Enter rema
   expect(inspect(await exported(page)).text).toContain('alpha beta');
   await page.getByRole('button', { name: /^Redo/ }).click();
   expect(inspect(await exported(page)).rows.find(row => row.text.includes('gamma'))?.text).toBe('beta gamma');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'beta gamma delta' }).click();
   await input.press('Control+Home'); for (let index = 0; index < 5; index++) await input.press('ArrowRight');
   await input.press('Enter');

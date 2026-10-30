@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError, translateMessage } from "../../i18n";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   addDocumentAttachment, clearDocumentMetadata, extractDocumentAttachment, inspectDocumentAssets,
@@ -31,6 +33,7 @@ function formatSize(bytes: number) {
 }
 
 export function DocumentPropertiesDialog(props: DocumentPropertiesDialogProps) {
+  useLocale();
   const [session, setSession] = useState({ documentKey: props.documentKey, sequence: 0 });
   if (!Object.is(session.documentKey, props.documentKey)) {
     setSession({ documentKey: props.documentKey, sequence: session.sequence + 1 });
@@ -40,6 +43,7 @@ export function DocumentPropertiesDialog(props: DocumentPropertiesDialogProps) {
 }
 
 function PropertiesSession({ revision, onClose, readPDF, onApply }: DocumentPropertiesDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -206,42 +210,42 @@ function PropertiesSession({ revision, onClose, readPDF, onApply }: DocumentProp
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') event.preventDefault();
     }}>
     <header>
-      <div><h2 id="document-properties-title">Document Properties &amp; Attachments</h2><p>Changes apply to the open PDF and can be undone. Export to save a copy.</p></div>
-      <button type="button" aria-label="Close document properties" disabled={!!busy} onClick={onClose}>×</button>
-    </header>
-    {loading && <p role="status" className="document-properties-status">Loading document properties…</p>}
-    {loadError && <div role="alert" className="document-properties-error"><p>{loadError}</p><button type="button" onClick={() => setReload(value => value + 1)}>Retry loading</button></div>}
+      <div><h2 id="document-properties-title">{t("m.document.properties.attachments.6edb2a")}</h2><p>{t("m.changes.apply.to.the.open.pdf.and.can.be.undone..01137d")}</p></div>
+      <div className="dialog-language"><LanguageSwitcher /></div>
+    <button type="button" aria-label={t("m.close.document.properties.5d934c")} disabled={!!busy} onClick={onClose}>×</button></header>
+    {loading && <p role="status" className="document-properties-status">{t("m.loading.document.properties.3f510b")}</p>}
+    {loadError && <div role="alert" className="document-properties-error"><p>{translateError(loadError)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.loading.54b15f")}</button></div>}
     <section aria-labelledby="document-metadata-heading" aria-busy={loading || !!busy}>
-      <h3 id="document-metadata-heading">Document properties</h3>
+      <h3 id="document-metadata-heading">{t("m.document.properties.e6de11")}</h3>
       <form onSubmit={saveProperties}>
         <fieldset disabled={disabled} className="document-properties-fields">
-          {metadataFields.map(([key, label]) => <label key={key}>{label}<input ref={key === 'title' ? title : undefined} aria-label={`Document ${label.toLowerCase()}`} value={metadata[key]} onChange={event => setMetadata(previous => ({ ...previous, [key]: event.target.value }))} /></label>)}
+          {metadataFields.map(([key, label]) => <label key={key}>{translateMessage(label)}<input ref={key === 'title' ? title : undefined} aria-label={t("m.document.d5092a", { v0: label.toLowerCase() })} value={metadata[key]} onChange={event => setMetadata(previous => ({ ...previous, [key]: event.target.value }))} /></label>)}
         </fieldset>
-        <p className="document-properties-help">Saving properties removes existing catalog XMP metadata to avoid conflicting values.{assets?.hasXmp && ' This document contains XMP metadata.'}</p>
-        <div className="document-properties-actions"><button type="submit" className="properties-primary" disabled={disabled || !dirty && !assets?.hasXmp}>Save properties</button><button type="button" disabled={disabled} onClick={clearMetadata}>Clear document metadata</button></div>
+        <p className="document-properties-help">{t("m.saving.properties.removes.existing.catalog.xmp.m.9327e0")}{assets?.hasXmp && t("m.this.document.contains.xmp.metadata.c49f4e")}</p>
+        <div className="document-properties-actions"><button type="submit" className="properties-primary" disabled={disabled || !dirty && !assets?.hasXmp}>{t("m.save.properties.974640")}</button><button type="button" disabled={disabled} onClick={clearMetadata}>{t("m.clear.document.metadata.adf756")}</button></div>
       </form>
-      <p className="document-properties-help">Clear removes the document Info dictionary and catalog XMP. It does not remove sensitive information from page content, annotations or attachments.</p>
+      <p className="document-properties-help">{t("m.clear.removes.the.document.info.dictionary.and.c.bb91e5")}</p>
     </section>
     <section aria-labelledby="document-attachments-heading" aria-busy={loading || !!busy}>
-      <h3 id="document-attachments-heading">Attachments{assets ? ` (${assets.attachments.length})` : ''}</h3>
-      {assets?.attachments.length === 0 && <p className="document-properties-empty">No attachments in this document.</p>}
+      <h3 id="document-attachments-heading">{t("m.attachments.6771ad")}{assets ? ` (${assets.attachments.length})` : ''}</h3>
+      {assets?.attachments.length === 0 && <p className="document-properties-empty">{t("m.no.attachments.in.this.document.837de1")}</p>}
       {!!assets?.attachments.length && <div className="document-attachments-scroll"><table>
-        <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Description</th><th scope="col">Actions</th></tr></thead>
+        <thead><tr><th scope="col">{t("m.name.709a23")}</th><th scope="col">{t("m.type.3deb74")}</th><th scope="col">{t("m.size.b71523")}</th><th scope="col">{t("m.description.55f8eb")}</th><th scope="col">{t("m.actions.c3cd63")}</th></tr></thead>
         <tbody>{assets.attachments.map((attachment, index) => <tr key={attachment.id} data-attachment-id={attachment.id}>
-          <th scope="row"><span className="attachment-number">{index + 1}.</span> {attachment.name || 'Unnamed attachment'}</th>
-          <td>{attachment.mimeType || 'Unknown'}</td><td title={`${attachment.size} bytes`}>{formatSize(attachment.size)}</td><td>{attachment.description || '—'}</td>
-          <td><div className="attachment-actions"><button type="button" aria-label={`Download attachment ${index + 1}: ${attachment.name}`} disabled={disabled} onClick={() => downloadAttachment(attachment.id)}>Download</button><button type="button" aria-label={`Delete attachment ${index + 1}: ${attachment.name}`} disabled={disabled} onClick={() => deleteAttachment(attachment.id)}>Delete</button></div></td>
+          <th scope="row"><span className="attachment-number">{index + 1}.</span> {attachment.name || t("m.unnamed.attachment.d6ccb8")}</th>
+          <td>{attachment.mimeType || t("m.unknown.bc7819")}</td><td title={t("m.bytes.c098e8", { v0: attachment.size })}>{formatSize(attachment.size)}</td><td>{attachment.description || '—'}</td>
+          <td><div className="attachment-actions"><button type="button" aria-label={t("m.download.attachment.7a8604", { v0: index + 1, v1: attachment.name })} disabled={disabled} onClick={() => downloadAttachment(attachment.id)}>{t("m.download.a479c9")}</button><button type="button" aria-label={t("m.delete.attachment.54fc80", { v0: index + 1, v1: attachment.name })} disabled={disabled} onClick={() => deleteAttachment(attachment.id)}>{t("m.delete.f6fdbe")}</button></div></td>
         </tr>)}</tbody>
       </table></div>}
       <form onSubmit={addAttachment} className="document-attachment-add">
         <fieldset disabled={disabled}>
-          <label>Local file<input ref={fileInput} type="file" aria-label="Attachment file" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
-          <label>Description (optional)<input aria-label="Attachment description" value={description} onChange={event => setDescription(event.target.value)} /></label>
-          <button type="submit" disabled={disabled || !file}>Add attachment</button>
+          <label>{t("m.local.file.576d5a")}<input ref={fileInput} type="file" aria-label={t("m.attachment.file.b68ff1")} onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
+          <label>{t("m.description.optional.388de6")}<input aria-label={t("m.attachment.description.b2b22e")} value={description} onChange={event => setDescription(event.target.value)} /></label>
+          <button type="submit" disabled={disabled || !file}>{t("m.add.attachment.8577ca")}</button>
         </fieldset>
       </form>
     </section>
-    {error && <p role="alert" className="document-properties-error">{error}</p>}
-    <footer><p role="status" className="document-properties-status">{busy ?? status}</p><button type="button" disabled={!!busy} onClick={onClose}>Close</button></footer>
+    {error && <p role="alert" className="document-properties-error">{translateError(error)}</p>}
+    <footer><p role="status" className="document-properties-status">{busy ?? translateMessage(status)}</p><button type="button" disabled={!!busy} onClick={onClose}>{t("m.close.bbfa77")}</button></footer>
   </dialog>;
 }

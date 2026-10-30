@@ -1,3 +1,4 @@
+import { useLocale, translateError } from "../../i18n";
 import { useEffect, useRef, useState, useMemo, memo } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getPageDimensions, getEffectiveRotation } from '../../core/PDFRenderer';
@@ -45,6 +46,7 @@ export const PageCanvas = memo(function PageCanvas({
   onImagePlaced,
   onTextLayout,
 }: PageCanvasProps) {
+  useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderKey = useMemo(() => ({ page, scale, rotation }), [page, scale, rotation]);
@@ -116,7 +118,7 @@ export const PageCanvas = memo(function PageCanvas({
       style={{ width: dimensions.width, height: dimensions.height }}
     >
       <canvas ref={canvasRef} className="page-canvas" />
-      {result?.key === renderKey && result.error && <div role="alert" className="page-loading-overlay">{result.error}</div>}
+      {result?.key === renderKey && result.error && <div role="alert" className="page-loading-overlay">{translateError(result.error)}</div>}
       {showTextLayer && dimensions.width > 0 && (
         <TextLayer
           page={page}

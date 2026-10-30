@@ -1,9 +1,11 @@
+import { useLocale, translateMessage, t } from "../../i18n";
 import { useEffect, useRef, useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
 import { hasOpenModal, isTextInput } from '../../utils/keyboard';
+import { useUIStore } from '../../store/uiStore';
 import { useHistoryStore } from '../../store/historyStore';
 import { registerPendingEditor } from '../../store/workspaceHistory';
 import {
@@ -59,6 +61,7 @@ export function DrawingAnnotationLayer({
   pendingImages,
   onImagePlaced,
 }: DrawingAnnotationLayerProps) {
+  useLocale();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -2736,13 +2739,13 @@ export function DrawingAnnotationLayer({
 
     // Check if it's an image
     if (!file.type.startsWith('image/')) {
-      alert(`"${file.name}" is not an image file.`);
+      alert(translateMessage(`"${file.name}" is not an image file.`));
       return;
     }
 
     // Check for supported format
     if (!supportedFormats.includes(file.type.toLowerCase())) {
-      alert(`Unsupported image format: ${file.type}\n\nSupported formats: JPG, PNG, GIF, WebP, BMP, SVG`);
+      alert(translateMessage(`Unsupported image format: ${file.type}\n\nSupported formats: JPG, PNG, GIF, WebP, BMP, SVG`));
       return;
     }
 
@@ -2750,9 +2753,9 @@ export function DrawingAnnotationLayer({
     const fileSizeMB = file.size / (1024 * 1024);
     if (fileSizeMB > 5) {
       const proceed = confirm(
-        `This image is large (${fileSizeMB.toFixed(1)} MB) and may affect performance.\n\n` +
+        translateMessage(`This image is large (${fileSizeMB.toFixed(1)} MB) and may affect performance.\n\n` +
         `Consider compressing the image before inserting.\n\n` +
-        `Do you want to continue anyway?`
+        `Do you want to continue anyway?`)
       );
       if (!proceed) return;
     }
@@ -2760,8 +2763,8 @@ export function DrawingAnnotationLayer({
     // Very large files (> 20MB) - block with error
     if (fileSizeMB > 20) {
       alert(
-        `Image file is too large (${fileSizeMB.toFixed(1)} MB).\n\n` +
-        `Maximum supported size is 20 MB. Please compress the image and try again.`
+        translateMessage(`Image file is too large (${fileSizeMB.toFixed(1)} MB).\n\n` +
+        `Maximum supported size is 20 MB. Please compress the image and try again.`)
       );
       return;
     }
@@ -2770,14 +2773,14 @@ export function DrawingAnnotationLayer({
       const reader = new FileReader();
 
       reader.onerror = () => {
-        alert(`Failed to read file "${file.name}". The file may be corrupted.`);
+        alert(translateMessage(`Failed to read file "${file.name}". The file may be corrupted.`));
         reject(new Error('File read error'));
       };
 
       reader.onload = (e) => {
         const imageData = e.target?.result as string;
         if (!imageData) {
-          alert(`Failed to read file "${file.name}". The file may be corrupted.`);
+          alert(translateMessage(`Failed to read file "${file.name}". The file may be corrupted.`));
           reject(new Error('Empty file data'));
           return;
         }
@@ -2786,8 +2789,8 @@ export function DrawingAnnotationLayer({
 
         img.onerror = () => {
           alert(
-            `Failed to load image "${file.name}".\n\n` +
-            `The file may be corrupted or in an unsupported format.`
+            translateMessage(`Failed to load image "${file.name}".\n\n` +
+            `The file may be corrupted or in an unsupported format.`)
           );
           reject(new Error('Image load error'));
         };
@@ -2795,7 +2798,7 @@ export function DrawingAnnotationLayer({
         img.onload = () => {
           // Validate image dimensions
           if (img.naturalWidth === 0 || img.naturalHeight === 0) {
-            alert(`Invalid image dimensions for "${file.name}".`);
+            alert(translateMessage(`Invalid image dimensions for "${file.name}".`));
             reject(new Error('Invalid image dimensions'));
             return;
           }
@@ -3199,7 +3202,7 @@ export function DrawingAnnotationLayer({
         <div className="image-drop-zone">
           <div className="drop-zone-content">
             <span className="drop-icon">🖼️</span>
-            <span className="drop-text">Drop image here</span>
+            <span className="drop-text">{t("m.drop.image.here.fa3d30")}</span>
           </div>
         </div>
       )}
@@ -3315,8 +3318,7 @@ export function DrawingAnnotationLayer({
                   fontWeight: 500,
                 }}
               >
-                Apply
-              </button>
+                {t("m.apply.cfea41")}</button>
               <button
                 onClick={cancelCropMode}
                 style={{
@@ -3330,8 +3332,7 @@ export function DrawingAnnotationLayer({
                   fontWeight: 500,
                 }}
               >
-                Cancel
-              </button>
+                {t("m.cancel.77dfd2")}</button>
             </div>
           </>
         );
@@ -3359,7 +3360,7 @@ export function DrawingAnnotationLayer({
             pointerEvents: 'auto',
           }}
         >
-          <Suspense fallback={<div role="status">Loading text editor…</div>}>
+          <Suspense fallback={<div role="status">{t("m.loading.text.editor.e5054b")}</div>}>
           <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: editingRect.width / scale, height: editingRect.height / scale }}>
           <TipTapEditor
             key={editingSession!.token}
@@ -3395,7 +3396,7 @@ export function DrawingAnnotationLayer({
         <textarea
           ref={textareaRef}
           className="freetext-editor"
-          placeholder="Type here..."
+          placeholder={t("m.type.here.e4423f")}
           style={{
             position: 'absolute',
             left: editingRect.left,
@@ -3469,10 +3470,12 @@ export function DrawingAnnotationLayer({
             }
           }}
           onShowTextProperties={() => {
+            if (window.document.getElementById('workspace-inspector-root')) { useUIStore.getState().setInspectorSection('text'); useUIStore.getState().setInspectorOpen(true); return; }
             setShowTextPropertiesPanel(true);
             setShowBoxPropertiesPanel(false);
           }}
           onShowBoxProperties={() => {
+            if (window.document.getElementById('workspace-inspector-root')) { useUIStore.getState().setInspectorSection('box'); useUIStore.getState().setInspectorOpen(true); return; }
             setShowBoxPropertiesPanel(true);
             setShowTextPropertiesPanel(false);
           }}
@@ -3485,7 +3488,7 @@ export function DrawingAnnotationLayer({
           annotation={imageContextMenu.annotation}
           position={imageContextMenu.position}
           onClose={() => setImageContextMenu(null)}
-          onShowProperties={() => setShowImagePropertiesPanel(true)}
+          onShowProperties={() => { if (window.document.getElementById('workspace-inspector-root')) { useUIStore.getState().setInspectorSection('image'); useUIStore.getState().setInspectorOpen(true); } else setShowImagePropertiesPanel(true); }}
         />
       )}
 

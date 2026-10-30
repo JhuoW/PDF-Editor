@@ -1,3 +1,4 @@
+import { revealPDFRegion } from './pdf-region';
 import { Buffer } from 'node:buffer';
 import { expect, test, type Page } from '@playwright/test';
 import { PDFDocument, PDFName, PDFNumber, degrees } from 'pdf-lib';
@@ -26,7 +27,8 @@ function assertNear(actual: number[] | null, expected: number[], tolerance = 3) 
   actual!.forEach((value, index) => expect(Math.abs(value - expected[index])).toBeLessThanOrEqual(tolerance));
 }
 async function draw(page: Page, title: string, points: [number, number][]) {
-  await page.getByTitle(title, { exact: true }).click();
+  await page.locator('.quick-tools').getByTitle(title, { exact: true }).click();
+  await revealPDFRegion(page, Math.min(...points.map(point => point[1])), Math.max(...points.map(point => point[1])));
   const box = (await page.locator('canvas.page-canvas').boundingBox())!;
   await page.mouse.move(box.x + points[0][0], box.y + points[0][1]);
   await page.mouse.down();

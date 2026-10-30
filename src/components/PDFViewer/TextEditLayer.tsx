@@ -1,3 +1,4 @@
+import { useLocale, t, translateError } from "../../i18n";
 /** Direct PDF text editing: the PDF paints the letters, an input handles typing. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -21,6 +22,7 @@ interface TextEditLayerProps {
 }
 const EMPTY: TextBlock[] = [];
 export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout }: TextEditLayerProps) {
+  useLocale();
   const { mode, setMode, setTextBlocks, textBlocks, selectedBlockId, selectBlock, updateBlockText, textEdits } = useEditingStore();
   const [analysisError, setAnalysisError] = useState<{ page: PDFPageProxy; message: string } | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null), [editText, setEditText] = useState('');
@@ -167,9 +169,9 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const regions = activeId && prepared ? inlineSelection(prepared, selection.start, selection.end).map(rectStyle) : [];
   const toolbarHost = window.document.getElementById('pdf-text-edit-controls');
   const editActions = selectedBlock && selectedRect && <div ref={actions} className={`text-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { left: Math.max(0, Math.min(selectedRect.left, (viewport.width || 500) - 270)), top: Math.max(0, selectedRect.top - 40) }}>
-    {activeId && !toolbarHost && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); setMode('none'); }}>Done</button>}
-    {onTextLayout && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); onTextLayout(selectedBlock.id); }}>Text layout…</button>}
-    <span id="pdf-text-edit-help">Enter: new line · Ctrl/⌘ Enter: done</span>
+    {activeId && !toolbarHost && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); setMode('none'); }}>{t("m.done.e9b450")}</button>}
+    {onTextLayout && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); onTextLayout(selectedBlock.id); }}>{t("m.text.layout.661a8e")}</button>}
+    <span id="pdf-text-edit-help">{t("m.enter.new.line.ctrl.enter.done.bbf4cd")}</span>
   </div>;
   if (mode !== 'text' && !pageEdits.length) return null;
   return <div ref={layer} data-preview-text={preview?.prepared?.input.text} className={`text-edit-layer ${mode === 'text' ? 'active' : 'preview-only'}`} onPointerDown={event => {
@@ -194,19 +196,19 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   }} onPointerCancel={() => { pointer.current = null; }}>
     {preview?.png && preview.bytes && <InlinePDFPreview png={preview.png} bytes={preview.bytes} pageNumber={pageNumber} scale={scale} rotation={rotation} editing={mode === 'text'} />}
     {mode === 'text' && <>
-      {!hasBlocks && analysisError?.page !== page && <div className="text-edit-loading" role="status">Analyzing text…</div>}
-      {analysisError?.page === page && <div className="text-edit-loading" role="alert">{analysisError.message}</div>}
-      {pageBlocks.map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''}`} aria-disabled={!block.editable || undefined} title={block.unsupportedReason} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
+      {!hasBlocks && analysisError?.page !== page && <div className="text-edit-loading" role="status">{t("m.analyzing.text.297d65")}</div>}
+      {analysisError?.page === page && <div className="text-edit-loading" role="alert">{translateError(analysisError.message)}</div>}
+      {pageBlocks.map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''}`} aria-disabled={!block.editable || undefined} title={translateError(block.unsupportedReason)} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
         <span className="text-block-content">{block.text}</span>
       </div>)}
       {activeId && <>
         {regions.map((style, index) => <div key={index} className="pdf-text-selection" style={style} />)}
         {caret && selection.start === selection.end && <div className="pdf-text-caret" style={{ ...caret, width: Math.max(1.5, caret.width) }} />}
-        <textarea ref={input} className="pdf-text-input" aria-label={`Edit text on page ${pageNumber}`} aria-describedby="pdf-text-edit-help" value={editText} spellCheck={false} autoCapitalize="off" autoComplete="off" style={{ left: caret?.left ?? 0, top: caret?.top ?? 0 }} onChange={event => change(event.target.value)} onSelect={event => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} onKeyDown={keyDown} onBlur={event => finish(!!actions.current?.contains(event.relatedTarget))} />
+        <textarea ref={input} className="pdf-text-input" aria-label={t("m.edit.text.on.page.1a4d7e", { v0: pageNumber })} aria-describedby="pdf-text-edit-help" value={editText} spellCheck={false} autoCapitalize="off" autoComplete="off" style={{ left: caret?.left ?? 0, top: caret?.top ?? 0 }} onChange={event => change(event.target.value)} onSelect={event => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} onKeyDown={keyDown} onBlur={event => finish(!!actions.current?.contains(event.relatedTarget))} />
       </>}
       {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
-      {(preview?.error || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">{preview?.error ?? 'Text exceeds the available space. Open Text layout to fit it before exporting.'}</div>}
-      {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status">{readOnlyReason} <button type="button" onClick={() => setMode('none')}>Exit text editing</button></div>}
+      {(preview?.error || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">{translateError(preview?.error) || t("m.text.exceeds.the.available.space.open.text.layou.c2d953")}</div>}
+      {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status">{translateError(readOnlyReason)} <button type="button" onClick={() => setMode('none')}>{t("m.exit.text.editing.6c1160")}</button></div>}
     </>}
   </div>;
 }

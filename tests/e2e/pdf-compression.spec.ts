@@ -13,7 +13,7 @@ async function open(page: Page) {
   await expect(page.getByRole('textbox', { name: 'Contact', exact: true })).toBeVisible();
 }
 async function dialog(page: Page) {
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Compress PDF…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Compress PDF', exact: true });
   await expect(panel.getByRole('button', { name: 'Compress PDF', exact: true })).toBeEnabled({ timeout: 30_000 });
@@ -51,7 +51,7 @@ test('compresses current edits losslessly with real previews, editable forms, na
   test.setTimeout(120_000);
   await open(page);
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Compression 中文 field');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original body text' }).dblclick();
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ }); await editor.fill('Updated body'); await editor.press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();

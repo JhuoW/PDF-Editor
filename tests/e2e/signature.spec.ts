@@ -1,3 +1,4 @@
+import { revealPDFRegion } from './pdf-region';
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
@@ -12,7 +13,7 @@ async function open(page: Page) {
   await expect(page.locator('canvas.page-canvas')).toBeVisible(); await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
 }
 async function dialog(page: Page) {
-  await page.getByRole('button', { name: '+ Insert ▾', exact: true }).click(); await page.getByRole('button', { name: 'Signature…', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click(); await page.getByRole('button', { name: 'Signature…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Signature', exact: true }); await expect(panel).toBeVisible(); return panel;
 }
 async function exported(page: Page) { const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export', exact: true }).click(); return readFile((await (await pending).path())!); }
@@ -43,6 +44,7 @@ test('draws a transparent signature and preserves movement, resizing, deletion, 
   let box = (await page.locator('canvas.page-canvas').boundingBox())!;
   await page.keyboard.down('Shift'); await page.mouse.move(box.x + 300, box.y + 380); await page.mouse.down(); await page.mouse.move(box.x + 330, box.y + 405, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift');
   const moved = images(await exported(page))[0]; expect(moved[0]).toBeCloseTo(initial[0][0] + 30, 0); expect(moved[1]).toBeCloseTo(initial[0][1] + 25, 0);
+  await revealPDFRegion(page, moved[1], moved[3] + 20);
   box = (await page.locator('canvas.page-canvas').boundingBox())!;
   await page.mouse.move(box.x + moved[2], box.y + moved[3]); await page.mouse.down(); await page.mouse.move(box.x + moved[2] + 35, box.y + moved[3] + 15, { steps: 5 }); await page.mouse.up();
   const enlarged = images(await exported(page))[0]; expect(enlarged[2] - enlarged[0]).toBeGreaterThan(moved[2] - moved[0]);

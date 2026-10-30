@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useRef, useState } from 'react';
 import { ALL_PDF_PERMISSIONS, encryptPDF, type PDFPermissions } from '../../core/PDFEncryption';
 import { downloadPDF } from '../../core/PDFManipulator';
@@ -16,6 +18,7 @@ const permissionLabels: [keyof PDFPermissions, string][] = [
 ];
 
 export function EncryptDialog({ preparePDF, onClose }: EncryptDialogProps) {
+  useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const active = useRef(false);
@@ -79,27 +82,27 @@ export function EncryptDialog({ preparePDF, onClose }: EncryptDialogProps) {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') event.preventDefault();
       }}>
       <form onSubmit={submit} noValidate aria-busy={busy}>
-        <header><h2 id="encrypt-title">Encrypt and Export</h2><button type="button" aria-label="Close encryption dialog" disabled={busy} onClick={onClose}>×</button></header>
-        <p id="encrypt-description">Download an AES-256 encrypted copy with your current edits.</p>
+        <header><h2 id="encrypt-title">{t("m.encrypt.and.export.65c449")}</h2><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.encryption.dialog.f32ced")} disabled={busy} onClick={onClose}>×</button></header>
+        <p id="encrypt-description">{t("m.download.an.aes.256.encrypted.copy.with.your.cur.725fd5")}</p>
         <fieldset disabled={busy} className="encrypt-passwords">
-          <label>Password to open<input ref={passwordRef} type="password" autoComplete="new-password" aria-label="Password to open" value={userPassword} onChange={event => setUserPassword(event.target.value)} required /></label>
-          <label>Confirm opening password<input type="password" autoComplete="new-password" aria-label="Confirm opening password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>
-          <label>Owner password {restricted ? '(required)' : '(optional)'}<input type="password" autoComplete="new-password" aria-label="Owner password" value={ownerPassword} onChange={event => setOwnerPassword(event.target.value)} required={restricted} aria-describedby="encrypt-owner-help" /></label>
-          <p id="encrypt-owner-help">The owner password controls permissions. {restricted ? 'Use a different password from the opening password.' : 'If blank, the opening password is used.'}</p>
+          <label>{t("m.password.to.open.b9b5a0")}<input ref={passwordRef} type="password" autoComplete="new-password" aria-label={t("m.password.to.open.b9b5a0")} value={userPassword} onChange={event => setUserPassword(event.target.value)} required /></label>
+          <label>{t("m.confirm.opening.password.4d1f6d")}<input type="password" autoComplete="new-password" aria-label={t("m.confirm.opening.password.4d1f6d")} value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>
+          <label>{t("m.owner.password.9f04b8")}{' '}{restricted ? t("m.required.0002fd") : t("m.optional.b16c7a")}<input type="password" autoComplete="new-password" aria-label={t("m.owner.password.9f04b8")} value={ownerPassword} onChange={event => setOwnerPassword(event.target.value)} required={restricted} aria-describedby="encrypt-owner-help" /></label>
+          <p id="encrypt-owner-help">{t("m.the.owner.password.controls.permissions.5468ad")}{' '}{restricted ? t("m.use.a.different.password.from.the.opening.passwo.cea32c") : t("m.if.blank.the.opening.password.is.used.7642ec")}</p>
         </fieldset>
         <fieldset disabled={busy} className="encrypt-permissions">
-          <legend>Allow people using the opening password to:</legend>
+          <legend>{t("m.allow.people.using.the.opening.password.to.87435c")}</legend>
           <div className="encrypt-permission-grid">{permissionLabels.map(([key, label]) => <label key={key}>
             <input type="checkbox" checked={permissions[key]} disabled={key === 'printHighQuality' && !permissions.print}
               onChange={event => {
                 const checked = event.target.checked;
                 setPermissions(previous => ({ ...previous, [key]: checked, ...(key === 'print' && !checked ? { printHighQuality: false } : {}) }));
-              }} />{label}
+              }} />{translateMessage(label)}
           </label>)}</div>
-          <p>Permissions depend on the PDF reader and cannot prevent every form of copying.</p>
+          <p>{t("m.permissions.depend.on.the.pdf.reader.and.cannot..0b277a")}</p>
         </fieldset>
-        {error && <p className="encrypt-error" role="alert">{error}</p>}
-        <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="encrypt-submit" type="submit" disabled={busy}>{busy ? 'Encrypting…' : 'Encrypt and download'}</button></footer>
+        {error && <p className="encrypt-error" role="alert">{translateError(error)}</p>}
+        <footer><button type="button" disabled={busy} onClick={onClose}>{t("m.cancel.77dfd2")}</button><button className="encrypt-submit" type="submit" disabled={busy}>{busy ? t("m.encrypting.788f55") : t("m.encrypt.and.download.b3ba75")}</button></footer>
       </form>
     </dialog>
   );

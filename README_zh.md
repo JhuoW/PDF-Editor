@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-**PDF-Editor** 是免费、开源的浏览器端 PDF 编辑器，可在本地阅读、编辑、批注和整理 PDF，无需上传文件。
+**PDF-Editor** 是免费、开源的浏览器端 PDF 编辑器，可在本地阅读、编辑、批注和整理 PDF，无需上传文件，支持即时中英文切换。
 
 <div align="center">
   <img src="docs/imgs/example1.png" width="96%" style="margin: 0 1.5%;"/>
@@ -34,11 +34,11 @@ npm run dev
 
 ### 基本使用
 
-1. **打开**：点击 **Open**，或将 PDF 拖入查看器。
+1. **打开**：点击 **打开**，或将 PDF 拖入查看器。
 2. **浏览**：使用缩略图、页面控件和缩放功能浏览文档。
-3. **编辑与批注**：选择 **Edit → Edit Text** 后，点击原文直接修改；图片和批注使用工具栏。
+3. **编辑与批注**：选择 **编辑 → 编辑文本** 后，点击原文直接修改；图片和批注使用工具栏。
 4. **整理**：使用页面工具合并、拆分、旋转或重排页面。
-5. **导出**：点击 **Export** 下载编辑后的 PDF。
+5. **导出**：点击 **导出** 下载编辑后的 PDF。
 
 ## 参与贡献
 
@@ -52,6 +52,7 @@ npm run test:run
 npx playwright install chromium
 npm run test:e2e
 npm run lint
+npm run check:i18n
 npm run audit:dependencies
 ```
 

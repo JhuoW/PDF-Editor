@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError, translateMessage } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cleanPDF, inspectPDFCleanup } from '../../core/DocumentCleanup';
 import type { CleanupCategory, CleanupControl, CleanupOptions, CleanupReport, CleanupResult } from '../../core/DocumentCleanupTypes';
@@ -23,11 +25,13 @@ type Progress = Parameters<NonNullable<CleanupControl['onProgress']>>[0];
 interface Loaded { key: object; source: CleanDocumentSource; report: CleanupReport }
 
 export function CleanDocumentDialog(props: CleanDocumentDialogProps) {
+  useLocale();
   const [session, setSession] = useState({ key: props.documentKey, sequence: 0 });
   if (!Object.is(session.key, props.documentKey)) { setSession({ key: props.documentKey, sequence: session.sequence + 1 }); return null; }
   return <CleanDocumentSession key={session.sequence} {...props} />;
 }
 function CleanDocumentSession({ revision, currentPage, readPDF, onApply, onClose }: CleanDocumentDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null), firstTab = useRef<HTMLButtonElement>(null);
   const active = useRef(false), committing = useRef(false), closeAfterCancel = useRef(false), currentRevision = useRef(revision);
   const operation = useRef<AbortController | null>(null), saveLatest = useRef<() => Promise<void>>(async () => {});
@@ -115,51 +119,51 @@ function CleanDocumentSession({ revision, currentPage, readPDF, onApply, onClose
   return <dialog ref={dialog} className="clean-document-dialog" aria-labelledby="clean-document-title" onCancel={event => { event.preventDefault(); close(); }} onKeyDown={event => {
     event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); if (tab === 'native') void saveLatest.current(); }
   }}>
-    <header><div><h2 id="clean-document-title">Clean Document</h2><p>Review identified content, or save a new copy of the visible pages.</p></div><button type="button" aria-label="Close document cleanup" disabled={saving || canceling} onClick={close}>×</button></header>
-    <div className="clean-tabs" role="tablist" aria-label="Cleanup method" onKeyDown={event => {
+    <header><div><h2 id="clean-document-title">{t("m.clean.document.997b1d")}</h2><p>{t("m.review.identified.content.or.save.a.new.copy.of..ec3893")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.document.cleanup.ce8035")} disabled={saving || canceling} onClick={close}>×</button></header>
+    <div className="clean-tabs" role="tablist" aria-label={t("m.cleanup.method.4f034c")} onKeyDown={event => {
       if (!busy && !copyBusy && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
         event.preventDefault(); const next = event.key === 'Home' ? 'native' : event.key === 'End' ? 'visible' : tab === 'native' ? 'visible' : 'native';
         setTab(next); document.getElementById(`clean-${next}-tab`)?.focus();
       }
     }}>
-      <button ref={firstTab} id="clean-native-tab" type="button" role="tab" tabIndex={tab === 'native' ? 0 : -1} aria-selected={tab === 'native'} aria-controls="clean-native-panel" disabled={busy || copyBusy} onClick={() => setTab('native')}>Review &amp; remove</button>
-      <button id="clean-visible-tab" type="button" role="tab" tabIndex={tab === 'visible' ? 0 : -1} aria-selected={tab === 'visible'} aria-controls="clean-visible-panel" disabled={busy || copyBusy} onClick={() => setTab('visible')}>Save visible copy</button>
+      <button ref={firstTab} id="clean-native-tab" type="button" role="tab" tabIndex={tab === 'native' ? 0 : -1} aria-selected={tab === 'native'} aria-controls="clean-native-panel" disabled={busy || copyBusy} onClick={() => setTab('native')}>{t("m.review.remove.4ae18c")}</button>
+      <button id="clean-visible-tab" type="button" role="tab" tabIndex={tab === 'visible' ? 0 : -1} aria-selected={tab === 'visible'} aria-controls="clean-visible-panel" disabled={busy || copyBusy} onClick={() => setTab('visible')}>{t("m.save.visible.copy.26a354")}</button>
     </div>
-    {!current && loadError?.key !== loadKey && <p role="status" className="clean-loading">Preparing current edits and scanning the PDF…</p>}
-    {loadError?.key === loadKey && <div className="clean-loading"><p role="alert" className="clean-error">{loadError.error}</p><button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></div>}
+    {!current && loadError?.key !== loadKey && <p role="status" className="clean-loading">{t("m.preparing.current.edits.and.scanning.the.pdf.07b9fa")}</p>}
+    {loadError?.key === loadKey && <div className="clean-loading"><p role="alert" className="clean-error">{translateError(loadError.error)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <>
       <section role="tabpanel" id="clean-native-panel" aria-labelledby="clean-native-tab" className="clean-panel" hidden={tab !== 'native'}>
         <div className="clean-body">
-          <div className="clean-settings"><h3>Choose what to remove</h3>
-            <p className="clean-help">Selections apply to the whole document. This scan identifies supported PDF features; it does not detect every kind of hidden page content.</p>
-            {!current.report.canClean && <p role="status" className="clean-notice">{current.report.unsupportedReason || 'Selective cleanup is unavailable for this document.'}</p>}
+          <div className="clean-settings"><h3>{t("m.choose.what.to.remove.546de7")}</h3>
+            <p className="clean-help">{t("m.selections.apply.to.the.whole.document.this.scan.6d324a")}</p>
+            {!current.report.canClean && <p role="status" className="clean-notice">{translateError(current.report.unsupportedReason) || t("m.selective.cleanup.is.unavailable.for.this.docume.dd8065")}</p>}
             <fieldset disabled={busy || !current.report.canClean}>
               {categories.map(category => {
                 const findings = current.report.findings.filter(item => item.category === category.key);
                 return <div key={category.key} className="clean-category">
-                  <label className="clean-category-label"><input type="checkbox" aria-label={category.label} checked={options[category.key]} disabled={!counts[category.key]} onChange={event => { setOptions(previous => ({ ...previous, [category.key]: event.target.checked })); setError(null); }} /><span>{category.label}</span><span className="clean-category-count">{counts[category.key]} found</span></label>
-                  <p className="clean-help">{category.description}</p>
-                  {counts[category.key] > 0 && <details><summary>Review {category.label.toLowerCase()}</summary><ul>{findings.map(item => <li key={item.id}>{item.label}{item.pages.length > 0 && <> · Page {item.pages.join(', ')}</>}{item.details && <p>{item.details}</p>}{item.affectsAppearance && <p className="clean-help">May change visible page content.</p>}</li>)}
-                    {category.key === 'comments' && current.source.workspaceAnnotations.count > 0 && <li>Current editable annotations: {current.source.workspaceAnnotations.count}{current.source.workspaceAnnotations.pages.length > 0 && <> · Page {current.source.workspaceAnnotations.pages.join(', ')}</>}</li>}
+                  <label className="clean-category-label"><input type="checkbox" aria-label={translateMessage(category.label)} checked={options[category.key]} disabled={!counts[category.key]} onChange={event => { setOptions(previous => ({ ...previous, [category.key]: event.target.checked })); setError(null); }} /><span>{translateMessage(category.label)}</span><span className="clean-category-count">{t("m.found.2577b3", { v0: counts[category.key] })}</span></label>
+                  <p className="clean-help">{translateMessage(category.description)}</p>
+                  {counts[category.key] > 0 && <details><summary>{t("m.review.e29a79")}{' '}{translateMessage(category.label.toLowerCase())}</summary><ul>{findings.map(item => <li key={item.id}>{translateMessage(item.label)}{item.pages.length > 0 && <> {' '}{t("m.page.021c88")}{' '}{item.pages.join(', ')}</>}{item.details && <p>{translateMessage(item.details)}</p>}{item.affectsAppearance && <p className="clean-help">{t("m.may.change.visible.page.content.9814ee")}</p>}</li>)}
+                    {category.key === 'comments' && current.source.workspaceAnnotations.count > 0 && <li>{t("m.current.editable.annotations.e48701")}{' '}{current.source.workspaceAnnotations.count}{current.source.workspaceAnnotations.pages.length > 0 && <> {' '}{t("m.page.021c88")}{' '}{current.source.workspaceAnnotations.pages.join(', ')}</>}</li>}
                   </ul></details>}
                 </div>;
               })}
             </fieldset>
-            {current.report.limitations.length > 0 && <details><summary>Scan limitations</summary><ul className="clean-help">{current.report.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul></details>}
+            {current.report.limitations.length > 0 && <details><summary>{t("m.scan.limitations.8d42a0")}</summary><ul className="clean-help">{current.report.limitations.map((limitation, index) => <li key={index}>{translateMessage(limitation)}</li>)}</ul></details>}
           </div>
-          <div className="clean-preview" aria-label="Cleanup preview"><div className="clean-preview-toolbar">
-            <label>Preview page<select value={pageNumber} disabled={busy} onChange={event => setPageNumber(Number(event.target.value))}>{Array.from({ length: current.report.pageCount }, (_, index) => <option key={index} value={index + 1}>Page {index + 1}</option>)}</select></label>
-            <div className="clean-preview-toggle"><button type="button" aria-pressed={!showAfter} onClick={() => setShowAfter(false)}>Current</button><button type="button" aria-pressed={showAfter} onClick={() => setShowAfter(true)}>After cleanup</button></div>
-            <p role="status">{shown?.data ? showAfter ? 'Cleanup preview ready' : 'Current document preview' : shown?.error ? 'Preview unavailable' : 'Preparing preview…'}</p>
+          <div className="clean-preview" aria-label={t("m.cleanup.preview.12353e")}><div className="clean-preview-toolbar">
+            <label>{t("m.preview.page.d24958")}<select value={pageNumber} disabled={busy} onChange={event => setPageNumber(Number(event.target.value))}>{Array.from({ length: current.report.pageCount }, (_, index) => <option key={index} value={index + 1}>{t("m.page.fb0627")}{' '}{index + 1}</option>)}</select></label>
+            <div className="clean-preview-toggle"><button type="button" aria-pressed={!showAfter} onClick={() => setShowAfter(false)}>{t("m.current.4fc0e2")}</button><button type="button" aria-pressed={showAfter} onClick={() => setShowAfter(true)}>{t("m.after.cleanup.40ffb8")}</button></div>
+            <p role="status">{shown?.data ? showAfter ? t("m.cleanup.preview.ready.d27aff") : t("m.current.document.preview.aa753f") : shown?.error ? t("m.preview.unavailable.36d31d") : t("m.preparing.preview.312e7b")}</p>
           </div>{shown?.data && <DecorationPDFPreview data={shown.data} pageNumber={pageNumber} onError={message => { if (showAfter) setPreview({ key: previewKey, error: message }); else setBefore({ source: current.source, error: message }); }} />}
-            {shown?.error && <p role="alert" className="clean-error">{shown.error}</p>}
+            {shown?.error && <p role="alert" className="clean-error">{translateError(shown.error)}</p>}
           </div>
         </div>
-        <footer>{error && <p role="alert" className="clean-error">{error}</p>}
-          {busy ? <div className="clean-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{canceling ? 'Canceling cleanup…' : saving ? 'Saving the cleaned document…' : progress ? `${{ inspect: 'Checking document', clean: 'Removing selected items', verify: 'Verifying cleanup', save: 'Rewriting PDF' }[progress.phase]}: ${progress.completed} / ${progress.total}` : 'Applying cleanup…'}</span></div>
-            : <p>{selectedCount} identified {selectedCount === 1 ? 'item' : 'items'} selected.{remaining !== null && <> {remaining} remain after this cleanup.</>}</p>}
-          <p className="clean-help">The original file and this workspace's undo history remain available. Cleanup is not an erasure of those copies.</p>
-          <div><button type="button" disabled={saving || canceling} onClick={close}>{busy ? 'Cancel cleanup' : 'Close'}</button><button type="button" className="clean-primary" disabled={!canApply} onClick={() => void apply()}>Apply cleanup</button></div>
+        <footer>{error && <p role="alert" className="clean-error">{translateError(error)}</p>}
+          {busy ? <div className="clean-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{canceling ? t("m.canceling.cleanup.fcb44b") : saving ? t("m.saving.the.cleaned.document.239499") : progress ? `${{ inspect: 'Checking document', clean: 'Removing selected items', verify: 'Verifying cleanup', save: 'Rewriting PDF' }[progress.phase]}: ${progress.completed} / ${progress.total}` : t("m.applying.cleanup.605a94")}</span></div>
+            : <p>{selectedCount}{' '}{t("m.identified.65a9e5")}{' '}{selectedCount === 1 ? t("m.item.3a7d97") : t("m.items.7316c8")}{' '}{t("m.selected.07b3d7")}{remaining !== null && <> {remaining}{' '}{t("m.remain.after.this.cleanup.58f270")}</>}</p>}
+          <p className="clean-help">{t("m.the.original.file.and.this.workspace.s.undo.hist.aa8144")}</p>
+          <div><button type="button" disabled={saving || canceling} onClick={close}>{busy ? t("m.cancel.cleanup.12f102") : t("m.close.bbfa77")}</button><button type="button" className="clean-primary" disabled={!canApply} onClick={() => void apply()}>{t("m.apply.cleanup.757ce9")}</button></div>
         </footer>
       </section>
       <CleanVisibleCopyPanel key={revision} source={current.source} currentPage={pageNumber} active={tab === 'visible'} onClose={close} onBusy={setCopyBusy} />

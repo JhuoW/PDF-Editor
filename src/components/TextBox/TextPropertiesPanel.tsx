@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useCallback } from 'react';
 import type { FreeTextAnnotation, TextStyle } from '../../annotations/types';
 import { AVAILABLE_FONTS, FONT_SIZE_PRESETS, DEFAULT_TEXT_STYLE } from '../../annotations/types';
@@ -18,6 +19,7 @@ const COLOR_PRESETS = [
 ];
 
 export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanelProps) {
+  useLocale();
   const { updateAnnotation } = useAnnotationStore();
   const { recordUpdate } = useAnnotationHistoryStore();
 
@@ -52,9 +54,9 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
   return (
     <div className="text-properties-panel" data-format-toolbar="true">
       <div className="panel-header">
-        <h3>Text Properties</h3>
+        <h3>{t("m.text.properties.cab6f2")}</h3>
         {onClose && (
-          <button className="close-btn" onClick={onClose} title="Close">
+          <button className="close-btn" onClick={onClose} title={t("m.close.bbfa77")}>
             &times;
           </button>
         )}
@@ -63,14 +65,14 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
       <div className="panel-content">
         {/* Font Family */}
         <div className="property-group">
-          <label>Font</label>
+          <label>{t("m.font.b97c4d")}</label>
           <select
             value={isMixed.fontFamily ? '' : currentStyle.fontFamily}
             onChange={(e) => {
               if (e.target.value) handleStyleChange({ fontFamily: e.target.value });
             }}
           >
-            {isMixed.fontFamily && <option value="" disabled>(Multiple)</option>}
+            {isMixed.fontFamily && <option value="" disabled>{t("m.multiple.d28149")}</option>}
             {AVAILABLE_FONTS.map((font) => (
               <option key={font} value={font} style={{ fontFamily: font }}>
                 {font}
@@ -81,7 +83,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Font Size */}
         <div className="property-group">
-          <label>Size</label>
+          <label>{t("m.size.b71523")}</label>
           <div className="size-input-group">
             <select
               value={isMixed.fontSize ? '' : currentStyle.fontSize}
@@ -112,31 +114,31 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               }}
               className="size-input"
             />
-            <span className="unit">pt</span>
+            <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
         </div>
 
         {/* Font Style Buttons */}
         <div className="property-group">
-          <label>Style</label>
+          <label>{t("m.style.99a0ef")}</label>
           <div className="style-buttons">
             <button
               className={getBtnClass(currentStyle.fontWeight === 'bold', isMixed.fontWeight)}
               onClick={() =>
                 handleStyleChange({ fontWeight: currentStyle.fontWeight === 'bold' ? 'normal' : 'bold' })
               }
-              title="Bold (Ctrl+B)"
+              title={t("m.bold.ctrl.b.022c0e")}
             >
-              <strong>B</strong>
+              <strong>{t("m.b.ae4f28")}</strong>
             </button>
             <button
               className={getBtnClass(currentStyle.fontStyle === 'italic', isMixed.fontStyle)}
               onClick={() =>
                 handleStyleChange({ fontStyle: currentStyle.fontStyle === 'italic' ? 'normal' : 'italic' })
               }
-              title="Italic (Ctrl+I)"
+              title={t("m.italic.ctrl.i.48bead")}
             >
-              <em>I</em>
+              <em>{t("m.i.ca73ab")}</em>
             </button>
             <button
               className={getBtnClass(currentStyle.textDecoration === 'underline', isMixed.textDecoration)}
@@ -145,9 +147,9 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
                   textDecoration: currentStyle.textDecoration === 'underline' ? 'none' : 'underline',
                 })
               }
-              title="Underline (Ctrl+U)"
+              title={t("m.underline.ctrl.u.a39b55")}
             >
-              <u>U</u>
+              <u>{t("m.u.b2c7c0")}</u>
             </button>
             <button
               className={getBtnClass(currentStyle.textDecoration === 'line-through', isMixed.textDecoration)}
@@ -156,16 +158,16 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
                   textDecoration: currentStyle.textDecoration === 'line-through' ? 'none' : 'line-through',
                 })
               }
-              title="Strikethrough"
+              title={t("m.strikethrough.a93b9a")}
             >
-              <s>S</s>
+              <s>{t("m.s.02aa62")}</s>
             </button>
           </div>
         </div>
 
         {/* Text Color */}
         <div className="property-group">
-          <label>Color</label>
+          <label>{t("m.color.1d0c83")}</label>
           <div className="color-picker-row">
             <input
               type="color"
@@ -196,33 +198,33 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Text Alignment */}
         <div className="property-group">
-          <label>Alignment</label>
+          <label>{t("m.alignment.7f8c51")}</label>
           <div className="align-buttons">
             <button
               className={`align-btn ${currentStyle.textAlign === 'left' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'left' })}
-              title="Align Left (Ctrl+L)"
+              title={t("m.align.left.ctrl.l.8e8017")}
             >
               &#9776;
             </button>
             <button
               className={`align-btn ${currentStyle.textAlign === 'center' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'center' })}
-              title="Align Center (Ctrl+E)"
+              title={t("m.align.center.ctrl.e.9f0b3d")}
             >
               &#9783;
             </button>
             <button
               className={`align-btn ${currentStyle.textAlign === 'right' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'right' })}
-              title="Align Right (Ctrl+R)"
+              title={t("m.align.right.ctrl.r.3b9272")}
             >
               &#9782;
             </button>
             <button
               className={`align-btn ${currentStyle.textAlign === 'justify' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'justify' })}
-              title="Justify (Ctrl+J)"
+              title={t("m.justify.ctrl.j.108611")}
             >
               &#9781;
             </button>
@@ -231,22 +233,22 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Vertical Alignment */}
         <div className="property-group">
-          <label>Vertical Align</label>
+          <label>{t("m.vertical.align.22ca5a")}</label>
           <select
             value={currentStyle.verticalAlign}
             onChange={(e) =>
               handleStyleChange({ verticalAlign: e.target.value as TextStyle['verticalAlign'] })
             }
           >
-            <option value="top">Top</option>
-            <option value="middle">Middle</option>
-            <option value="bottom">Bottom</option>
+            <option value="top">{t("m.top.cae043")}</option>
+            <option value="middle">{t("m.middle.ced028")}</option>
+            <option value="bottom">{t("m.bottom.cce7f2")}</option>
           </select>
         </div>
 
         {/* Line Height */}
         <div className="property-group">
-          <label>Line Height</label>
+          <label>{t("m.line.height.ac3292")}</label>
           <div className="slider-group">
             <input
               type="range"
@@ -276,7 +278,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Letter Spacing */}
         <div className="property-group">
-          <label>Letter Spacing</label>
+          <label>{t("m.letter.spacing.65346e")}</label>
           <div className="slider-group">
             <input
               type="range"
@@ -301,7 +303,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               }}
               className="slider-value"
             />
-            <span className="unit">px</span>
+            <span className="unit">{t("m.px.07a65d")}</span>
           </div>
         </div>
       </div>

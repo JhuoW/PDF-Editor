@@ -34,7 +34,7 @@ async function fixture() {
 }
 
 async function openProperties(page: Page) {
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Document Properties & Attachments…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Document Properties & Attachments', exact: true });
   await expect(dialog.getByRole('textbox', { name: 'Document title', exact: true })).toBeEnabled();

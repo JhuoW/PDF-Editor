@@ -15,8 +15,8 @@ async function fixture() {
   return Buffer.from(await document.save());
 }
 async function openEncryption(page: Page) {
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
-  await page.getByRole('button', { name: 'Encrypt and Export…', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
+  await page.getByRole('button', { name: 'Password-Protected Export…', exact: true }).click();
   return page.getByRole('dialog', { name: 'Encrypt and Export', exact: true });
 }
 async function download(page: Page, button: string) {
@@ -44,8 +44,8 @@ test('encrypts current text and form edits with AES-256 and independent owner pe
   await page.goto('/');
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({ name: 'edited-source.PDF', mimeType: 'application/pdf', buffer: await fixture() });
   await page.getByRole('textbox', { name: 'Customer name', exact: true }).fill('Live form value');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'ORIGINAL TEXT TO CHANGE' }).dblclick();
   await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill('EDITED TEXT');
   // Opening the menu blurs and commits the pending text edit into the workspace.

@@ -14,7 +14,7 @@ test('pastes formatted text without executing HTML or loading injected resources
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({ name: 'safe-paste.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await source.save()) });
   await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
   await expect(page.locator('.page-loading-overlay')).toHaveCount(0);
-  await page.getByTitle('Text Box', { exact: true }).click();
+  await page.locator('.quick-tools').getByTitle('Text Box', { exact: true }).click();
   const bounds = (await page.locator('canvas.page-canvas').boundingBox())!;
   await page.mouse.move(bounds.x + 30, bounds.y + 180); await page.mouse.down();
   await page.mouse.move(bounds.x + 360, bounds.y + 330, { steps: 5 }); await page.mouse.up();

@@ -15,7 +15,7 @@ async function openDocument(page: Page) {
 test('landscape document menu scrolls within the viewport and supports keyboard dismissal', async ({ page }) => {
   await page.setViewportSize({ width: 844, height: 390 });
   await openDocument(page);
-  const trigger = page.getByRole('button', { name: 'Document ▾', exact: true });
+  const trigger = page.getByRole('button', { name: 'All tools', exact: true });
   await trigger.focus();
   await page.keyboard.press('Enter');
   const menu = page.locator('.toolbar-menu');
@@ -38,7 +38,7 @@ test('landscape document menu scrolls within the viewport and supports keyboard 
 test('narrow form menu remains inside the screen', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await openDocument(page);
-  await page.getByRole('button', { name: /^Form.*▾$/ }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
   const menu = page.locator('.toolbar-menu');
   await expect(menu).toBeVisible();
   const bounds = await menu.boundingBox();
@@ -68,7 +68,7 @@ for (const [action, prefix] of [['Merge PDFs', 'merge'], ['Split PDF', 'split']]
   test(`${action} isolates keyboard input and keeps controls reachable in landscape`, async ({ page }) => {
     await page.setViewportSize({ width: 844, height: 390 });
     await openDocument(page);
-    await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+    await page.getByRole('button', { name: 'All tools', exact: true }).click();
     await page.getByRole('button', { name: action, exact: true }).click();
     const dialog = page.locator(`dialog.${prefix}-dialog-overlay`);
     await expect(dialog).toBeVisible();
@@ -92,7 +92,7 @@ for (const [action, prefix] of [['Merge PDFs', 'merge'], ['Split PDF', 'split']]
     await expect(close).toBeInViewport();
     await close.click();
     await expect(dialog).toHaveCount(0);
-    await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+    await page.getByRole('button', { name: 'All tools', exact: true }).click();
     await page.getByRole('button', { name: action, exact: true }).click();
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');

@@ -61,8 +61,8 @@ async function openPaper(page: Page, pageNumber = 1) {
     await input.fill(String(pageNumber)); await input.press('Enter');
     await expect(page.locator(`.page-wrapper[data-page="${pageNumber}"] canvas.page-canvas`)).toBeVisible();
   }
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await expect(page.locator('.text-block').first()).toBeVisible();
 }
 async function sourceRect(block: Locator): Promise<Rect> {
@@ -115,7 +115,7 @@ test('fits longer English and Chinese text in the real abstract, with explicit o
   const block = page.locator('.text-block').filter({ hasText: 'Deep neural nets' }), rect = await sourceRect(block);
   await block.click();
   const original = await page.getByRole('textbox', { name: /^Edit text on page/ }).inputValue();
-  await page.getByRole('button', { name: 'Text layout…', exact: true }).click();
+  await page.locator('#pdf-text-edit-controls').getByRole('button', { name: 'Text layout…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Text layout', exact: true });
   const replacement = original.replace('Deep neural nets', 'Edited neural models') + '\n' + 'This added research note verifies longer paragraphs and explicit line wrapping. 中文编辑测试，文字必须完整保留。 '.repeat(5);
   await panel.getByRole('textbox', { name: 'Text', exact: true }).fill(replacement);
@@ -128,7 +128,7 @@ test('fits longer English and Chinese text in the real abstract, with explicit o
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(documentText(await exported(page, 'layout-cancelled.pdf'))).toEqual(originalText);
   await block.click();
-  await page.getByRole('button', { name: 'Text layout…', exact: true }).click();
+  await page.locator('#pdf-text-edit-controls').getByRole('button', { name: 'Text layout…', exact: true }).click();
   await panel.getByRole('textbox', { name: 'Text', exact: true }).fill(replacement);
   await expect(panel.getByRole('button', { name: 'Shrink font to fit', exact: true })).toBeEnabled();
   await panel.getByRole('button', { name: 'Shrink font to fit', exact: true }).click();

@@ -1,3 +1,4 @@
+import { useLocale, translateMessage, t } from "../../i18n";
 import { useState } from 'react';
 import './PageToolbar.css';
 
@@ -48,6 +49,7 @@ export function PageToolbar({
   onCloseDocument,
   canResetToOriginal,
 }: PageToolbarProps) {
+  useLocale();
   const [showInsertMenu, setShowInsertMenu] = useState(false);
 
   const pagesToOperate = selectedPages.length > 0 ? selectedPages : [currentPage];
@@ -69,13 +71,13 @@ export function PageToolbar({
 
   const handleDelete = () => {
     if (totalPages <= pagesToOperate.length) {
-      alert('Cannot delete all pages');
+      alert(translateMessage('Cannot delete all pages'));
       return;
     }
     const confirmMsg = selectedPages.length > 1
       ? `Delete ${selectedPages.length} selected pages?`
       : `Delete page ${currentPage}?`;
-    if (confirm(confirmMsg)) {
+    if (confirm(translateMessage(confirmMsg))) {
       onDeletePages(pagesToOperate);
     }
   };
@@ -112,76 +114,69 @@ export function PageToolbar({
           className="page-toolbar-btn"
           onClick={onUndo}
           disabled={!canUndo}
-          title={undoActionName ? `Undo ${undoActionName} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
+          title={undoActionName ? t("m.undo.ctrl.z.60a1ee", { v0: translateMessage(undoActionName) }) : t("m.undo.ctrl.z.26039c")}
         >
-          ↶ Undo
-        </button>
+          {t("m.undo.6840d5")}</button>
         <button
           className="page-toolbar-btn"
           onClick={onRedo}
           disabled={!canRedo}
-          title={redoActionName ? `Redo ${redoActionName} (Ctrl+Shift+Z)` : 'Redo (Ctrl+Shift+Z)'}
+          title={redoActionName ? t("m.redo.ctrl.shift.z.f1f904", { v0: translateMessage(redoActionName) }) : t("m.redo.ctrl.shift.z.c4d794")}
         >
-          ↷ Redo
-        </button>
+          {t("m.redo.93c438")}</button>
       </div>
 
       <div className="page-toolbar-divider" />
 
       <div className="page-toolbar-group">
-        <span className="page-toolbar-label">Document:</span>
+        <span className="page-toolbar-label">{t("m.document.29abfb")}</span>
         <button
           className="page-toolbar-btn"
           onClick={onMerge}
-          title="Merge PDFs"
+          title={t("m.merge.pdfs.6471ae")}
         >
-          Merge
-        </button>
+          {t("m.merge.ea8f0d")}</button>
         <button
           className="page-toolbar-btn"
           onClick={onSplit}
           disabled={!hasDocument}
-          title="Split PDF"
+          title={t("m.split.pdf.9c654c")}
         >
-          Split
-        </button>
+          {t("m.split.fc8230")}</button>
         <button
           className="page-toolbar-btn"
           onClick={onExport}
           disabled={!hasDocument}
-          title="Export/Download PDF"
+          title={t("m.export.download.pdf.0d3969")}
         >
-          Export
-        </button>
+          {t("m.export.f3e4fa")}</button>
         <button
           className="page-toolbar-btn"
           onClick={onResetToOriginal}
           disabled={!canResetToOriginal}
-          title="Reset to Original - Discard all changes"
+          title={t("m.reset.to.original.discard.all.changes.7ad5ca")}
         >
-          ⟲ Reset
-        </button>
+          {t("m.reset.aa965b")}</button>
         <button
           className="page-toolbar-btn page-toolbar-btn-danger"
           onClick={onCloseDocument}
           disabled={!hasDocument}
-          title="Close Document"
+          title={t("m.close.document.5739e1")}
         >
-          ✕ Close
-        </button>
+          {t("m.close.bf5d9c")}</button>
       </div>
 
       <div className="page-toolbar-divider" />
 
       <div className="page-toolbar-group">
         <span className="page-toolbar-label">
-          {selectedPages.length > 1 ? `${selectedPages.length} selected:` : 'Page:'}
+          {selectedPages.length > 1 ? t("m.selected.4537d5", { v0: selectedPages.length }) : t("m.page.c53d8d")}
         </span>
         <button
           className="page-toolbar-btn"
           onClick={handleRotateCCW}
           disabled={!hasDocument}
-          title={`Rotate ${pageLabel} 90° counter-clockwise`}
+          title={t("m.rotate.90.counter.clockwise.40e339", { v0: translateMessage(pageLabel) })}
         >
           ↺ 90°
         </button>
@@ -189,7 +184,7 @@ export function PageToolbar({
           className="page-toolbar-btn"
           onClick={handleRotateCW}
           disabled={!hasDocument}
-          title={`Rotate ${pageLabel} 90° clockwise`}
+          title={t("m.rotate.90.clockwise.f0851f", { v0: translateMessage(pageLabel) })}
         >
           ↻ 90°
         </button>
@@ -197,7 +192,7 @@ export function PageToolbar({
           className="page-toolbar-btn"
           onClick={handleRotate180}
           disabled={!hasDocument}
-          title={`Rotate ${pageLabel} 180°`}
+          title={t("m.rotate.180.a6c8ee", { v0: translateMessage(pageLabel) })}
         >
           ↻ 180°
         </button>
@@ -205,10 +200,9 @@ export function PageToolbar({
           className="page-toolbar-btn page-toolbar-btn-danger"
           onClick={handleDelete}
           disabled={!hasDocument || totalPages <= 1}
-          title={`Delete ${pageLabel}`}
+          title={t("m.delete.b2952e", { v0: translateMessage(pageLabel) })}
         >
-          Delete
-        </button>
+          {t("m.delete.f6fdbe")}</button>
       </div>
 
       <div className="page-toolbar-divider" />
@@ -220,21 +214,20 @@ export function PageToolbar({
             onClick={() => setShowInsertMenu(!showInsertMenu)}
             disabled={!hasDocument}
           >
-            Insert ▾
-          </button>
+            {t("m.insert.bb45e0")}</button>
           {showInsertMenu && (
             <div className="page-toolbar-menu">
               <div className="page-toolbar-menu-section">
-                <span className="page-toolbar-menu-label">Blank Page</span>
-                <button onClick={handleInsertBlankBefore}>Before current</button>
-                <button onClick={handleInsertBlankAfter}>After current</button>
-                <button onClick={handleInsertBlankAtEnd}>At end</button>
+                <span className="page-toolbar-menu-label">{t("m.blank.page.7c4bb4")}</span>
+                <button onClick={handleInsertBlankBefore}>{t("m.before.current.acddd8")}</button>
+                <button onClick={handleInsertBlankAfter}>{t("m.after.current.fd981d")}</button>
+                <button onClick={handleInsertBlankAtEnd}>{t("m.at.end.242e6c")}</button>
               </div>
               <div className="page-toolbar-menu-divider" />
               <div className="page-toolbar-menu-section">
-                <span className="page-toolbar-menu-label">From File</span>
-                <button onClick={handleInsertFromFileBefore}>Before current</button>
-                <button onClick={handleInsertFromFileAfter}>After current</button>
+                <span className="page-toolbar-menu-label">{t("m.from.file.e70d00")}</span>
+                <button onClick={handleInsertFromFileBefore}>{t("m.before.current.acddd8")}</button>
+                <button onClick={handleInsertFromFileAfter}>{t("m.after.current.fd981d")}</button>
               </div>
             </div>
           )}

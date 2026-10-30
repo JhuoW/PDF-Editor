@@ -1,3 +1,4 @@
+import { useLocale } from "../../i18n";
 import { useEffect, useMemo, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
@@ -17,6 +18,7 @@ export function AnnotationLayer({
   rotation,
   onLinkClick,
 }: AnnotationLayerProps) {
+  useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewport = useMemo(() => page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) }), [page, scale, rotation]);
 

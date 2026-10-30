@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 /**
  * FormLayer - Renders interactive form fields on top of PDF pages
  */
@@ -23,6 +24,7 @@ export function FormLayer({
   scale,
   rotation,
 }: FormLayerProps) {
+  useLocale();
   const { fields, setFieldValueByName, activeFieldId, setActiveField } = useFormStore();
 
   // Get fields for this page
@@ -123,7 +125,7 @@ export function FormLayer({
             onBlur={handleBlur}
             readOnly={field.readOnly}
             maxLength={field.maxLength}
-            placeholder={field.required ? 'Required' : ''}
+            placeholder={field.required ? t("m.required.eed6bf") : ''}
           />
         ) : (
           <input
@@ -138,7 +140,7 @@ export function FormLayer({
             onBlur={handleBlur}
             readOnly={field.readOnly}
             maxLength={field.maxLength}
-            placeholder={field.required ? 'Required' : ''}
+            placeholder={field.required ? t("m.required.eed6bf") : ''}
           />
         );
 
@@ -209,7 +211,7 @@ export function FormLayer({
             onBlur={handleBlur}
             disabled={field.readOnly}
           >
-            {!multiple && <option value="">-- Select --</option>}
+            {!multiple && <option value="">{t("m.select.92adbc")}</option>}
             {field.allowCustomValue && multiple && selectedValues.filter(value => !field.options?.some(option => option.value === value))
               .map(value => <option key={value} value={value}>{value}</option>)}
             {field.options?.map((opt) => (
@@ -260,9 +262,9 @@ export function FormLayer({
             onClick={() => !field.readOnly && handleFocus(field.id)}
           >
             {field.value ? (
-              <span className="signature-signed">Signed</span>
+              <span className="signature-signed">{t("m.signed.6e3665")}</span>
             ) : (
-              <span className="signature-empty">Click to sign</span>
+              <span className="signature-empty">{t("m.click.to.sign.6d9e32")}</span>
             )}
           </div>
         );
@@ -275,7 +277,7 @@ export function FormLayer({
             style={style}
             disabled={field.readOnly}
           >
-            {field.name || 'Button'}
+            {field.name || t("m.button.794145")}
           </button>
         );
 

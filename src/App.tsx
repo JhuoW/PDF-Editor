@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useLocale, translateMessage, t, translateError } from "./i18n";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Theme } from '@radix-ui/themes';
 import '@radix-ui/themes/styles.css';
 import { PDFDocument as PDFLibDocument } from 'pdf-lib';
@@ -49,6 +50,9 @@ import { useEditingStore } from './store/editingStore';
 import { applyRedactions } from './editing/RedactionApplier';
 import { applySecureRedactions } from './editing/SecureRedaction';
 import './App.css';
+import './workspace.css';
+import { WorkspaceInspector } from './components/Workspace/WorkspaceInspector';
+import { FileUp, FilePenLine, Highlighter, Files, ImagePlus, ShieldCheck } from 'lucide-react';
 import type { OCRDialogProgress, OCRRunOptions } from './components/Dialogs/OCRDialog';
 import type { OCRPageResult } from './ocr/recognizePDF';
 import type { FormDesignOperation } from './forms/FormDesignerTypes';
@@ -89,6 +93,17 @@ async function applyWorkspaceFormValues(data: ArrayBuffer, workspace: WorkspaceS
 type SidebarTab = 'thumbnails' | 'outline';
 
 function App() {
+  useLocale();
+  const contextToolbarHost = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const host = contextToolbarHost.current;
+    if (!host) return;
+    const measure = () => host.parentElement?.style.setProperty('--context-toolbar-height', `${host.offsetHeight}px`);
+    const observer = new ResizeObserver(measure);
+    observer.observe(host); measure();
+    return () => observer.disconnect();
+  }, []);
+  const [navigationHost, setNavigationHost] = useState<HTMLDivElement | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('thumbnails');
   const [narrowViewport, setNarrowViewport] = useState(() => window.matchMedia('(max-width: 768px)').matches);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -809,17 +824,17 @@ function App() {
         }
         const validated = normalizeImportedFormValues(formFields, fieldValues, extension !== 'json');
         useFormStore.getState().setFieldValues(validated, 'Import form data');
-        alert(`Imported ${validated.size} field values`);
+        alert(translateMessage(`Imported ${validated.size} field values`));
       } catch (err) {
         console.error('Failed to import form data:', err);
-        alert('Failed to import form data: ' + (err as Error).message);
+        alert(translateMessage('Failed to import form data: ' + (err as Error).message));
       }
     };
     input.click();
   }, [formFields]);
 
   const handleFlattenForm = useCallback(async () => {
-    if (!confirm('Convert all form fields to static page content? You can undo this operation.')) return;
+    if (!confirm(translateMessage('Convert all form fields to static page content? You can undo this operation.'))) return;
     try {
       await runOperation('Flatten form', ({ data, workspace }) => flattenWorkspaceForm(data, workspace));
     } catch (err) { console.error('Failed to flatten form:', err); }
@@ -832,7 +847,7 @@ function App() {
   const handleApplyRedactions = useCallback(async () => {
     const pending = redactions.filter(area => !area.applied);
     if (pending.length === 0) return;
-    if (!confirm(`Apply ${pending.length} visual cover(s)? Underlying text and images remain recoverable. This does not remove sensitive information.`)) return;
+    if (!confirm(translateMessage(`Apply ${pending.length} visual cover(s)? Underlying text and images remain recoverable. This does not remove sensitive information.`))) return;
     try {
       await runOperation(`Apply ${pending.length} visual cover(s)`, async ({ data, workspace }) => {
         const result = await applyRedactions(data, pending);
@@ -847,7 +862,7 @@ function App() {
   const handleRemoveContent = useCallback(async () => {
     const areas = redactions.filter(area => !area.applied);
     if (!areas.length) return;
-    if (!confirm(`Remove content from ${areas.length} marked area(s)? Forms and annotations become static page content. Selected text, graphics and image pixels are removed from the resulting PDF. Metadata and attachments are not cleaned. Local undo history retains the original.`)) return;
+    if (!confirm(translateMessage(`Remove content from ${areas.length} marked area(s)? Forms and annotations become static page content. Selected text, graphics and image pixels are removed from the resulting PDF. Metadata and attachments are not cleaned. Local undo history retains the original.`))) return;
     try {
       await runOperation('Remove selected page content', async ({ data, workspace }) => {
         const prepared = await exportWorkspacePDF(data, workspace);
@@ -1227,10 +1242,11 @@ function App() {
   }, [document, isLoading, zoomIn, zoomOut, navigation.viewMode, nextPage, previousPage]);
 
   return (
-    <Theme appearance="dark" accentColor="blue" radius="medium">
-      <div className="app-container">
+    <Theme appearance="light" accentColor="blue" radius="medium">
+      <div className="app-container" data-has-document={!!document} data-sidebar-open={!!document && sidebarOpen && !narrowViewport}>
         {/* Main Toolbar */}
         <MainToolbar
+          navigationHost={navigationHost}
           currentPage={navigation.currentPage}
           totalPages={navigation.totalPages}
           zoom={navigation.zoom}
@@ -1294,12 +1310,15 @@ function App() {
           onCompressPDF={() => setCompressPDFOpen(true)}
           onManageLinks={() => setLinksOpen(true)}
           onManageBookmarks={() => setBookmarksOpen(true)}
+          onCreatePDF={() => setCreatePDFOpen(true)}
+          onExportPages={() => setExportPagesOpen(true)}
           onSignature={() => { if (document) setSignatureSession({ document, version: documentVersion }); }}
           onCleanDocument={() => setCleanDocumentOpen(true)}
           isBusy={isLoading}
           onInsertImage={handleInsertImage}
         />
 
+        <div ref={contextToolbarHost} className="workspace-context-toolbar">
         {/* Text Box Formatting Toolbar (shown when editing text box) */}
         {tiptapEditor && !isLoading && (
           <div className="textbox-format-toolbar-container">
@@ -1317,25 +1336,17 @@ function App() {
           </div>
         )}
 
-        {document && (
-          <div className={`session-save-status status-${persistence.status}`} role="status" aria-live="polite">
-            {persistence.status === 'error'
-              ? `Local save failed: ${persistence.error}`
-              : persistence.status === 'saving' ? 'Saving changes on this device…' : 'Changes saved on this device'}
-            {persistence.status === 'error' && <button onClick={() => void persistence.flush()}>Retry</button>}
-          </div>
-        )}
-
+        </div>
         {document && pendingImages.length > 0 && currentTool === 'image' && <div className="image-placement-status" role="status">
-          <span>Click a page to place {pendingImages[0].filename}.{pendingImages.length > 1 ? ` ${pendingImages.length} images remaining.` : ''}</span>
-          <button type="button" onClick={() => { setPendingImages([]); setCurrentTool('select'); }}>Cancel placement</button>
+          <span>{t("m.click.a.page.to.place.f79307")}{' '}{pendingImages[0].filename}.{pendingImages.length > 1 ? t("m.images.remaining.a0d632", { v0: pendingImages.length }) : ''}</span>
+          <button type="button" onClick={() => { setPendingImages([]); setCurrentTool('select'); }}>{t("m.cancel.placement.739c5b")}</button>
         </div>}
         {/* Main content area */}
-        <div className="main-layout" role="region" aria-label="PDF document viewer">
+        <div className="main-layout" role="region" aria-label={t("m.pdf.document.viewer.dcba98")}>
           {/* Sidebar */}
           {document && sidebarOpen && (
-            <aside className="sidebar" role="complementary" aria-label="Document navigation">
-              <div className="sidebar-tabs" role="tablist" aria-label="Sidebar views">
+            <aside className="sidebar" role="complementary" aria-label={t("m.document.navigation.64cf35")}>
+              <div className="sidebar-tabs" role="tablist" aria-label={t("m.sidebar.views.84995e")}>
                 <button
                   className={`sidebar-tab ${sidebarTab === 'thumbnails' ? 'active' : ''}`}
                   onClick={() => setSidebarTab('thumbnails')}
@@ -1343,8 +1354,7 @@ function App() {
                   aria-selected={sidebarTab === 'thumbnails'}
                   aria-controls="thumbnail-panel"
                 >
-                  Pages
-                </button>
+                  {t("m.pages.600584")}</button>
                 <button
                   className={`sidebar-tab ${sidebarTab === 'outline' ? 'active' : ''}`}
                   onClick={() => setSidebarTab('outline')}
@@ -1352,12 +1362,11 @@ function App() {
                   aria-selected={sidebarTab === 'outline'}
                   aria-controls="outline-panel"
                 >
-                  Bookmarks
-                </button>
+                  {t("m.bookmarks.ca3cdd")}</button>
               </div>
               <div className="sidebar-content">
                 {sidebarTab === 'thumbnails' && (
-                  <div id="thumbnail-panel" role="tabpanel" aria-label="Page thumbnails">
+                  <div id="thumbnail-panel" role="tabpanel" aria-label={t("m.page.thumbnails.8e90ea")}>
                     <ThumbnailPanel
                       key={documentVersion}
                       document={document}
@@ -1369,7 +1378,7 @@ function App() {
                   </div>
                 )}
                 {sidebarTab === 'outline' && (
-                  <div id="outline-panel" role="tabpanel" aria-label="Document outline">
+                  <div id="outline-panel" role="tabpanel" aria-label={t("m.document.outline.12ebeb")}>
                     <OutlinePanel
                       key={documentVersion}
                       document={document}
@@ -1390,7 +1399,7 @@ function App() {
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
-            aria-label="Document content"
+            aria-label={t("m.document.content.a2e7e0")}
           >
             {/* Search dialog */}
             {document && searchOpen && (
@@ -1455,10 +1464,10 @@ function App() {
             {/* Reset to Original confirmation dialog */}
             <ConfirmationDialog
               isOpen={resetDialogOpen}
-              title="Reset to Original?"
-              message="This will discard all changes (rotations, page modifications, annotations, etc.) and restore the original PDF. This action cannot be undone."
-              confirmLabel="Reset"
-              cancelLabel="Cancel"
+              title={t("m.reset.to.original.e49d7b")}
+              message={t("m.this.will.discard.all.changes.rotations.page.mod.6b2a33")}
+              confirmLabel={t("m.reset.44c57a")}
+              cancelLabel={t("m.cancel.77dfd2")}
               confirmVariant="danger"
               onConfirm={handleResetToOriginal}
               onCancel={() => setResetDialogOpen(false)}
@@ -1467,10 +1476,10 @@ function App() {
             {/* Close Document confirmation dialog */}
             <ConfirmationDialog
               isOpen={closeDialogOpen}
-              title="Close Document?"
-              message="Are you sure you want to close this document? Any unsaved changes will be lost."
-              confirmLabel="Close Without Saving"
-              cancelLabel="Cancel"
+              title={t("m.close.document.cb661b")}
+              message={t("m.are.you.sure.you.want.to.close.this.document.any.0d181b")}
+              confirmLabel={t("m.close.without.saving.ff57ab")}
+              cancelLabel={t("m.cancel.77dfd2")}
               confirmVariant="danger"
               onConfirm={handleCloseDocument}
               onCancel={() => setCloseDialogOpen(false)}
@@ -1480,7 +1489,7 @@ function App() {
             {isLoading && (
               <div className="loading-state">
                 <div className="loading-spinner" />
-                <span>Loading PDF...</span>
+                <span>{t("m.loading.pdf.3f59ed")}</span>
               </div>
             )}
 
@@ -1488,36 +1497,17 @@ function App() {
             {error && (
               <div className="error-state" role="alert">
                 <span className="error-icon">⚠</span>
-                <span>Error: {error}</span>
-                <button className="toolbar-btn" onClick={() => useDocumentStore.getState().setError(null)}>Dismiss</button>
+                <span>{t("m.error.787aa1")}{' '}{translateError(error)}</span>
+                <button className="toolbar-btn" onClick={() => useDocumentStore.getState().setError(null)}>{t("m.dismiss.70afe9")}</button>
               </div>
             )}
 
-            {/* Empty state */}
-            {!document && !isLoading && !error && (
-              <div className="empty-state">
-                <div className="drop-zone">
-                  <div className="drop-icon">📄</div>
-                  <h2>Open a PDF</h2>
-                  <p>Drag and drop a PDF file here, or click to select</p>
-                  <p className="keyboard-hint">Press <kbd>Ctrl</kbd>+<kbd>O</kbd> to open</p>
-                  <button
-                    onClick={() => {
-                      const input = window.document.createElement('input');
-                      input.type = 'file';
-                      input.accept = '.pdf';
-                      input.onchange = async (e) => {
-                        const file = (e.target as HTMLInputElement).files?.[0];
-                        if (file) await handleOpenFile(file);
-                      };
-                      input.click();
-                    }}
-                  >
-                    Select File
-                  </button>
-                </div>
-              </div>
-            )}
+            {!document && !isLoading && !error && <div className="welcome-workspace">
+              <div className="welcome-heading"><span className="welcome-eyebrow"><ShieldCheck size={14} />{t("m.local.processing.32deec")}</span><h1>{t("m.your.pdf.your.workspace.98dfd1")}</h1><p>{t("m.create.edit.and.organize.pdfs.in.your.browser.d34a81")}</p></div>
+              <div className="drop-zone" role="region" aria-label={t("m.open.pdf.40fdbd")}><div className="drop-icon"><FileUp size={34} strokeWidth={1.5} /></div><h2>{t("m.open.a.pdf.24d206")}</h2><p>{t("m.drag.and.drop.a.pdf.file.here.or.click.to.select.78d499")}</p><button className="welcome-open" onClick={() => window.document.querySelector<HTMLInputElement>('.main-toolbar input[type=file]')?.click()}><FileUp size={16} />{t("m.select.file.5c0c87")}</button><p className="keyboard-hint">{t("m.press.ea683a")}{' '}<kbd>{t("m.ctrl.dd6a02")}</kbd>+<kbd>{t("m.o.08a914")}</kbd> {' '}{t("m.to.open.e2c7f6")}</p></div>
+              <div className="welcome-cards">{[{ icon: FilePenLine, title: 'Edit original content', detail: 'Update text and images directly on the page.' }, { icon: Highlighter, title: 'Review and annotate', detail: 'Highlight, draw, add notes and sign.' }, { icon: Files, title: 'Organize pages', detail: 'Merge, split, reorder and rotate.' }].map(({ icon: Icon, title, detail }) => <div key={title}><Icon size={22} /><h3>{translateMessage(title)}</h3><p>{translateMessage(detail)}</p></div>)}</div>
+              <button className="welcome-create" onClick={() => setCreatePDFOpen(true)}><ImagePlus size={17} />{t("m.create.pdfs.from.images.4f6979")}</button>
+            </div>}
 
             {/* PDF Viewer */}
             {document && !isLoading && (
@@ -1550,30 +1540,43 @@ function App() {
               />
             )}
           </main>
+          {document && <WorkspaceInspector onTextLayout={setTextLayoutBlockId} onProperties={() => setPropertiesOpen(true)} isBusy={isLoading} />}
         </div>
+        <footer className="document-statusbar">
+        {document && (
+          <div className={`session-save-status status-${persistence.status}`} role="status" aria-live="polite">
+            {persistence.status === 'error'
+              ? t("m.local.save.failed.4bd8de", { v0: translateMessage(persistence.error) })
+              : persistence.status === 'saving' ? t("m.saving.changes.on.this.device.d1aa54") : t("m.changes.saved.on.this.device.6baf60")}
+            {persistence.status === 'error' && <button onClick={() => void persistence.flush()}>{t("m.retry.9f5cd8")}</button>}
+          </div>
+        )}
+
+          <div ref={setNavigationHost} className="document-navigation-slot" />
+        </footer>
         {document && !isLoading && <StickyNoteEditor />}
         {passwordRequest && <PasswordDialog request={passwordRequest} onSubmit={submitPassword} onCancel={cancelPasswordRequest} />}
-        {document && propertiesOpen && <Suspense fallback={<div role="status">Loading document properties…</div>}><DocumentPropertiesDialog isOpen={propertiesOpen} documentKey={getOriginalDocument()} revision={documentVersion}
+        {document && propertiesOpen && <Suspense fallback={<div role="status">{t("m.loading.document.properties.3f510b")}</div>}><DocumentPropertiesDialog isOpen={propertiesOpen} documentKey={getOriginalDocument()} revision={documentVersion}
           onClose={() => setPropertiesOpen(false)} readPDF={readPropertiesPDF} onApply={applyProperties} /></Suspense>}
-        {document && ocrOpen && <Suspense fallback={<div role="status">Loading OCR…</div>}><OCRDialog documentKey={getOriginalDocument()} totalPages={navigation.totalPages}
+        {document && ocrOpen && <Suspense fallback={<div role="status">{t("m.loading.ocr.000da0")}</div>}><OCRDialog documentKey={getOriginalDocument()} totalPages={navigation.totalPages}
           currentPage={navigation.currentPage} onRun={handleOCR} onClose={() => setOCROpen(false)} /></Suspense>}
-        {createPDFOpen && <Suspense fallback={<div role="status">Loading PDF creation…</div>}><CreatePDFDialog onCreate={handleOpenFile} onClose={() => setCreatePDFOpen(false)} /></Suspense>}
-        {document && exportPagesOpen && <Suspense fallback={<div role="status">Loading page export…</div>}><ExportPagesDialog readPDF={prepareExport} onClose={() => setExportPagesOpen(false)} /></Suspense>}
-        {document && formDesignerOpen && <Suspense fallback={<div role="status">Loading form designer…</div>}><FormDesignerDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+        {createPDFOpen && <Suspense fallback={<div role="status">{t("m.loading.pdf.creation.ca53ea")}</div>}><CreatePDFDialog onCreate={handleOpenFile} onClose={() => setCreatePDFOpen(false)} /></Suspense>}
+        {document && exportPagesOpen && <Suspense fallback={<div role="status">{t("m.loading.page.export.5b4fcb")}</div>}><ExportPagesDialog readPDF={prepareExport} onClose={() => setExportPagesOpen(false)} /></Suspense>}
+        {document && formDesignerOpen && <Suspense fallback={<div role="status">{t("m.loading.form.designer.de3723")}</div>}><FormDesignerDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
           readPDF={readFormDesignPDF} onSave={saveFormDesign} onClose={() => setFormDesignerOpen(false)} /></Suspense>}
-        {document && pageDecorationsOpen && <Suspense fallback={<div role="status">Loading page decorations…</div>}><PageDecorationsDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+        {document && pageDecorationsOpen && <Suspense fallback={<div role="status">{t("m.loading.page.decorations.53b350")}</div>}><PageDecorationsDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
           readPDF={readDecorationsPDF} onApply={applyDecorations} onClose={() => setPageDecorationsOpen(false)} /></Suspense>}
-        {document && cleanDocumentOpen && <Suspense fallback={<div role="status">Loading document cleanup…</div>}><CleanDocumentDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+        {document && cleanDocumentOpen && <Suspense fallback={<div role="status">{t("m.loading.document.cleanup.c90f35")}</div>}><CleanDocumentDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
           readPDF={readCleanupPDF} onApply={applyCleanup} onClose={() => setCleanDocumentOpen(false)} /></Suspense>}
-        {document && compressPDFOpen && <Suspense fallback={<div role="status">Loading PDF compression…</div>}><CompressPDFDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+        {document && compressPDFOpen && <Suspense fallback={<div role="status">{t("m.loading.pdf.compression.41563b")}</div>}><CompressPDFDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
           readPDF={readOptimizationPDF} onClose={() => setCompressPDFOpen(false)} /></Suspense>}
-        {document && bookmarksOpen && <Suspense fallback={<div role="status">Loading bookmarks…</div>}><PDFBookmarksDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+        {document && bookmarksOpen && <Suspense fallback={<div role="status">{t("m.loading.bookmarks.aa55ad")}</div>}><PDFBookmarksDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
           readPDF={readBookmarksPDF} onApply={applyBookmarks} onClose={closeBookmarks} /></Suspense>}
-        {document && signatureSession?.document === document && signatureSession.version === documentVersion && <Suspense fallback={<div role="status">Loading signature…</div>}><SignatureDialog documentKey={document} revision={documentVersion}
+        {document && signatureSession?.document === document && signatureSession.version === documentVersion && <Suspense fallback={<div role="status">{t("m.loading.signature.997592")}</div>}><SignatureDialog documentKey={document} revision={documentVersion}
           onInsert={image => { handleInsertImage([image]); setSignatureSession(null); }} onClose={() => setSignatureSession(null)} /></Suspense>}
-        {document && linksOpen && <Suspense fallback={<div role="status">Loading links…</div>}><PDFLinksDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
+        {document && linksOpen && <Suspense fallback={<div role="status">{t("m.loading.links.70cd04")}</div>}><PDFLinksDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
           readPDF={readLinksPDF} onApply={applyLinks} onClose={closeLinks} /></Suspense>}
-        {document && textLayoutBlockId && <Suspense fallback={<div role="status">Loading text layout…</div>}><TextLayoutDialog documentKey={getOriginalDocument()} revision={documentVersion} blockId={textLayoutBlockId}
+        {document && textLayoutBlockId && <Suspense fallback={<div role="status">{t("m.loading.text.layout.f422e8")}</div>}><TextLayoutDialog documentKey={getOriginalDocument()} revision={documentVersion} blockId={textLayoutBlockId}
           readPDF={readTextLayoutPDF} onSave={saveTextLayout} onClose={closeTextLayout} /></Suspense>}
         {document && encryptDialogOpen && (
           <EncryptDialog preparePDF={prepareExport} onClose={() => setEncryptDialogOpen(false)} />

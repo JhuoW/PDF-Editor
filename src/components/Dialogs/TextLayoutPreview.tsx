@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { TextRect } from '../../editing/types';
@@ -16,6 +17,7 @@ function fitTextRect(rect: TextRect, width: number, height: number): TextRect {
 }
 
 export function TextLayoutPreview({ data, pageNumber, sourceRect, targetRect, scale, disabled, onChange, onInteractionChange, onError, onReady }: Props) {
+  useLocale();
   const host = useRef<HTMLDivElement>(null), overlay = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), gesture = useRef<Gesture | null>(null);
   const errorCallback = useRef(onError), interactionCallback = useRef(onInteractionChange), readyCallback = useRef(onReady);
   const [availableWidth, setAvailableWidth] = useState(600), [loaded, setLoaded] = useState<{ data: Uint8Array; number: number; page: PDFPageProxy } | null>(null), [rendered, setRendered] = useState<object | null>(null);
@@ -78,10 +80,10 @@ export function TextLayoutPreview({ data, pageNumber, sourceRect, targetRect, sc
   };
   const corner = source && viewport ? mapViewportPoint(targetRect.x + targetRect.width, targetRect.y + targetRect.height, source, viewport) : { x: 0, y: 0 };
   return <div ref={host} className="text-layout-preview" aria-busy={!viewport || rendered !== viewport}>
-    {(!viewport || rendered !== viewport) && <p role="status">Rendering PDF preview…</p>}
+    {(!viewport || rendered !== viewport) && <p role="status">{t("m.rendering.pdf.preview.6934dd")}</p>}
     {viewport && source && <div className="text-layout-page" style={{ width: viewport.width, height: viewport.height }}>
-      <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} aria-label="Text layout PDF page preview" style={{ width: viewport.width, height: viewport.height }} />
-      <div ref={overlay} className="text-layout-overlay" tabIndex={0} role="region" aria-label="Text layout target area" onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onKeyDown={event => {
+      <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} aria-label={t("m.text.layout.pdf.page.preview.60095c")} style={{ width: viewport.width, height: viewport.height }} />
+      <div ref={overlay} className="text-layout-overlay" tabIndex={0} role="region" aria-label={t("m.text.layout.target.area.2648c3")} onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onKeyDown={event => {
         if (disabled) return;
         const amount = event.shiftKey ? 10 : 1, dx = event.key === 'ArrowRight' ? amount : event.key === 'ArrowLeft' ? -amount : 0, dy = event.key === 'ArrowDown' ? amount : event.key === 'ArrowUp' ? -amount : 0;
         if (!dx && !dy) return;
@@ -90,8 +92,8 @@ export function TextLayoutPreview({ data, pageNumber, sourceRect, targetRect, sc
         onChange(fitTextRect({ ...targetRect, x: targetRect.x + moved.x - origin.x, y: targetRect.y + moved.y - origin.y }, source.width, source.height));
       }}>
         <div className="text-layout-source-area" style={style(sourceRect)} aria-hidden="true" />
-        <button type="button" disabled={disabled} aria-label="Move text area" className="text-layout-target-area" style={style(targetRect)} onPointerDown={event => begin(event, 'move')} />
-        <button type="button" disabled={disabled} aria-label="Resize text area" className="text-layout-resize" style={{ left: corner.x - 7, top: corner.y - 7 }} onPointerDown={event => begin(event, 'resize')} />
+        <button type="button" disabled={disabled} aria-label={t("m.move.text.area.3dfda8")} className="text-layout-target-area" style={style(targetRect)} onPointerDown={event => begin(event, 'move')} />
+        <button type="button" disabled={disabled} aria-label={t("m.resize.text.area.ec4048")} className="text-layout-resize" style={{ left: corner.x - 7, top: corner.y - 7 }} onPointerDown={event => begin(event, 'resize')} />
       </div>
     </div>}
   </div>;

@@ -1,3 +1,5 @@
+import { translateMessage } from '../../i18n';
+import { useLocale, t } from "../../i18n";
 import { useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useSearchStore, searchDocument, type SearchOptions, type SearchResult } from '../../store/searchStore';
@@ -18,6 +20,7 @@ interface CompletedSearch {
 }
 
 export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDialogProps) {
+  useLocale();
   const inputRef = useRef<HTMLInputElement>(null);
   const [completed, setCompleted] = useState<CompletedSearch | null>(null);
   const {
@@ -64,7 +67,7 @@ export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDial
   }, [isCurrent, completed, currentResultIndex, results, onNavigateToPage]);
 
   return (
-    <div className="search-dialog" role="search" aria-label="Document search" onKeyDown={event => {
+    <div className="search-dialog" role="search" aria-label={t("m.document.search.ef750f")} onKeyDown={event => {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); onClose(); }
     }}>
@@ -72,8 +75,8 @@ export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDial
         <input
           ref={inputRef}
           type="text"
-          aria-label="Search document text"
-          placeholder="Search in document..."
+          aria-label={t("m.search.document.text.b75d58")}
+          placeholder={t("m.search.in.document.afd43a")}
           value={query}
           onChange={event => setQuery(event.target.value)}
           onKeyDown={event => {
@@ -87,23 +90,23 @@ export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDial
           }}
           className="search-input"
         />
-        <button onClick={previousResult} disabled={!currentResults.length} className="search-nav-btn" title="Previous (Shift+Enter)" aria-label="Previous search result">↑</button>
-        <button onClick={nextResult} disabled={!currentResults.length} className="search-nav-btn" title="Next (Enter)" aria-label="Next search result">↓</button>
-        <button onClick={onClose} className="search-close-btn" title="Close (Esc)" aria-label="Close search">✕</button>
+        <button onClick={previousResult} disabled={!currentResults.length} className="search-nav-btn" title={t("m.previous.shift.enter.fac0d0")} aria-label={t("m.previous.search.result.6ec78d")}>↑</button>
+        <button onClick={nextResult} disabled={!currentResults.length} className="search-nav-btn" title={t("m.next.enter.fb0aa7")} aria-label={t("m.next.search.result.b2c6a2")}>↓</button>
+        <button onClick={onClose} className="search-close-btn" title={t("m.close.esc.6ae84e")} aria-label={t("m.close.search.0906f9")}>✕</button>
       </div>
       <div className="search-options">
         <label className="search-option">
           <input type="checkbox" checked={options.caseSensitive} onChange={event => setOptions({ caseSensitive: event.target.checked })} />
-          <span>Match case</span>
+          <span>{t("m.match.case.d18bbf")}</span>
         </label>
         <label className="search-option">
           <input type="checkbox" checked={options.wholeWord} onChange={event => setOptions({ wholeWord: event.target.checked })} />
-          <span>Whole word</span>
+          <span>{t("m.whole.word.6171b6")}</span>
         </label>
       </div>
       <div className="search-status" role="status" aria-live="polite">
-        {query && (isSearching || !isCurrent ? 'Searching...' : completed.error || (
-          currentResults.length ? `${currentResultIndex + 1} of ${currentResults.length} matches` : 'No matches found'
+        {query && (isSearching || !isCurrent ? t("m.searching.ba2b5a") : translateMessage(completed.error) || (
+          currentResults.length ? t("m.of.matches.749f03", { v0: currentResultIndex + 1, v1: currentResults.length }) : t("m.no.matches.found.a68d28")
         ))}
       </div>
     </div>

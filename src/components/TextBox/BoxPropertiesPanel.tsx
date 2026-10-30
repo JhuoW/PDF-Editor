@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useCallback, useState } from 'react';
 import type { FreeTextAnnotation, BoxStyle } from '../../annotations/types';
 import { DEFAULT_BOX_STYLE } from '../../annotations/types';
@@ -20,6 +21,7 @@ const COLOR_PRESETS = [
 const BORDER_STYLES: BoxStyle['borderStyle'][] = ['solid', 'dashed', 'dotted', 'none'];
 
 export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelProps) {
+  useLocale();
   const { updateAnnotation } = useAnnotationStore();
   const { recordUpdate } = useAnnotationHistoryStore();
 
@@ -108,9 +110,9 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
   return (
     <div className="box-properties-panel">
       <div className="panel-header">
-        <h3>Box Properties</h3>
+        <h3>{t("m.box.properties.77bf66")}</h3>
         {onClose && (
-          <button className="close-btn" onClick={onClose} title="Close">
+          <button className="close-btn" onClick={onClose} title={t("m.close.bbfa77")}>
             &times;
           </button>
         )}
@@ -119,10 +121,10 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
       <div className="panel-content">
         {/* Position */}
         <div className="property-section">
-          <div className="section-title">Position</div>
+          <div className="section-title">{t("m.position.cf1c85")}</div>
           <div className="position-grid">
             <div className="position-field">
-              <label>X</label>
+              <label>{t("m.x.c032ad")}</label>
               <input
                 type="number"
                 value={x.toFixed(1)}
@@ -134,10 +136,10 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                   }
                 }}
               />
-              <span className="unit">pt</span>
+              <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
             <div className="position-field">
-              <label>Y</label>
+              <label>{t("m.y.23eb4d")}</label>
               <input
                 type="number"
                 value={y.toFixed(1)}
@@ -149,17 +151,17 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                   }
                 }}
               />
-              <span className="unit">pt</span>
+              <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
           </div>
         </div>
 
         {/* Size */}
         <div className="property-section">
-          <div className="section-title">Size</div>
+          <div className="section-title">{t("m.size.b71523")}</div>
           <div className="size-grid">
             <div className="size-field">
-              <label>W</label>
+              <label>{t("m.w.e2415c")}</label>
               <input
                 type="number"
                 value={width.toFixed(1)}
@@ -172,10 +174,10 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                   }
                 }}
               />
-              <span className="unit">pt</span>
+              <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
             <div className="size-field">
-              <label>H</label>
+              <label>{t("m.h.7cf184")}</label>
               <input
                 type="number"
                 value={height.toFixed(1)}
@@ -188,7 +190,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                   }
                 }}
               />
-              <span className="unit">pt</span>
+              <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
           </div>
           <label className="checkbox-label">
@@ -197,13 +199,12 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
               checked={lockAspectRatio}
               onChange={(e) => setLockAspectRatio(e.target.checked)}
             />
-            Lock aspect ratio
-          </label>
+            {t("m.lock.aspect.ratio.370bda")}</label>
         </div>
 
         {/* Rotation */}
         <div className="property-section">
-          <div className="section-title">Rotation</div>
+          <div className="section-title">{t("m.rotation.906fe5")}</div>
           <div className="rotation-field">
             <input
               type="number"
@@ -230,9 +231,9 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
 
         {/* Background */}
         <div className="property-section">
-          <div className="section-title">Background</div>
+          <div className="section-title">{t("m.background.64dd60")}</div>
           <div className="color-row">
-            <label>Color</label>
+            <label>{t("m.color.1d0c83")}</label>
             <div className="color-input-group">
               {boxStyle.backgroundColor !== 'transparent' ? (
                 <input
@@ -242,7 +243,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                   className="color-input"
                 />
               ) : (
-                <div className="transparent-indicator" title="Transparent" />
+                <div className="transparent-indicator" title={t("m.transparent.0491f7")} />
               )}
               <input
                 type="text"
@@ -264,7 +265,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
             ))}
           </div>
           <div className="opacity-row">
-            <label>Opacity</label>
+            <label>{t("m.opacity.f0fa69")}</label>
             <input
               type="range"
               min={0}
@@ -282,9 +283,9 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
 
         {/* Border */}
         <div className="property-section">
-          <div className="section-title">Border</div>
+          <div className="section-title">{t("m.border.5d10d3")}</div>
           <div className="border-row">
-            <label>Color</label>
+            <label>{t("m.color.1d0c83")}</label>
             <div className="color-input-group">
               <input
                 type="color"
@@ -302,7 +303,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
           </div>
           <div className="border-grid">
             <div className="border-field">
-              <label>Width</label>
+              <label>{t("m.width.a58ddf")}</label>
               <input
                 type="number"
                 value={boxStyle.borderWidth ?? 1}
@@ -316,10 +317,10 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                   }
                 }}
               />
-              <span className="unit">pt</span>
+              <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
             <div className="border-field">
-              <label>Style</label>
+              <label>{t("m.style.99a0ef")}</label>
               <select
                 value={boxStyle.borderStyle || 'solid'}
                 onChange={(e) =>
@@ -335,7 +336,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
             </div>
           </div>
           <div className="border-radius-row">
-            <label>Radius</label>
+            <label>{t("m.radius.e5aaea")}</label>
             <input
               type="number"
               value={boxStyle.borderRadius ?? 0}
@@ -349,25 +350,24 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                 }
               }}
             />
-            <span className="unit">pt</span>
+            <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
         </div>
 
         {/* Padding */}
         <div className="property-section">
           <div className="section-title">
-            Padding
-            <button
+            {t("m.padding.9c47ca")}<button
               className={`link-btn ${linkPadding ? 'active' : ''}`}
               onClick={() => setLinkPadding(!linkPadding)}
-              title={linkPadding ? 'Unlink sides' : 'Link all sides'}
+              title={linkPadding ? t("m.unlink.sides.eb2450") : t("m.link.all.sides.4548de")}
             >
               {linkPadding ? '🔗' : '⛓️‍💥'}
             </button>
           </div>
           <div className="padding-grid">
             <div className="padding-field top">
-              <label>T</label>
+              <label>{t("m.t.c2c53d")}</label>
               <input
                 type="number"
                 value={boxStyle.padding?.top ?? 8}
@@ -383,7 +383,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
               />
             </div>
             <div className="padding-field right">
-              <label>R</label>
+              <label>{t("m.r.065765")}</label>
               <input
                 type="number"
                 value={boxStyle.padding?.right ?? 8}
@@ -399,7 +399,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
               />
             </div>
             <div className="padding-field bottom">
-              <label>B</label>
+              <label>{t("m.b.ae4f28")}</label>
               <input
                 type="number"
                 value={boxStyle.padding?.bottom ?? 8}
@@ -415,7 +415,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
               />
             </div>
             <div className="padding-field left">
-              <label>L</label>
+              <label>{t("m.l.d160e0")}</label>
               <input
                 type="number"
                 value={boxStyle.padding?.left ?? 8}

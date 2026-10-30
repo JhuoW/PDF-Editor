@@ -1,3 +1,4 @@
+import { useLocale } from "../../i18n";
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PDFPageProxy, PageViewport } from 'pdfjs-dist';
 
@@ -10,6 +11,7 @@ interface Props { page: PDFPageProxy; viewport: PageViewport; onReady?: () => vo
 
 /** PDF.js paints Link borders in its DOM layer, not in the page canvas. */
 export function NativeLinkBorderLayer({ page, viewport, onReady, onError }: Props) {
+  useLocale();
   const [loaded, setLoaded] = useState<{ page: PDFPageProxy; annotations: BorderAnnotation[] } | null>(null);
   const callbacks = useRef({ onReady, onError });
   useLayoutEffect(() => { callbacks.current = { onReady, onError }; });

@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useAnnotationStore } from '../../store/annotationStore';
 import type { AnnotationTool } from '../../annotations/types';
 import { PREDEFINED_STAMPS } from '../../annotations/types';
@@ -8,6 +9,7 @@ interface AnnotationToolbarProps {
 }
 
 export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
+  useLocale();
   const {
     currentTool,
     setCurrentTool,
@@ -57,11 +59,11 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
   return (
     <div className="annotation-toolbar">
       <div className="annotation-toolbar-section">
-        <span className="section-label">Navigation</span>
+        <span className="section-label">{t("m.navigation.cf03cf")}</span>
         <button
           className={`tool-button ${currentTool === 'select' ? 'active' : ''}`}
           onClick={() => handleToolClick('select')}
-          title="Select"
+          title={t("m.select.859822")}
         >
           <svg className="tool-icon-svg select-cursor-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 4L10 22L13 13L22 10L4 4Z" fill="white" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -70,7 +72,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
         <button
           className={`tool-button ${currentTool === 'pan' ? 'active' : ''}`}
           onClick={() => handleToolClick('pan')}
-          title="Pan"
+          title={t("m.pan.8c9ce3")}
         >
           <svg className="tool-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M18 11V6C18 5.45 17.55 5 17 5C16.45 5 16 5.45 16 6V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -85,66 +87,66 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
       <div className="toolbar-divider" />
 
       <div className="annotation-toolbar-section">
-        <span className="section-label">Text Markup</span>
+        <span className="section-label">{t("m.text.markup.3c1df0")}</span>
         <button
           className={`tool-button ${currentTool === 'highlight' ? 'active' : ''}`}
           onClick={() => handleToolClick('highlight')}
-          title="Highlight"
+          title={t("m.highlight.e1da92")}
         >
-          <span className="tool-icon highlight-icon">H</span>
+          <span className="tool-icon highlight-icon">{t("m.h.7cf184")}</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'underline' ? 'active' : ''}`}
           onClick={() => handleToolClick('underline')}
-          title="Underline"
+          title={t("m.underline.39773a")}
         >
-          <span className="tool-icon underline-icon">U</span>
+          <span className="tool-icon underline-icon">{t("m.u.b2c7c0")}</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'strikeout' ? 'active' : ''}`}
           onClick={() => handleToolClick('strikeout')}
-          title="Strikeout"
+          title={t("m.strikeout.c73b63")}
         >
-          <span className="tool-icon strikeout-icon">S</span>
+          <span className="tool-icon strikeout-icon">{t("m.s.02aa62")}</span>
         </button>
       </div>
 
       <div className="toolbar-divider" />
 
       <div className="annotation-toolbar-section">
-        <span className="section-label">Drawing</span>
+        <span className="section-label">{t("m.drawing.9de360")}</span>
         <button
           className={`tool-button ${currentTool === 'ink' ? 'active' : ''}`}
           onClick={() => handleToolClick('ink')}
-          title="Freehand Draw"
+          title={t("m.freehand.draw.691bc6")}
         >
           <span className="tool-icon">✏</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'line' ? 'active' : ''}`}
           onClick={() => handleToolClick('line')}
-          title="Line"
+          title={t("m.line.ea9676")}
         >
           <span className="tool-icon">╱</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'arrow' ? 'active' : ''}`}
           onClick={() => handleToolClick('arrow')}
-          title="Arrow"
+          title={t("m.arrow.3a4758")}
         >
           <span className="tool-icon">→</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'rectangle' ? 'active' : ''}`}
           onClick={() => handleToolClick('rectangle')}
-          title="Rectangle"
+          title={t("m.rectangle.c15869")}
         >
           <span className="tool-icon">▢</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'ellipse' ? 'active' : ''}`}
           onClick={() => handleToolClick('ellipse')}
-          title="Ellipse"
+          title={t("m.ellipse.8580e3")}
         >
           <span className="tool-icon">○</span>
         </button>
@@ -153,39 +155,39 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
       <div className="toolbar-divider" />
 
       <div className="annotation-toolbar-section">
-        <span className="section-label">Notes</span>
+        <span className="section-label">{t("m.notes.704400")}</span>
         <button
           className={`tool-button ${currentTool === 'sticky-note' ? 'active' : ''}`}
           onClick={() => handleToolClick('sticky-note')}
-          title="Sticky Note"
+          title={t("m.sticky.note.2a94fc")}
         >
           <span className="tool-icon">📝</span>
         </button>
         <button
           className={`tool-button ${currentTool === 'freetext' ? 'active' : ''}`}
           onClick={() => handleToolClick('freetext')}
-          title="Text Box"
+          title={t("m.text.box.f8b2aa")}
         >
-          <span className="tool-icon">T</span>
+          <span className="tool-icon">{t("m.t.c2c53d")}</span>
         </button>
       </div>
 
       <div className="toolbar-divider" />
 
       <div className="annotation-toolbar-section">
-        <span className="section-label">Stamps</span>
+        <span className="section-label">{t("m.stamps.44ae4c")}</span>
         <div className="stamp-dropdown">
           <button
             className={`tool-button ${currentTool === 'stamp' ? 'active' : ''}`}
             onClick={() => handleToolClick('stamp')}
-            title="Stamp"
+            title={t("m.stamp.973fc7")}
           >
             <span className="tool-icon">🔖</span>
           </button>
           {currentTool === 'stamp' && (
             <div className="stamp-menu">
               <div className="stamp-section">
-                <span className="stamp-section-title">Predefined</span>
+                <span className="stamp-section-title">{t("m.predefined.bc3e74")}</span>
                 {PREDEFINED_STAMPS.map((stamp) => (
                   <button
                     key={stamp}
@@ -203,7 +205,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
               </div>
               {customStamps.length > 0 && (
                 <div className="stamp-section">
-                  <span className="stamp-section-title">Custom</span>
+                  <span className="stamp-section-title">{t("m.custom.081ae3")}</span>
                   {customStamps.map((stamp) => (
                     <button
                       key={stamp.name}
@@ -224,8 +226,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
               )}
               <div className="stamp-section">
                 <button className="stamp-add-custom" onClick={handleAddCustomStamp}>
-                  + Add Custom Stamp
-                </button>
+                  {t("m.add.custom.stamp.a0df20")}</button>
               </div>
             </div>
           )}
@@ -238,7 +239,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
       {currentTool !== 'select' && (
         <div className="annotation-toolbar-section tool-settings">
           <label className="setting-item">
-            <span>Color</span>
+            <span>{t("m.color.1d0c83")}</span>
             <input
               type="color"
               value={toolSettings.color}
@@ -251,7 +252,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
             currentTool === 'rectangle' ||
             currentTool === 'ellipse') && (
             <label className="setting-item">
-              <span>Opacity</span>
+              <span>{t("m.opacity.f0fa69")}</span>
               <input
                 type="range"
                 min="0.1"
@@ -270,7 +271,7 @@ export function AnnotationToolbar({ hasDocument }: AnnotationToolbarProps) {
             currentTool === 'rectangle' ||
             currentTool === 'ellipse') && (
             <label className="setting-item">
-              <span>Width</span>
+              <span>{t("m.width.a58ddf")}</span>
               <input
                 type="range"
                 min="1"

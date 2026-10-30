@@ -1,3 +1,4 @@
+import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useEditingStore } from '../../store/editingStore';
@@ -10,6 +11,7 @@ import './ImageEditLayer.css';
 interface ImageEditLayerProps { page: PDFPageProxy; pageNumber: number; scale: number; rotation: number }
 
 export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditLayerProps) {
+  useLocale();
   const { mode, images, setImages, selectedImageId, selectImage, imageEdits, addImageEdit, resetImageEdits } = useEditingStore();
   const [error, setError] = useState<{ page: PDFPageProxy; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,37 +51,44 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
     } catch (err) { setError({ page, message: err instanceof Error ? err.message : 'Could not read replacement image' }); }
   }, [page, pageNumber, addImageEdit]);
 
+  const handleDelete = useCallback(() => {
+    const state = useEditingStore.getState();
+    const image = state.images.get(pageNumber)?.find(item => item.id === state.selectedImageId);
+    if (!image?.source || image.unsupportedReason) return;
+    state.addImageEdit({ imageId: image.id, type: 'delete', timestamp: Date.now() });
+  }, [pageNumber]);
+
   if (mode !== 'image') return null;
   const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
   const displayViewport = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) });
 
   return (
     <div className="image-edit-layer" onClick={() => selectImage(null)}>
-      {!hasImages && error?.page !== page && <div className="image-edit-loading">Detecting images…</div>}
-      {error?.page === page && <div className="image-edit-loading" role="alert">{error.message}</div>}
-      {hasImages && pageImages.length === 0 && <div className="image-edit-loading">No supported image XObjects found on this page.</div>}
-      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg" aria-label="Replacement image" hidden onChange={handleFileChange} />
+      {!hasImages && error?.page !== page && <div className="image-edit-loading">{t("m.detecting.images.1965f5")}</div>}
+      {error?.page === page && <div className="image-edit-loading" role="alert">{translateError(error.message)}</div>}
+      {hasImages && pageImages.length === 0 && <div className="image-edit-loading">{t("m.no.supported.image.xobjects.found.on.this.page.5abfa8")}</div>}
+      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg" aria-label={t("m.replacement.image.c25591")} hidden onChange={handleFileChange} />
       {pageImages.map(image => {
         const rect = mapViewportRect(effectiveRect(image), baseViewport, displayViewport);
         const pending = editsFor(image).length > 0;
         return (
           <div key={image.id} className={`image-box ${selectedImageId === image.id ? 'selected' : ''} ${pending ? 'pending' : ''} ${isDeleted(image) ? 'pending-delete' : ''}`}
             style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-            role="button" aria-label={`Select original image ${pageImages.indexOf(image) + 1}`} tabIndex={0}
+            role="button" aria-label={t("m.select.original.image.c625e4", { v0: pageImages.indexOf(image) + 1 })} tabIndex={0}
             onClick={event => { event.stopPropagation(); selectImage(image.id); }}
             onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); selectImage(image.id); } }}>
-            <span className="image-label">{isDeleted(image) ? 'DELETE PENDING' : pending ? 'IMAGE EDIT PENDING' : 'IMAGE'}</span>
+            <span className="image-label">{isDeleted(image) ? t("m.delete.pending.cf92e6") : pending ? t("m.image.edit.pending.89087c") : t("m.image.e1003c")}</span>
           </div>
         );
       })}
       {selected && (
         <div className="image-controls" onClick={event => event.stopPropagation()}>
           <div className="image-control-actions">
-            <button className="image-btn replace" disabled={!!unsupported} onClick={() => fileInputRef.current?.click()}>Replace</button>
-            <button className="image-btn delete" disabled={!!unsupported || isDeleted(selected)} onClick={() => addImageEdit({ imageId: selected.id, type: 'delete', timestamp: Date.now() })}>Delete</button>
-            <button className="image-btn" disabled={editsFor(selected).length === 0} onClick={() => resetImageEdits(selected.id)}>Reset image edits</button>
+            <button className="image-btn replace" disabled={!!unsupported} onClick={() => fileInputRef.current?.click()}>{t("m.replace.a7cf7b")}</button>
+            <button className="image-btn delete" disabled={!!unsupported || isDeleted(selected)} onClick={handleDelete}>{t("m.delete.f6fdbe")}</button>
+            <button className="image-btn" disabled={editsFor(selected).length === 0} onClick={() => resetImageEdits(selected.id)}>{t("m.reset.image.edits.5e69da")}</button>
           </div>
-          {unsupported ? <p role="status">{unsupported}</p> : selected.source?.insideForm ? <p>Images inside PDF forms support Replace and Delete; position and size cannot be changed yet.</p> : (
+          {unsupported ? <p role="status">{translateMessage(unsupported)}</p> : selected.source?.insideForm ? <p>{t("m.images.inside.pdf.forms.support.replace.and.dele.567f73")}</p> : (
             <form key={`${selected.id}-${JSON.stringify(effectiveRect(selected))}`} className="image-geometry" onSubmit={event => {
               event.preventDefault();
               const values = new FormData(event.currentTarget);
@@ -87,11 +96,11 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
               if (!Object.values(newRect).every(Number.isFinite) || newRect.width <= 0 || newRect.height <= 0) return;
               addImageEdit({ imageId: selected.id, type: 'resize', newRect, timestamp: Date.now() });
             }}>
-              {(['x', 'y', 'width', 'height'] as const).map(key => <label key={key}>{key}<input name={key} aria-label={`Image ${key}`} type="number" step="any" min={key === 'width' || key === 'height' ? 0.01 : undefined} required disabled={isDeleted(selected)} defaultValue={Number(effectiveRect(selected)[key].toFixed(2))} /></label>)}
-              <button className="image-btn" type="submit" disabled={isDeleted(selected)}>Set position and size</button>
+              {(['x', 'y', 'width', 'height'] as const).map(key => <label key={key}>{translateMessage(key)}<input name={key} aria-label={t("m.image.fc57bf", { v0: key })} type="number" step="any" min={key === 'width' || key === 'height' ? 0.01 : undefined} required disabled={isDeleted(selected)} defaultValue={Number(effectiveRect(selected)[key].toFixed(2))} /></label>)}
+              <button className="image-btn" type="submit" disabled={isDeleted(selected)}>{t("m.set.position.and.size.25aac6")}</button>
             </form>
           )}
-          <p>Use Apply Content Changes or Export to update the PDF. Existing clipping remains in effect.</p>
+          <p>{t("m.use.apply.content.changes.or.export.to.update.th.642225")}</p>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { useLocale, t, translateError } from "../../i18n";
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { ZoomMode } from '../../store/documentStore';
@@ -63,6 +64,7 @@ export function PDFViewer({
   onImagePlaced,
   onTextLayout,
 }: PDFViewerProps) {
+  useLocale();
   const firstPage = viewMode === 'continuous'
     ? 1
     : viewMode === 'two-page' ? currentPage - ((currentPage + 1) % 2) : currentPage;
@@ -414,10 +416,10 @@ export function PDFViewer({
       {loading && pages.length === 0 && (
         <div className="pdf-viewer-loading">
           <div className="loading-spinner" />
-          <span>Loading document...</span>
+          <span>{t("m.loading.document.951b0d")}</span>
         </div>
       )}
-      {loadError && <div className="pdf-viewer-loading" role="alert">{loadError}</div>}
+      {loadError && <div className="pdf-viewer-loading" role="alert">{translateError(loadError)}</div>}
       <div className="pdf-pages-wrapper">
         {pages.map((page) => (
           <div
@@ -450,7 +452,7 @@ export function PDFViewer({
               />}
             </div>
             {viewMode === 'continuous' && (
-              <div className="page-number-label">Page {page.pageNumber}</div>
+              <div className="page-number-label">{t("m.page.fb0627")}{' '}{page.pageNumber}</div>
             )}
           </div>
         ))}

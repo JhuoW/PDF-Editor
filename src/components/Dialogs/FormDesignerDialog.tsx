@@ -1,3 +1,6 @@
+import { translateMessage } from '../../i18n';
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -21,12 +24,14 @@ export interface FormDesignerDialogProps {
 interface LoadedDesign { key: object; design: FormDesignDocument; document: PDFDocumentProxy }
 
 export function FormDesignerDialog(props: FormDesignerDialogProps) {
+  useLocale();
   const [session, setSession] = useState({ key: props.documentKey, sequence: 0 });
   if (!Object.is(session.key, props.documentKey)) { setSession({ key: props.documentKey, sequence: session.sequence + 1 }); return null; }
   return <FormDesignerSession key={session.sequence} {...props} />;
 }
 
 function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }: FormDesignerDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null), pageInput = useRef<HTMLSelectElement>(null);
   const active = useRef(false), committing = useRef(false), closeAfterCancel = useRef(false);
   const saveLatest = useRef<() => Promise<void>>(async () => {});
@@ -167,33 +172,33 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
         void saveLatest.current();
       }
     }}>
-    <header><div><h2 id="form-designer-title">Design Form</h2><p>Create and arrange fillable PDF fields. Changes are applied together when you save.</p></div><button type="button" aria-label="Close form designer" disabled={saving || canceling} onClick={close}>×</button></header>
-    {!current && !failure && <p role="status" className="form-designer-loading">Preparing the page preview and form fields…</p>}
-    {failure && <div className="form-designer-loading"><p role="alert">{failure}</p><button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></div>}
+    <header><div><h2 id="form-designer-title">{t("m.design.form.a66596")}</h2><p>{t("m.create.and.arrange.fillable.pdf.fields.changes.a.8bf2ac")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.form.designer.4ff8fe")} disabled={saving || canceling} onClick={close}>×</button></header>
+    {!current && !failure && <p role="status" className="form-designer-loading">{t("m.preparing.the.page.preview.and.form.fields.e4e417")}</p>}
+    {failure && <div className="form-designer-loading"><p role="alert">{translateError(failure)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <>
-      {!current.design.canEdit && <p role="status" className="form-designer-warning">{current.design.unsupportedReason || 'This PDF can be inspected but not redesigned.'}</p>}
-      <div className="form-designer-tools" role="group" aria-label="Field tools">
-        <button type="button" aria-pressed={!tool} disabled={busy} onClick={() => setTool(null)}>Select</button>
-        {(Object.keys(designFieldLabels) as DesignableFieldType[]).map(type => <button type="button" key={type} aria-pressed={tool === type} disabled={disabled} onClick={() => setTool(type)}>{designFieldLabels[type]}</button>)}
-        {tool && <button type="button" disabled={disabled} onClick={() => { const page = current.design.pages.find(item => item.pageNumber === pageNumber)!; const [width, height] = defaultFieldSize[tool]; create(tool, pageNumber, fitDesignRect({ x: (page.width - width) / 2, y: (page.height - height) / 2, width, height }, page.width, page.height)); }}>Place at page center</button>}
+      {!current.design.canEdit && <p role="status" className="form-designer-warning">{translateError(current.design.unsupportedReason) || t("m.this.pdf.can.be.inspected.but.not.redesigned.30e366")}</p>}
+      <div className="form-designer-tools" role="group" aria-label={t("m.field.tools.9d6b51")}>
+        <button type="button" aria-pressed={!tool} disabled={busy} onClick={() => setTool(null)}>{t("m.select.859822")}</button>
+        {(Object.keys(designFieldLabels) as DesignableFieldType[]).map(type => <button type="button" key={type} aria-pressed={tool === type} disabled={disabled} onClick={() => setTool(type)}>{translateMessage(designFieldLabels[type])}</button>)}
+        {tool && <button type="button" disabled={disabled} onClick={() => { const page = current.design.pages.find(item => item.pageNumber === pageNumber)!; const [width, height] = defaultFieldSize[tool]; create(tool, pageNumber, fitDesignRect({ x: (page.width - width) / 2, y: (page.height - height) / 2, width, height }, page.width, page.height)); }}>{t("m.place.at.page.center.3208d3")}</button>}
       </div>
       <div className="form-designer-body">
-        <section className="form-designer-canvas-column" aria-label="Page preview">
-          <div className="form-designer-page-toolbar"><label>Preview page<select ref={pageInput} value={pageNumber} disabled={busy} onChange={event => setPageNumber(Number(event.target.value))}>{current.design.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>Page {page.pageNumber}</option>)}</select></label><p>{tool ? 'Click or drag on the page to create a field.' : 'Drag to move. Use the corner to resize or arrow keys to adjust.'}</p></div>
+        <section className="form-designer-canvas-column" aria-label={t("m.page.preview.775172")}>
+          <div className="form-designer-page-toolbar"><label>{t("m.preview.page.d24958")}<select ref={pageInput} value={pageNumber} disabled={busy} onChange={event => setPageNumber(Number(event.target.value))}>{current.design.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label><p>{tool ? t("m.click.or.drag.on.the.page.to.create.a.field.2d4b49") : t("m.drag.to.move.use.the.corner.to.resize.or.arrow.k.5463fa")}</p></div>
           <FormDesignerPreview document={current.document} pageNumber={pageNumber} fields={fields} selected={selection} tool={tool} disabled={disabled} onSelect={select} onCreate={create} onMove={(target, rect) => changeWidget(target, { rect })} onDeleteWidget={deleteWidget} />
         </section>
-        <aside className="form-designer-panel" aria-label="Form field properties">
-          <label>Fields ({fields.length})<select aria-label="Fields" value={selectedField?.id ?? ''} disabled={busy} onChange={event => { const field = fields.find(item => item.id === event.target.value); select(field ? { fieldId: field.id, widgetId: field.widgets[0]?.id ?? '' } : null); }}>
-            <option value="">Choose a field</option>{fields.map(field => <option key={field.id} value={field.id}>{field.name} · {field.type}{!field.supported ? ' (read only)' : ''}</option>)}
+        <aside className="form-designer-panel" aria-label={t("m.form.field.properties.7e4a0a")}>
+          <label>{t("m.fields.f2cc30")}{fields.length})<select aria-label={t("m.fields.e8b685")} value={selectedField?.id ?? ''} disabled={busy} onChange={event => { const field = fields.find(item => item.id === event.target.value); select(field ? { fieldId: field.id, widgetId: field.widgets[0]?.id ?? '' } : null); }}>
+            <option value="">{t("m.choose.a.field.842ab6")}</option>{fields.map(field => <option key={field.id} value={field.id}>{field.name} · {translateMessage(designFieldLabels[field.type as DesignableFieldType] ?? field.type)}{!field.supported ? t("m.read.only.3ababd") : ''}</option>)}
           </select></label>
           {selectedField && selectedWidget && current.design.pages.some(page => page.pageNumber === selectedWidget.pageNumber) ? <FormDesignerProperties key={selectedField.id} field={selectedField} widget={selectedWidget} pages={current.design.pages} disabled={disabled} onFieldChange={changeField} onWidgetChange={patch => changeWidget(selection!, patch)}
             onSelectWidget={id => select({ fieldId: selectedField.id, widgetId: id })} onAddWidget={addWidget} onDeleteWidget={() => deleteWidget(selection!)} onDeleteField={() => deleteField(selectedField.id)} />
-            : <p className="form-designer-hint">{selectedField?.unsupportedReason || (fields.length ? 'Choose a field on the page or from the list to edit its properties.' : 'This PDF has no form fields. Choose a field tool to add one.')}</p>}
+            : <p className="form-designer-hint">{translateMessage(selectedField?.unsupportedReason || (fields.length ? 'Choose a field on the page or from the list to edit its properties.' : 'This PDF has no form fields. Choose a field tool to add one.'))}</p>}
         </aside>
       </div>
     </>}
-    <footer>{error && <p role="alert" className="form-designer-error">{error}</p>}{busy && <p role="status">{canceling ? 'Canceling…' : saving ? 'Opening the updated form…' : 'Saving form design…'}</p>}
-      <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? 'Discard changes' : 'Close'}</button><button type="button" className="form-designer-primary" disabled={disabled || !operations.length} onClick={() => void save()}>Save form design</button></div></footer>
+    <footer>{error && <p role="alert" className="form-designer-error">{translateError(error)}</p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.form.5373a8") : t("m.saving.form.design.63b104")}</p>}
+      <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? t("m.discard.changes.fa8fc0") : t("m.close.bbfa77")}</button><button type="button" className="form-designer-primary" disabled={disabled || !operations.length} onClick={() => void save()}>{t("m.save.form.design.10acc1")}</button></div></footer>
   </dialog>;
 }
 

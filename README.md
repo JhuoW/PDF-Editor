@@ -2,7 +2,7 @@
 
 [中文介绍](README_zh.md)
 
-**PDF-Editor** is a free, open-source PDF editor for your browser. View, edit, annotate, and organize PDFs locally without uploading your files.
+**PDF-Editor** is a free, open-source PDF editor for your browser. View, edit, annotate, and organize PDFs locally without uploading your files. Switch between English and Chinese instantly.
 
 <div align="center">
   <img src="docs/imgs/example1.png" width="96%" style="margin: 0 1.5%;"/>
@@ -52,6 +52,7 @@ npm run test:run
 npx playwright install chromium
 npm run test:e2e
 npm run lint
+npm run check:i18n
 npm run audit:dependencies
 ```
 

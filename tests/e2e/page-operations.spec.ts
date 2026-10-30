@@ -32,7 +32,8 @@ test('page deletion, undo, reorder and export keep the filled form and its annot
 
   await pageNumber.fill('1');
   await pageNumber.press('Enter');
-  await page.getByTitle('Delete page 1', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Organize', exact: true }).click();
+  await page.locator('.workspace-ribbon [data-command="delete-pages"]').click();
   await expect(page.locator('.page-total')).toHaveText('2');
   await expect(page.getByRole('textbox', { name: 'Client', exact: true })).toHaveValue('Edited client');
   await expect(page.locator('.session-save-status')).toHaveClass(/status-saved/);

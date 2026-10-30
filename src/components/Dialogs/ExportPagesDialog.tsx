@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError } from "../../i18n";
 import { useEffect, useRef, useState } from 'react';
 import { downloadPageExport, exportPagesInWorker } from '../../core/PageExportClient';
 import type { PageExportProgress, PageExportSettings } from '../../core/PageExport';
@@ -9,6 +11,7 @@ interface ExportPagesDialogProps {
 }
 
 export function ExportPagesDialog({ readPDF, onClose }: ExportPagesDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const firstInput = useRef<HTMLSelectElement>(null);
   const mounted = useRef(false), submitting = useRef(false);
@@ -59,26 +62,26 @@ export function ExportPagesDialog({ readPDF, onClose }: ExportPagesDialogProps) 
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') event.preventDefault();
       }}>
       <form onSubmit={submit} aria-busy={busy}>
-        <header><h2 id="export-pages-title">Export Pages</h2><button type="button" aria-label="Close page export dialog" onClick={close}>×</button></header>
-        <p id="export-pages-description">Export selected pages with your current edits. Multiple images download as one ZIP file.</p>
+        <header><h2 id="export-pages-title">{t("m.export.pages.93a12e")}</h2><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.page.export.dialog.54da7b")} onClick={close}>×</button></header>
+        <p id="export-pages-description">{t("m.export.selected.pages.with.your.current.edits.mu.752b04")}</p>
         <fieldset disabled={busy}>
-          <label>Export format<select ref={firstInput} aria-label="Export format" value={format} onChange={event => setFormat(event.target.value as PageExportSettings['format'])}>
-            <option value="png">PNG images</option><option value="jpeg">JPEG images</option><option value="text">UTF-8 text</option>
+          <label>{t("m.export.format.483a5d")}<select ref={firstInput} aria-label={t("m.export.format.483a5d")} value={format} onChange={event => setFormat(event.target.value as PageExportSettings['format'])}>
+            <option value="png">{t("m.png.images.66f5d9")}</option><option value="jpeg">{t("m.jpeg.images.1eed6d")}</option><option value="text">{t("m.utf.8.text.0f62e2")}</option>
           </select></label>
-          <label>Page range<input aria-label="Page range" placeholder="All pages, or 1-3, 5" value={range} onChange={event => setRange(event.target.value)} aria-describedby="export-pages-range-help" /></label>
-          <p className="conversion-hint" id="export-pages-range-help">Leave blank for all pages. Pages follow the listed order; duplicates are exported once.</p>
-          {format !== 'text' && <label>Resolution<select aria-label="Resolution" value={dpi} onChange={event => setDpi(Number(event.target.value) as 150 | 300)}>
-            <option value={150}>150 dpi</option><option value={300}>300 dpi</option>
+          <label>{t("m.page.range.57245e")}<input aria-label={t("m.page.range.57245e")} placeholder={t("m.all.pages.or.1.3.5.359452")} value={range} onChange={event => setRange(event.target.value)} aria-describedby="export-pages-range-help" /></label>
+          <p className="conversion-hint" id="export-pages-range-help">{t("m.leave.blank.for.all.pages.pages.follow.the.liste.deab9c")}</p>
+          {format !== 'text' && <label>{t("m.resolution.516aae")}<select aria-label={t("m.resolution.516aae")} value={dpi} onChange={event => setDpi(Number(event.target.value) as 150 | 300)}>
+            <option value={150}>{t("m.150.dpi.88e3c1")}</option><option value={300}>{t("m.300.dpi.c735d3")}</option>
           </select></label>}
-          {format === 'jpeg' && <label>JPEG quality: {quality}%<input aria-label="JPEG quality" type="range" min="1" max="100" value={quality} onChange={event => setQuality(Number(event.target.value))} /></label>}
-          <p className="conversion-hint">{format === 'text' ? 'Extracts existing text, including visible form values. Scanned pages need OCR first.' : 'Images use the visible page area, including its rotation, annotations, and form appearances.'}</p>
+          {format === 'jpeg' && <label>{t("m.jpeg.quality.8fba9c")}{' '}{quality}%<input aria-label={t("m.jpeg.quality.e85408")} type="range" min="1" max="100" value={quality} onChange={event => setQuality(Number(event.target.value))} /></label>}
+          <p className="conversion-hint">{format === 'text' ? t("m.extracts.existing.text.including.visible.form.va.444490") : t("m.images.use.the.visible.page.area.including.its.r.9117b8")}</p>
         </fieldset>
         {busy && <div className="conversion-progress" role="status" aria-live="polite">
           <progress max={progress?.total || 1} value={progress?.completed} />
-          <span>{!progress ? 'Preparing current edits…' : progress.phase === 'archive' ? 'Building ZIP…' : `Processed ${progress.completed} of ${progress.total} pages`}</span>
+          <span>{!progress ? t("m.preparing.current.edits.7a228e") : progress.phase === 'archive' ? t("m.building.zip.c74536") : t("m.processed.of.pages.180e95", { v0: progress.completed, v1: progress.total })}</span>
         </div>}
-        {error && <p className="conversion-error" role="alert">{error}</p>}
-        <footer><button type="button" onClick={close}>{busy ? 'Cancel export' : 'Cancel'}</button><button type="submit" className="conversion-primary" disabled={busy}>{busy ? 'Exporting…' : 'Export pages'}</button></footer>
+        {error && <p className="conversion-error" role="alert">{translateError(error)}</p>}
+        <footer><button type="button" onClick={close}>{busy ? t("m.cancel.export.aefe72") : t("m.cancel.77dfd2")}</button><button type="submit" className="conversion-primary" disabled={busy}>{busy ? t("m.exporting.583ccc") : t("m.export.pages.d4dc1c")}</button></footer>
       </form>
     </dialog>
   );

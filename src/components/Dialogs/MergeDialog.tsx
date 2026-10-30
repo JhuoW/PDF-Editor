@@ -1,3 +1,6 @@
+import { translateMessage } from '../../i18n';
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError } from "../../i18n";
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { mergePDFs, downloadPDF, insertPagesFromPDF } from '../../core/PDFManipulator';
 import './MergeDialog.css';
@@ -21,6 +24,7 @@ interface FileItem {
 }
 
 export function MergeDialog({ onClose, onMergeComplete, currentDocument }: MergeDialogProps) {
+  useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -163,15 +167,15 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
       onClick={event => { if (event.target === event.currentTarget && !isMerging) onClose(); }}>
       <div className="merge-dialog" onClick={e => e.stopPropagation()}>
         <div className="merge-dialog-header">
-          <h3 id="merge-dialog-title">{currentDocument ? 'Insert PDF Pages' : 'Merge PDFs'}</h3>
-          <button className="merge-dialog-close" aria-label="Close merge dialog" disabled={isMerging} onClick={onClose}>&times;</button>
-        </div>
+          <h3 id="merge-dialog-title">{currentDocument ? t("m.insert.pdf.pages.6da376") : t("m.merge.pdfs.6471ae")}</h3>
+          <div className="dialog-language"><LanguageSwitcher /></div>
+        <button className="merge-dialog-close" aria-label={t("m.close.merge.dialog.f59580")} disabled={isMerging} onClick={onClose}>&times;</button></div>
 
         <div className="merge-dialog-content">
           <p className="merge-dialog-description">
             {currentDocument
-              ? `Insert PDF pages into "${currentDocument.fileName}" (${currentDocument.totalPages} pages)`
-              : 'Select PDF files to merge. Use arrows to reorder.'}
+              ? t("m.insert.pdf.pages.into.pages.e22f00", { v0: currentDocument.fileName, v1: currentDocument.totalPages })
+              : t("m.select.pdf.files.to.merge.use.arrows.to.reorder.8e5e00")}
           </p>
 
           <div className="merge-file-input-wrapper">
@@ -184,8 +188,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
               id="merge-file-input"
             />
             <button type="button" disabled={isMerging} onClick={() => fileInputRef.current?.click()} className="merge-file-input-label">
-              + Add PDF Files
-            </button>
+              {t("m.add.pdf.files.c422bf")}</button>
           </div>
 
           {files.length > 0 && (
@@ -200,21 +203,21 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
                     <button
                       onClick={() => handleMoveUp(index)}
                       disabled={index === 0}
-                      title="Move up"
+                      title={t("m.move.up.b4f57c")}
                     >
                       ▲
                     </button>
                     <button
                       onClick={() => handleMoveDown(index)}
                       disabled={index === files.length - 1}
-                      title="Move down"
+                      title={t("m.move.down.260ff8")}
                     >
                       ▼
                     </button>
                     <button
                       onClick={() => handleRemoveFile(item.id)}
                       className="merge-file-remove"
-                      title="Remove"
+                      title={t("m.remove.e96390")}
                     >
                       ✕
                     </button>
@@ -227,15 +230,15 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
           {files.length === 0 && (
             <div className="merge-empty-state">
               {currentDocument
-                ? 'Add PDF files to insert into the current document'
-                : 'Add PDF files to merge (at least 2 files required)'}
+                ? t("m.add.pdf.files.to.insert.into.the.current.documen.08e03d")
+                : t("m.add.pdf.files.to.merge.at.least.2.files.required.93131a")}
             </div>
           )}
 
           {/* Insert position options - only show when there's a current document */}
           {currentDocument && files.length > 0 && (
             <div className="merge-position-options">
-              <label className="merge-position-label">Insert position:</label>
+              <label className="merge-position-label">{t("m.insert.position.48851a")}</label>
               <div className="merge-position-radios">
                 <label className="merge-position-radio">
                   <input
@@ -245,8 +248,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
                     checked={insertPosition === 'start'}
                     onChange={() => setInsertPosition('start')}
                   />
-                  At start of document
-                </label>
+                  {t("m.at.start.of.document.807242")}</label>
                 <label className="merge-position-radio">
                   <input
                     type="radio"
@@ -255,8 +257,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
                     checked={insertPosition === 'end'}
                     onChange={() => setInsertPosition('end')}
                   />
-                  At end of document
-                </label>
+                  {t("m.at.end.of.document.43f930")}</label>
                 <label className="merge-position-radio">
                   <input
                     type="radio"
@@ -265,8 +266,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
                     checked={insertPosition === 'before'}
                     onChange={() => setInsertPosition('before')}
                   />
-                  Before page
-                  <input
+                  {t("m.before.page.bc7baf")}<input
                     type="number"
                     className="merge-page-input"
                     min={1}
@@ -288,8 +288,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
                     checked={insertPosition === 'after'}
                     onChange={() => setInsertPosition('after')}
                   />
-                  After page
-                  <input
+                  {t("m.after.page.d0d58c")}<input
                     type="number"
                     className="merge-page-input"
                     min={1}
@@ -308,29 +307,28 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
           )}
 
           {!(currentDocument && onMergeComplete) && <div className="merge-output-name">
-            <label htmlFor="output-name">Output filename:</label>
+            <label htmlFor="output-name">{t("m.output.filename.759a90")}</label>
             <input
               type="text"
               id="output-name"
               value={outputName}
               onChange={e => setOutputName(e.target.value)}
-              placeholder="merged.pdf"
+              placeholder={t("m.merged.pdf.2d595f")}
             />
           </div>}
 
-          {error && <div className="merge-error">{error}</div>}
+          {error && <div className="merge-error">{translateError(error)}</div>}
         </div>
 
         <div className="merge-dialog-actions">
           <button className="merge-cancel" disabled={isMerging} onClick={onClose}>
-            Cancel
-          </button>
+            {t("m.cancel.77dfd2")}</button>
           <button
             className="merge-submit"
             onClick={handleMerge}
             disabled={isMerging || !canMerge}
           >
-            {isMerging ? 'Processing...' : onMergeComplete ? (currentDocument ? 'Insert Pages' : 'Merge & Open') : (currentDocument ? 'Insert & Download' : 'Merge & Download')}
+            {isMerging ? t("m.processing.272bc0") : onMergeComplete ? translateMessage(currentDocument ? 'Insert Pages' : 'Merge & Open') : translateMessage(currentDocument ? 'Insert & Download' : 'Merge & Download')}
           </button>
         </div>
       </div>

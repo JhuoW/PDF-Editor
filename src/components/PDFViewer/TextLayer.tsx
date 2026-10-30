@@ -1,3 +1,4 @@
+import { useLocale } from "../../i18n";
 import { useEffect, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
@@ -22,6 +23,7 @@ export function TextLayer({
   activeMatchPage,
   activeMatchIndex,
 }: TextLayerProps) {
+  useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchOptions = useSearchStore(state => state.options);
 

@@ -1,9 +1,11 @@
+import { useLocale, t } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { pdfDocumentOptions, pdfjsLib } from '../../utils/pdfConfig';
 
 /** Renders the generated PDF bytes rather than an approximation of its decorations. */
 export function DecorationPDFPreview({ data, pageNumber, onError, scale }: { data: Uint8Array; pageNumber: number; onError: (message: string) => void; scale?: number }) {
+  useLocale();
   const host = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null);
   const errorCallback = useRef(onError);
   useLayoutEffect(() => { errorCallback.current = onError; }, [onError]);
@@ -42,7 +44,7 @@ export function DecorationPDFPreview({ data, pageNumber, onError, scale }: { dat
     return () => { canceled = true; task.cancel(); };
   }, [page, viewport]);
   return <div ref={host} className="decoration-pdf-preview" aria-busy={!viewport || rendered !== viewport}>
-    {(!viewport || rendered !== viewport) && <p role="status">Rendering PDF preview…</p>}
-    {viewport && <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} aria-label="Generated PDF page preview" style={{ width: viewport.width, height: viewport.height }} />}
+    {(!viewport || rendered !== viewport) && <p role="status">{t("m.rendering.pdf.preview.6934dd")}</p>}
+    {viewport && <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} aria-label={t("m.generated.pdf.page.preview.0c50b5")} style={{ width: viewport.width, height: viewport.height }} />}
   </div>;
 }

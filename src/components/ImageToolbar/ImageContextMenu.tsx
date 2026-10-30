@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useCallback, useEffect, useRef } from 'react';
 import type { ImageAnnotation } from '../../annotations/types';
 import { useAnnotationStore, createImageAnnotation } from '../../store/annotationStore';
@@ -12,6 +13,7 @@ interface ImageContextMenuProps {
 }
 
 export function ImageContextMenu({ annotation, position, onClose, onShowProperties }: ImageContextMenuProps) {
+  useLocale();
   const menuRef = useRef<HTMLDivElement>(null);
   const { updateAnnotation, deleteAnnotation, addAnnotation, selectAnnotation, getAnnotationsForPage, enterCropMode } = useAnnotationStore();
   const { recordUpdate, recordDelete, recordAdd } = useAnnotationHistoryStore();
@@ -222,23 +224,23 @@ export function ImageContextMenu({ annotation, position, onClose, onShowProperti
       <div className="context-menu-section">
         <button className="context-menu-item" onClick={handleCut}>
           <span className="icon">✂</span>
-          <span className="label">Cut</span>
-          <span className="shortcut">Ctrl+X</span>
+          <span className="label">{t("m.cut.38d13b")}</span>
+          <span className="shortcut">{t("m.ctrl.x.60f3d9")}</span>
         </button>
         <button className="context-menu-item" onClick={handleCopy}>
           <span className="icon">📋</span>
-          <span className="label">Copy</span>
-          <span className="shortcut">Ctrl+C</span>
+          <span className="label">{t("m.copy.af74f7")}</span>
+          <span className="shortcut">{t("m.ctrl.c.a208bf")}</span>
         </button>
         <button className="context-menu-item" onClick={handleDuplicate}>
           <span className="icon">⎘</span>
-          <span className="label">Duplicate</span>
-          <span className="shortcut">Ctrl+D</span>
+          <span className="label">{t("m.duplicate.972d57")}</span>
+          <span className="shortcut">{t("m.ctrl.d.2b5caf")}</span>
         </button>
         <button className="context-menu-item danger" onClick={handleDelete}>
           <span className="icon">🗑</span>
-          <span className="label">Delete</span>
-          <span className="shortcut">Del</span>
+          <span className="label">{t("m.delete.f6fdbe")}</span>
+          <span className="shortcut">{t("m.del.717e1e")}</span>
         </button>
       </div>
 
@@ -248,24 +250,24 @@ export function ImageContextMenu({ annotation, position, onClose, onShowProperti
       <div className="context-menu-section">
         <button className="context-menu-item" onClick={handleFlipHorizontal}>
           <span className="icon">↔</span>
-          <span className="label">Flip Horizontal</span>
+          <span className="label">{t("m.flip.horizontal.33045f")}</span>
         </button>
         <button className="context-menu-item" onClick={handleFlipVertical}>
           <span className="icon">↕</span>
-          <span className="label">Flip Vertical</span>
+          <span className="label">{t("m.flip.vertical.2871c0")}</span>
         </button>
         <button className="context-menu-item" onClick={handleRotateCW}>
           <span className="icon">↻</span>
-          <span className="label">Rotate 90° Clockwise</span>
+          <span className="label">{t("m.rotate.90.clockwise.4df518")}</span>
         </button>
         <button className="context-menu-item" onClick={handleRotateCCW}>
           <span className="icon">↺</span>
-          <span className="label">Rotate 90° Counter-clockwise</span>
+          <span className="label">{t("m.rotate.90.counter.clockwise.69290e")}</span>
         </button>
         {(annotation.rotation !== 0 || annotation.flipHorizontal || annotation.flipVertical) && (
           <button className="context-menu-item" onClick={handleResetTransformations}>
             <span className="icon">⟲</span>
-            <span className="label">Reset Transformations</span>
+            <span className="label">{t("m.reset.transformations.195e44")}</span>
           </button>
         )}
       </div>
@@ -276,12 +278,12 @@ export function ImageContextMenu({ annotation, position, onClose, onShowProperti
       <div className="context-menu-section">
         <button className="context-menu-item" onClick={handleCrop}>
           <span className="icon">⛶</span>
-          <span className="label">Crop Image</span>
+          <span className="label">{t("m.crop.image.eb485a")}</span>
         </button>
         {annotation.cropBounds && (annotation.cropBounds.top > 0 || annotation.cropBounds.right > 0 || annotation.cropBounds.bottom > 0 || annotation.cropBounds.left > 0) && (
           <button className="context-menu-item" onClick={handleResetCrop}>
             <span className="icon">⟲</span>
-            <span className="label">Reset Crop</span>
+            <span className="label">{t("m.reset.crop.ecee53")}</span>
           </button>
         )}
       </div>
@@ -292,23 +294,23 @@ export function ImageContextMenu({ annotation, position, onClose, onShowProperti
       <div className="context-menu-section">
         <button className="context-menu-item" onClick={handleBringToFront}>
           <span className="icon">⬆</span>
-          <span className="label">Bring to Front</span>
-          <span className="shortcut">Ctrl+Shift+]</span>
+          <span className="label">{t("m.bring.to.front.8a0950")}</span>
+          <span className="shortcut">{t("m.ctrl.shift.cd6f19")}</span>
         </button>
         <button className="context-menu-item" onClick={handleSendToBack}>
           <span className="icon">⬇</span>
-          <span className="label">Send to Back</span>
-          <span className="shortcut">Ctrl+Shift+[</span>
+          <span className="label">{t("m.send.to.back.887995")}</span>
+          <span className="shortcut">{t("m.ctrl.shift.f7f901")}</span>
         </button>
         <button className="context-menu-item" onClick={handleBringForward}>
           <span className="icon">↑</span>
-          <span className="label">Bring Forward</span>
-          <span className="shortcut">Ctrl+]</span>
+          <span className="label">{t("m.bring.forward.3a5a62")}</span>
+          <span className="shortcut">{t("m.ctrl.52b04d")}</span>
         </button>
         <button className="context-menu-item" onClick={handleSendBackward}>
           <span className="icon">↓</span>
-          <span className="label">Send Backward</span>
-          <span className="shortcut">Ctrl+[</span>
+          <span className="label">{t("m.send.backward.70dd87")}</span>
+          <span className="shortcut">{t("m.ctrl.65b758")}</span>
         </button>
       </div>
 
@@ -318,12 +320,12 @@ export function ImageContextMenu({ annotation, position, onClose, onShowProperti
       <div className="context-menu-section">
         <button className="context-menu-item" onClick={handleSaveImageAs}>
           <span className="icon">💾</span>
-          <span className="label">Save Image As...</span>
+          <span className="label">{t("m.save.image.as.b6a781")}</span>
         </button>
         {onShowProperties && (
           <button className="context-menu-item" onClick={() => { onShowProperties(); onClose(); }}>
             <span className="icon">⚙</span>
-            <span className="label">Image Properties...</span>
+            <span className="label">{t("m.image.properties.b48555")}</span>
           </button>
         )}
       </div>

@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useEffect, useState, useRef } from 'react';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import { movePageSelection } from '../../core/pageMapping';
@@ -23,6 +24,7 @@ const initialThumbnails = (document: PDFDocumentProxy): ThumbnailData[] =>
   Array.from({ length: document.numPages }, (_, index) => ({ pageNumber: index + 1, dataUrl: null, loading: false }));
 
 export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPageSelect, onReorderPages }: ThumbnailPanelProps) {
+  useLocale();
   const [state, setState] = useState(() => ({ document, items: initialThumbnails(document) }));
   // A changed document owns a new thumbnail cache. Late renders check the owner
   // before publishing, even when the parent does not remount this component.
@@ -117,8 +119,8 @@ export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPa
   return (
     <div className="thumbnail-panel" ref={containerRef}>
       <div className="thumbnail-panel-header">
-        <span>Pages</span>
-        {onReorderPages && <span className="thumbnail-reorder-hint">Drag to reorder</span>}
+        <span>{t("m.pages.600584")}</span>
+        {onReorderPages && <span className="thumbnail-reorder-hint">{t("m.drag.to.reorder.e7541f")}</span>}
       </div>
       <div className="thumbnail-list">
         {thumbnails.map((thumbnail) => (
@@ -126,7 +128,7 @@ export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPa
             key={thumbnail.pageNumber}
             className={`thumbnail-item ${currentPage === thumbnail.pageNumber ? 'active' : ''} ${selectedPages.includes(thumbnail.pageNumber) ? 'selected' : ''} ${dropTarget?.page === thumbnail.pageNumber ? dropTarget.after ? 'drop-after' : 'drop-before' : ''}`}
             role="group"
-            aria-label={`Page ${thumbnail.pageNumber}`}
+            aria-label={t("m.page.523251", { v0: thumbnail.pageNumber })}
             draggable={!!onReorderPages}
             onDragStart={event => {
               if (!onReorderPages) return;
@@ -158,14 +160,14 @@ export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPa
             data-page={thumbnail.pageNumber}
           >
             <button className="thumbnail-select" type="button"
-              aria-label={`Go to page ${thumbnail.pageNumber}`}
+              aria-label={t("m.go.to.page.57da72", { v0: thumbnail.pageNumber })}
               aria-current={currentPage === thumbnail.pageNumber ? 'page' : undefined}
               onClick={event => onPageSelect(thumbnail.pageNumber, event.ctrlKey || event.metaKey)}>
             <div className="thumbnail-canvas" style={{ width: THUMBNAIL_WIDTH }}>
               {thumbnail.dataUrl ? (
                 <img src={thumbnail.dataUrl} alt="" draggable={false} />
               ) : thumbnail.loading ? (
-                <div className="thumbnail-loading">Loading...</div>
+                <div className="thumbnail-loading">{t("m.loading.b04ba4")}</div>
               ) : (
                 <div className="thumbnail-placeholder" />
               )}
@@ -174,9 +176,9 @@ export function ThumbnailPanel({ document, currentPage, selectedPages = [], onPa
             </button>
             {onReorderPages && (
               <div className="thumbnail-move-controls">
-                <button aria-label={`Move page ${thumbnail.pageNumber} earlier`} disabled={thumbnail.pageNumber === 1}
+                <button aria-label={t("m.move.page.earlier.1da0db", { v0: thumbnail.pageNumber })} disabled={thumbnail.pageNumber === 1}
                   onClick={event => { event.stopPropagation(); onReorderPages(movePageSelection(document.numPages, [thumbnail.pageNumber], thumbnail.pageNumber - 1)); }}>↑</button>
-                <button aria-label={`Move page ${thumbnail.pageNumber} later`} disabled={thumbnail.pageNumber === document.numPages}
+                <button aria-label={t("m.move.page.later.0c8a13", { v0: thumbnail.pageNumber })} disabled={thumbnail.pageNumber === document.numPages}
                   onClick={event => { event.stopPropagation(); onReorderPages(movePageSelection(document.numPages, [thumbnail.pageNumber], thumbnail.pageNumber + 2)); }}>↓</button>
               </div>
             )}

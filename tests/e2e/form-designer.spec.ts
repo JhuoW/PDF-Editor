@@ -9,7 +9,7 @@ async function openPDF(page: Page, buffer: Uint8Array) {
   await expect(page.locator('.page-loading-overlay')).toHaveCount(0);
 }
 async function openDesigner(page: Page) {
-  await page.getByRole('button', { name: /^Form .*▾$/ }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
   await page.getByRole('button', { name: 'Design Form…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Design Form', exact: true });
   await expect(dialog.getByRole('combobox', { name: 'Preview page', exact: true })).toBeVisible();
@@ -124,7 +124,7 @@ test('moves and resizes a shared field on a rotated CropBox/UserUnit page, delet
   await openPDF(page, await source.save());
   await page.getByRole('textbox', { name: 'Shared', exact: true }).fill('Pending filled value');
   const dialog = await openDesigner(page);
-  await dialog.getByRole('combobox', { name: 'Fields', exact: true }).selectOption({ label: 'Shared · text' });
+  await dialog.getByRole('combobox', { name: 'Fields', exact: true }).selectOption({ label: 'Shared · Text field' });
   await expect(dialog.getByRole('textbox', { name: 'Current value', exact: true })).toHaveValue('Pending filled value');
   await numeric(dialog, 'Left', 80); await numeric(dialog, 'Top', 200); await numeric(dialog, 'Width', 240); await numeric(dialog, 'Height', 50);
   const target = dialog.getByRole('button', { name: 'Select field Shared, widget 1', exact: true });
@@ -146,7 +146,7 @@ test('moves and resizes a shared field on a rotated CropBox/UserUnit page, delet
   await dialog.getByRole('combobox', { name: 'Widget', exact: true }).selectOption({ index: 1 });
   await dialog.getByRole('combobox', { name: 'Widget page', exact: true }).selectOption('1');
   await numeric(dialog, 'Left', 350); await numeric(dialog, 'Top', 300);
-  await dialog.getByRole('combobox', { name: 'Fields', exact: true }).selectOption({ label: 'RemoveMe · checkbox' });
+  await dialog.getByRole('combobox', { name: 'Fields', exact: true }).selectOption({ label: 'RemoveMe · Checkbox' });
   await dialog.getByRole('button', { name: 'Delete field', exact: true }).click();
   await save(dialog);
   await expect(page.getByRole('textbox', { name: 'Shared', exact: true })).toHaveCount(2);
@@ -171,7 +171,7 @@ test('keeps editable multiple choices as separate native values, including comma
   choices.addToPage(first, { x: 30, y: 450, width: 220, height: 30 });
   await openPDF(page, await source.save());
   const dialog = await openDesigner(page);
-  await dialog.getByRole('combobox', { name: 'Fields', exact: true }).selectOption({ label: 'Tags · dropdown' });
+  await dialog.getByRole('combobox', { name: 'Fields', exact: true }).selectOption({ label: 'Tags · Dropdown' });
   const current = dialog.getByRole('textbox', { name: 'Current value', exact: true });
   await expect(current).toHaveValue('a\nb');
   await current.fill('a\nb\ncustom, value\n');

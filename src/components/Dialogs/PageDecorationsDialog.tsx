@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { applyPageDecorations, inspectPageDecorations } from '../../core/PageDecorations';
@@ -21,11 +23,13 @@ function imageOf(definition: PageDecorationDefinition): PDFImageInput | null {
   return image && image.data.length ? image : null;
 }
 export function PageDecorationsDialog(props: PageDecorationsDialogProps) {
+  useLocale();
   const [session, setSession] = useState({ key: props.documentKey, sequence: 0 });
   if (!Object.is(session.key, props.documentKey)) { setSession({ key: props.documentKey, sequence: session.sequence + 1 }); return null; }
   return <PageDecorationsSession key={session.sequence} {...props} />;
 }
 function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClose }: PageDecorationsDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null), initialFocus = useRef<HTMLSelectElement>(null);
   const active = useRef(false), committing = useRef(false), closeAfterCancel = useRef(false), currentRevision = useRef(revision);
   const saveLatest = useRef<() => Promise<void>>(async () => {}), operation = useRef<AbortController | null>(null);
@@ -123,34 +127,34 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
         void saveLatest.current();
       }
     }}>
-    <header><div><h2 id="page-decorations-title">Watermarks, Headers &amp; Backgrounds</h2><p>Preview the PDF before applying all changes together.</p></div><button type="button" aria-label="Close page decorations" disabled={saving || canceling} onClick={close}>×</button></header>
-    {!current && loadError?.key !== loadKey && <p role="status" className="decoration-loading">Loading page decorations…</p>}
-    {loadError?.key === loadKey && <div className="decoration-loading"><p role="alert" className="decoration-error">{loadError.message}</p><button type="button" onClick={() => setReload(value => value + 1)}>Retry</button></div>}
+    <header><div><h2 id="page-decorations-title">{t("m.watermarks.headers.backgrounds.3697c3")}</h2><p>{t("m.preview.the.pdf.before.applying.all.changes.toge.e054f6")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.page.decorations.21b509")} disabled={saving || canceling} onClick={close}>×</button></header>
+    {!current && loadError?.key !== loadKey && <p role="status" className="decoration-loading">{t("m.loading.page.decorations.53b350")}</p>}
+    {loadError?.key === loadKey && <div className="decoration-loading"><p role="alert" className="decoration-error">{translateError(loadError.message)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <div className="decoration-body">
-      <section className="decoration-settings" aria-label="Page decoration settings">
-        {!current.inspection.canEdit && <p role="status" className="decoration-error">{current.inspection.unsupportedReason || 'This PDF cannot be modified safely.'}</p>}
-        <label>Decorations<select ref={initialFocus} value={selectedId} disabled={busy || imageBusy} onChange={event => select(event.target.value)}>
-          <option value="">Choose a decoration</option>{drafts.map(item => <option key={item.id} value={item.id}>{item.definition.name || decorationKindLabels[item.definition.kind]}{!item.managed ? ' (read only)' : ''}</option>)}
+      <section className="decoration-settings" aria-label={t("m.page.decoration.settings.c64eaf")}>
+        {!current.inspection.canEdit && <p role="status" className="decoration-error">{translateError(current.inspection.unsupportedReason) || t("m.this.pdf.cannot.be.modified.safely.82cd9f")}</p>}
+        <label>{t("m.decorations.899db7")}<select ref={initialFocus} value={selectedId} disabled={busy || imageBusy} onChange={event => select(event.target.value)}>
+          <option value="">{t("m.choose.a.decoration.9c889e")}</option>{drafts.map(item => <option key={item.id} value={item.id}>{item.definition.name || translateMessage(decorationKindLabels[item.definition.kind])}{!item.managed ? t("m.read.only.3ababd") : ''}</option>)}
         </select></label>
-        <div className="decoration-add-actions"><button type="button" disabled={disabled} onClick={() => add('watermark')}>Add watermark</button><button type="button" disabled={disabled} onClick={() => add('header-footer')}>Add headers &amp; footers</button><button type="button" disabled={disabled} onClick={() => add('background')}>Add background</button></div>
-        <p className="decoration-help">Only decorations created by this editor can be changed or removed here.</p>
+        <div className="decoration-add-actions"><button type="button" disabled={disabled} onClick={() => add('watermark')}>{t("m.add.watermark.2042dc")}</button><button type="button" disabled={disabled} onClick={() => add('header-footer')}>{t("m.add.headers.footers.1a0be4")}</button><button type="button" disabled={disabled} onClick={() => add('background')}>{t("m.add.background.7644fe")}</button></div>
+        <p className="decoration-help">{t("m.only.decorations.created.by.this.editor.can.be.c.01f5c6")}</p>
         {selected && <>
-          {!selected.managed && <p role="status" className="decoration-error">{selected.reason || 'This decoration cannot be changed safely.'}</p>}
-          {selected.needsRefresh && <><p role="status" className="decoration-help">Page order or geometry changed. Refresh to update the page numbers and placement.</p><button type="button" disabled={disabled || !selected.managed} onClick={() => change(selected.definition)}>Refresh page numbering</button></>}
+          {!selected.managed && <p role="status" className="decoration-error">{selected.reason || t("m.this.decoration.cannot.be.changed.safely.c85316")}</p>}
+          {selected.needsRefresh && <><p role="status" className="decoration-help">{t("m.page.order.or.geometry.changed.refresh.to.update.56138f")}</p><button type="button" disabled={disabled || !selected.managed} onClick={() => change(selected.definition)}>{t("m.refresh.page.numbering.6a9fcd")}</button></>}
           <PageDecorationSettings key={selected.id} value={selected.definition} totalPages={current.inspection.pages.length} disabled={disabled || !selected.managed} otherImages={otherImages}
             onChange={change} onValidity={setValidation} onError={setError} onImageBusy={setImageBusy} />
-          <button type="button" className="decoration-danger" disabled={disabled || !selected.managed} onClick={() => { setDrafts(previous => previous.filter(item => item.id !== selectedId)); select(''); }}>Remove decoration</button>
+          <button type="button" className="decoration-danger" disabled={disabled || !selected.managed} onClick={() => { setDrafts(previous => previous.filter(item => item.id !== selectedId)); select(''); }}>{t("m.remove.decoration.65fc7f")}</button>
         </>}
       </section>
-      <section className="decoration-preview-column" aria-label="Generated PDF preview">
-        <div className="decoration-preview-toolbar"><label>Preview page<select value={pageNumber} disabled={busy} onChange={event => setPageNumber(Number(event.target.value))}>{current.inspection.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>Page {page.pageNumber}</option>)}</select></label>
-          <p role="status">{validation ? 'Check the page range.' : currentPreview?.error ? 'Preview unavailable' : currentPreview?.data ? 'Preview ready' : 'Updating preview…'}</p></div>
+      <section className="decoration-preview-column" aria-label={t("m.generated.pdf.preview.a0e2c8")}>
+        <div className="decoration-preview-toolbar"><label>{t("m.preview.page.d24958")}<select value={pageNumber} disabled={busy} onChange={event => setPageNumber(Number(event.target.value))}>{current.inspection.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label>
+          <p role="status">{validation ? t("m.check.the.page.range.69221f") : currentPreview?.error ? t("m.preview.unavailable.36d31d") : currentPreview?.data ? t("m.preview.ready.8a0295") : t("m.updating.preview.3b1b2b")}</p></div>
         {currentPreview?.data && !validation && <DecorationPDFPreview data={currentPreview.data} pageNumber={pageNumber} onError={message => setPreview({ key: previewKey, error: message })} />}
-        {currentPreview?.error && <p role="alert" className="decoration-error">{currentPreview.error}</p>}
+        {currentPreview?.error && <p role="alert" className="decoration-error">{translateError(currentPreview.error)}</p>}
       </section>
     </div>}
-    <footer>{(validation || error) && <p role="alert" className="decoration-error">{validation || error}</p>}{busy && <p role="status">{canceling ? 'Canceling…' : saving ? 'Opening the updated PDF…' : 'Applying page decorations…'}</p>}{imageBusy && <p role="status">Reading image…</p>}
-      <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? 'Discard changes' : 'Close'}</button><button type="button" className="decoration-primary" disabled={disabled || !operations.length || !!validation || !!currentPreview?.error} onClick={() => void save()}>Apply decorations</button></div>
+    <footer>{(validation || error) && <p role="alert" className="decoration-error">{validation || translateError(error)}</p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.page.decorations.10bc34")}</p>}{imageBusy && <p role="status">{t("m.reading.image.8ae8b8")}</p>}
+      <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? t("m.discard.changes.fa8fc0") : t("m.close.bbfa77")}</button><button type="button" className="decoration-primary" disabled={disabled || !operations.length || !!validation || !!currentPreview?.error} onClick={() => void save()}>{t("m.apply.decorations.7a178f")}</button></div>
     </footer>
   </dialog>;
 }

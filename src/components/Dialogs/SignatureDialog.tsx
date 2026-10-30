@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import { createDrawnSignature, paintSignature, readSignatureImage, SIGNATURE_LIMITS, SIGNATURE_PAD, type SignaturePoint, type SignatureStroke } from './signatureImage';
@@ -5,6 +7,7 @@ import './SignatureDialog.css';
 
 export interface SignatureDialogProps { documentKey: unknown; revision: number; onInsert: (image: PendingImageData) => void; onClose: () => void }
 export function SignatureDialog(props: SignatureDialogProps) {
+  useLocale();
   const [session, setSession] = useState({ documentKey: props.documentKey, revision: props.revision, sequence: 0 });
   if (!Object.is(session.documentKey, props.documentKey) || session.revision !== props.revision) {
     setSession({ documentKey: props.documentKey, revision: props.revision, sequence: session.sequence + 1 }); return null;
@@ -12,6 +15,7 @@ export function SignatureDialog(props: SignatureDialogProps) {
   return <SignatureSession key={session.sequence} onInsert={props.onInsert} onClose={props.onClose} />;
 }
 function SignatureSession({ onInsert, onClose }: Pick<SignatureDialogProps, 'onInsert' | 'onClose'>) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null), pad = useRef<HTMLCanvasElement>(null), fileInput = useRef<HTMLInputElement>(null);
   const active = useRef(true), submitted = useRef(false), upload = useRef<AbortController | null>(null), file = useRef<File | null>(null);
   const pointer = useRef<{ id: number; stroke: SignatureStroke } | null>(null);
@@ -69,23 +73,23 @@ function SignatureSession({ onInsert, onClose }: Pick<SignatureDialogProps, 'onI
     catch (cause) { submitted.current = false; setError(cause instanceof Error ? cause.message : 'Could not prepare the signature.'); }
   };
   return <dialog ref={dialog} className="signature-dialog" aria-labelledby="signature-title" onCancel={event => { event.preventDefault(); close(); }} onKeyDown={event => event.stopPropagation()}>
-    <header><div><h2 id="signature-title">Signature</h2><p>Draw your signature or choose an image, then click on the PDF to place it.</p></div><button type="button" aria-label="Close signature" onClick={close}>×</button></header>
+    <header><div><h2 id="signature-title">{t("m.signature.2f32be")}</h2><p>{t("m.draw.your.signature.or.choose.an.image.then.clic.7a54c5")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.signature.affa64")} onClick={close}>×</button></header>
     <div className="signature-body">
-      <div className="signature-modes" role="group" aria-label="Signature source"><button type="button" aria-pressed={mode === 'draw'} disabled={!!current} onClick={() => changeMode('draw')}>Draw</button><button type="button" aria-pressed={mode === 'upload'} disabled={!!current} onClick={() => changeMode('upload')}>Upload image</button></div>
+      <div className="signature-modes" role="group" aria-label={t("m.signature.source.57f2af")}><button type="button" aria-pressed={mode === 'draw'} disabled={!!current} onClick={() => changeMode('draw')}>{t("m.draw.bfa50c")}</button><button type="button" aria-pressed={mode === 'upload'} disabled={!!current} onClick={() => changeMode('upload')}>{t("m.upload.image.f35dec")}</button></div>
       {mode === 'draw' ? <>
-        <div className="signature-tools"><label>Pen color<select value={color} disabled={!!current} onChange={event => setColor(event.target.value)}><option value="#111111">Black</option><option value="#174ea6">Blue</option><option value="#b91c1c">Red</option></select></label><label>Pen width<select value={width} disabled={!!current} onChange={event => setWidth(Number(event.target.value))}><option value="2">Fine</option><option value="3">Medium</option><option value="5">Bold</option></select></label><button type="button" disabled={!strokes.length || !!current} onClick={() => { setStrokes(previous => previous.slice(0, -1)); setError(null); }}>Undo stroke</button><button type="button" disabled={!strokes.length || !!current} onClick={() => { setStrokes([]); setError(null); }}>Clear</button></div>
-        <canvas ref={pad} className="signature-pad" width={SIGNATURE_PAD.width * 2} height={SIGNATURE_PAD.height * 2} tabIndex={0} aria-label="Draw your signature" onPointerDown={begin} onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onLostPointerCapture={event => finish(event, true)} />
-        <p className="signature-help">Use a mouse, pen, or touch. Empty space is trimmed and the background stays transparent. Keyboard users can upload an image.</p>
+        <div className="signature-tools"><label>{t("m.pen.color.7536be")}<select value={color} disabled={!!current} onChange={event => setColor(event.target.value)}><option value="#111111">{t("m.black.b406fb")}</option><option value="#174ea6">{t("m.blue.7d44bc")}</option><option value="#b91c1c">{t("m.red.cc9db3")}</option></select></label><label>{t("m.pen.width.a5b69f")}<select value={width} disabled={!!current} onChange={event => setWidth(Number(event.target.value))}><option value="2">{t("m.fine.226d7e")}</option><option value="3">{t("m.medium.d40496")}</option><option value="5">{t("m.bold.19e074")}</option></select></label><button type="button" disabled={!strokes.length || !!current} onClick={() => { setStrokes(previous => previous.slice(0, -1)); setError(null); }}>{t("m.undo.stroke.5c0ee9")}</button><button type="button" disabled={!strokes.length || !!current} onClick={() => { setStrokes([]); setError(null); }}>{t("m.clear.719ea3")}</button></div>
+        <canvas ref={pad} className="signature-pad" width={SIGNATURE_PAD.width * 2} height={SIGNATURE_PAD.height * 2} tabIndex={0} aria-label={t("m.draw.your.signature.01a499")} onPointerDown={begin} onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event, true)} onLostPointerCapture={event => finish(event, true)} />
+        <p className="signature-help">{t("m.use.a.mouse.pen.or.touch.empty.space.is.trimmed..f0cb18")}</p>
       </> : <>
-        <label className="signature-upload">Signature image<input ref={fileInput} type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected) void load(selected); }} /></label>
-        <label className="signature-check"><input type="checkbox" checked={removeWhite} onChange={event => { setRemoveWhite(event.target.checked); if (file.current) void load(file.current, event.target.checked); }} />Remove white background</label>
-        <p className="signature-help">PNG or JPEG, up to 5 MB and 12 megapixels. The preview includes the image's orientation and any background removal.</p>
-        <div className="signature-image-preview" aria-busy={busy}>{busy ? <p role="status">Preparing signature…</p> : image ? <img src={image.imageData} alt="Signature preview" /> : <p>Choose a signature image to preview it here.</p>}</div>
+        <label className="signature-upload">{t("m.signature.image.b3b945")}<input ref={fileInput} type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected) void load(selected); }} /></label>
+        <label className="signature-check"><input type="checkbox" checked={removeWhite} onChange={event => { setRemoveWhite(event.target.checked); if (file.current) void load(file.current, event.target.checked); }} />{t("m.remove.white.background.ddcba0")}</label>
+        <p className="signature-help">{t("m.png.or.jpeg.up.to.5.mb.and.12.megapixels.the.pre.b30210")}</p>
+        <div className="signature-image-preview" aria-busy={busy}>{busy ? <p role="status">{t("m.preparing.signature.970c8f")}</p> : image ? <img src={image.imageData} alt={t("m.signature.preview.48fe3c")} /> : <p>{t("m.choose.a.signature.image.to.preview.it.here.a96038")}</p>}</div>
       </>}
-      {error && <p className="signature-error" role="alert">{error}</p>}
-      <p className="signature-help">This adds a visible signature image. It does not create a certificate-based digital signature. You can move, resize, or delete it after placing it.</p>
+      {error && <p className="signature-error" role="alert">{translateError(error)}</p>}
+      <p className="signature-help">{t("m.this.adds.a.visible.signature.image.it.does.not..6070df")}</p>
     </div>
-    <footer><button type="button" onClick={close}>Cancel</button><button type="button" className="signature-primary" disabled={busy || !!current || (mode === 'draw' ? !strokes.length : !image)} onClick={insert}>Place signature</button></footer>
+    <footer><button type="button" onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="signature-primary" disabled={busy || !!current || (mode === 'draw' ? !strokes.length : !image)} onClick={insert}>{t("m.place.signature.681560")}</button></footer>
   </dialog>;
 }
 export default SignatureDialog;

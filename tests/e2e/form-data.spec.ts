@@ -28,7 +28,7 @@ test('imports Unicode FDF, native radio states, and explicit clearing values fro
   await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Original');
 
   const importFile = async (name: string, content: string) => {
-    await page.getByRole('button', { name: /^Form .*▾$/ }).click();
+    await page.getByRole('button', { name: 'All tools' }).click();
     const chooserReady = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Import Form Data...', exact: true }).click();
     await (await chooserReady).setFiles({ name, mimeType: 'application/octet-stream', buffer: Buffer.from(content) });

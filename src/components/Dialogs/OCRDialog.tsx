@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { OCRLanguage, OCRPageResult, OCRProgress } from '../../ocr/recognizePDF';
 import './OCRDialog.css';
@@ -30,6 +32,7 @@ function parsePages(value: string, total: number): number[] {
 }
 
 export function OCRDialog(props: OCRDialogProps) {
+  useLocale();
   const [session, setSession] = useState({ key: props.documentKey, sequence: 0 });
   if (!Object.is(session.key, props.documentKey)) {
     setSession({ key: props.documentKey, sequence: session.sequence + 1 });
@@ -39,6 +42,7 @@ export function OCRDialog(props: OCRDialogProps) {
 }
 
 function OCRSession({ totalPages, currentPage, onClose, onRun }: OCRDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const pagesInput = useRef<HTMLInputElement>(null);
   const active = useRef(false);
@@ -125,34 +129,34 @@ function OCRSession({ totalPages, currentPage, onClose, onRun }: OCRDialogProps)
   return <dialog ref={dialog} className="ocr-dialog" aria-labelledby="ocr-title" aria-describedby="ocr-description"
     onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') event.preventDefault(); }}
     onCancel={event => { event.preventDefault(); cancel(true); }}>
-    <header><h2 id="ocr-title">Scan OCR</h2><button type="button" aria-label="Close OCR" disabled={saving || canceling} onClick={() => cancel(true)}>×</button></header>
-    <p id="ocr-description">Add searchable, selectable text to scanned pages while keeping their appearance.</p>
+    <header><h2 id="ocr-title">{t("m.scan.ocr.5c62d6")}</h2><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.ocr.00ec64")} disabled={saving || canceling} onClick={() => cancel(true)}>×</button></header>
+    <p id="ocr-description">{t("m.add.searchable.selectable.text.to.scanned.pages..c2fe59")}</p>
     <form onSubmit={start}>
       <fieldset disabled={busy}>
-        <label htmlFor="ocr-pages">Pages</label>
+        <label htmlFor="ocr-pages">{t("m.pages.600584")}</label>
         <div className="ocr-page-range"><input ref={pagesInput} id="ocr-pages" value={pages} onChange={event => setPages(event.target.value)} aria-describedby="ocr-range-help" />
-          <button type="button" onClick={() => setPages(totalPages === 1 ? '1' : `1-${totalPages}`)}>All pages</button>
-          <button type="button" onClick={() => setPages(String(currentPage))}>Current page</button></div>
-        <p id="ocr-range-help" className="ocr-help">Use page numbers and ranges, for example 1, 3-5. This PDF has {totalPages} {totalPages === 1 ? 'page' : 'pages'}.</p>
-        <label htmlFor="ocr-language">Recognition language</label>
+          <button type="button" onClick={() => setPages(totalPages === 1 ? '1' : `1-${totalPages}`)}>{t("m.all.pages.921a7e")}</button>
+          <button type="button" onClick={() => setPages(String(currentPage))}>{t("m.current.page.af778b")}</button></div>
+        <p id="ocr-range-help" className="ocr-help">{t("m.use.page.numbers.and.ranges.for.example.1.3.5.th.dd4118")}{' '}{totalPages} {totalPages === 1 ? t("m.page.767013") : t("m.pages.eec654")}.</p>
+        <label htmlFor="ocr-language">{t("m.recognition.language.9f7dbf")}</label>
         <select id="ocr-language" value={language} onChange={event => setLanguage(event.target.value as OCRLanguage)}>
-          <option value="eng">English</option><option value="chi_sim+eng">Simplified Chinese + English</option>
+          <option value="eng">{t("m.english.649df0")}</option><option value="chi_sim+eng">{t("m.simplified.chinese.english.c53863")}</option>
         </select>
-        <label className="ocr-checkbox"><input type="checkbox" checked={skipExistingText} onChange={event => setSkipExistingText(event.target.checked)} />Skip pages that already contain text</label>
-        {!skipExistingText && <p className="ocr-help">Recognizing pages that already have text can add duplicate text.</p>}
+        <label className="ocr-checkbox"><input type="checkbox" checked={skipExistingText} onChange={event => setSkipExistingText(event.target.checked)} />{t("m.skip.pages.that.already.contain.text.534523")}</label>
+        {!skipExistingText && <p className="ocr-help">{t("m.recognizing.pages.that.already.have.text.can.add.aab305")}</p>}
       </fieldset>
-      <p className="ocr-help">Recognition runs on this device. Form fields and annotations are preserved and excluded from recognition. Pending text and image edits are included.</p>
+      <p className="ocr-help">{t("m.recognition.runs.on.this.device.form.fields.and..69c931")}</p>
       {busy && <div className="ocr-progress" aria-busy="true">
-        <progress max={1} value={Math.min(1, Math.max(0, progress?.progress ?? 0))} aria-label="OCR progress" />
-        <p role="status">{canceling ? 'Canceling OCR…' : saving ? 'Saving recognized text…' : progress?.status}{!saving && !canceling && progress?.pageNumber ? ` — Page ${progress.pageNumber} (${progress.completedPages}/${progress.totalPages} completed)` : ''}</p>
+        <progress max={1} value={Math.min(1, Math.max(0, progress?.progress ?? 0))} aria-label={t("m.ocr.progress.e67739")} />
+        <p role="status">{canceling ? t("m.canceling.ocr.2023cd") : saving ? t("m.saving.recognized.text.c42061") : progress?.status}{!saving && !canceling && progress?.pageNumber ? t("m.page.completed.dd308b", { v0: progress.pageNumber, v1: progress.completedPages, v2: progress.totalPages }) : ''}</p>
       </div>}
-      {!busy && message && <p role="status" className="ocr-result-message">{message}</p>}
-      {results && <div className="ocr-results"><table><caption>Recognition results</caption><thead><tr><th>Page</th><th>Result</th><th>Words</th></tr></thead><tbody>
-        {results.map(result => <tr key={result.pageNumber}><th scope="row">{result.pageNumber}</th><td>{result.status === 'recognized' ? 'Text added' : result.status === 'skipped-existing-text' ? 'Skipped: existing text' : 'No text detected'}</td><td>{result.wordCount}</td></tr>)}
+      {!busy && message && <p role="status" className="ocr-result-message">{translateMessage(message)}</p>}
+      {results && <div className="ocr-results"><table><caption>{t("m.recognition.results.174b57")}</caption><thead><tr><th>{t("m.page.fb0627")}</th><th>{t("m.result.5faa59")}</th><th>{t("m.words.d26d55")}</th></tr></thead><tbody>
+        {results.map(result => <tr key={result.pageNumber}><th scope="row">{result.pageNumber}</th><td>{result.status === 'recognized' ? t("m.text.added.f668a2") : result.status === 'skipped-existing-text' ? t("m.skipped.existing.text.c09e0c") : t("m.no.text.detected.a4c994")}</td><td>{result.wordCount}</td></tr>)}
       </tbody></table></div>}
-      {error && <p role="alert" className="ocr-error">{error}</p>}
-      <footer>{busy ? <button type="button" disabled={saving || canceling} onClick={() => cancel()}>Cancel OCR</button> : <button type="button" onClick={() => cancel(true)}>Close</button>}
-        <button type="submit" className="ocr-primary" disabled={busy}>Start OCR</button></footer>
+      {error && <p role="alert" className="ocr-error">{translateError(error)}</p>}
+      <footer>{busy ? <button type="button" disabled={saving || canceling} onClick={() => cancel()}>{t("m.cancel.ocr.7ab338")}</button> : <button type="button" onClick={() => cancel(true)}>{t("m.close.bbfa77")}</button>}
+        <button type="submit" className="ocr-primary" disabled={busy}>{t("m.start.ocr.b616fd")}</button></footer>
     </form>
   </dialog>;
 }

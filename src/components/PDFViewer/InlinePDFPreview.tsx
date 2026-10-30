@@ -1,9 +1,11 @@
+import { useLocale } from "../../i18n";
 import { useEffect, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { pdfDocumentOptions, pdfjsLib } from '../../utils/pdfConfig';
 import { TextLayer } from './TextLayer';
 
 export function InlinePDFPreview({ png, bytes, pageNumber, scale, rotation, editing }: { png: Uint8Array<ArrayBuffer>; bytes: Uint8Array<ArrayBuffer>; pageNumber: number; scale: number; rotation: number; editing: boolean }) {
+  useLocale();
   const image = useRef<HTMLImageElement>(null);
   const [loaded, setLoaded] = useState<{ bytes: Uint8Array; page: PDFPageProxy } | null>(null);
   useEffect(() => {

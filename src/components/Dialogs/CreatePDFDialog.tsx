@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError } from "../../i18n";
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createPDFFromImages, validateImageCollection, IMAGE_LIMITS, type PDFImageInput, type ImageInfo, type ImagePDFOptions } from '../../core/ImagePDF';
 import './ConversionDialog.css';
@@ -10,6 +12,7 @@ export interface CreatePDFDialogProps {
 interface SelectedImage extends PDFImageInput { id: string; info: ImageInfo }
 
 export function CreatePDFDialog({ onCreate, onClose }: CreatePDFDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const active = useRef(false);
@@ -120,30 +123,30 @@ export function CreatePDFDialog({ onCreate, onClose }: CreatePDFDialogProps) {
   return <dialog ref={dialog} className="conversion-dialog create-pdf-dialog" aria-labelledby="create-pdf-title"
     onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') event.preventDefault(); }}
     onCancel={event => { event.preventDefault(); close(); }}>
-    <header><h2 id="create-pdf-title">Create PDF from Images</h2><button type="button" aria-label="Close PDF creation" disabled={stage === 'opening' || canceling} onClick={close}>×</button></header>
-    <p>Choose PNG or JPEG images. Each image becomes one page, in the order shown.</p>
+    <header><h2 id="create-pdf-title">{t("m.create.pdf.from.images.0a9d94")}</h2><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.pdf.creation.f61d07")} disabled={stage === 'opening' || canceling} onClick={close}>×</button></header>
+    <p>{t("m.choose.png.or.jpeg.images.each.image.becomes.one.ea81a1")}</p>
     <form onSubmit={create}>
       <fieldset disabled={busy}>
-        <label>Images<input ref={input} type="file" multiple accept=".png,.jpg,.jpeg,image/png,image/jpeg" onChange={event => {
+        <label>{t("m.images.09e871")}<input ref={input} type="file" multiple accept=".png,.jpg,.jpeg,image/png,image/jpeg" onChange={event => {
           const files = [...(event.target.files ?? [])]; event.target.value = ''; void addImages(files);
         }} /></label>
-        {!!images.length && <ol className="create-pdf-images" aria-label="Image page order">
-          {images.map((image, index) => <li key={image.id}><span className="create-pdf-image-number">{index + 1}</span><div className="create-pdf-image-description"><strong>{image.name}</strong><span>{image.info.width} × {image.info.height} pixels · {image.info.format.toUpperCase()}</span></div>
-            <div className="create-pdf-image-actions"><button type="button" aria-label={`Move image ${index + 1} earlier`} disabled={busy || index === 0} onClick={() => move(index, -1)}>↑</button>
-              <button type="button" aria-label={`Move image ${index + 1} later`} disabled={busy || index === images.length - 1} onClick={() => move(index, 1)}>↓</button>
-              <button type="button" aria-label={`Remove image ${index + 1}: ${image.name}`} onClick={() => setImages(previous => previous.filter(item => item.id !== image.id))}>Remove</button></div></li>)}
+        {!!images.length && <ol className="create-pdf-images" aria-label={t("m.image.page.order.d0c46a")}>
+          {images.map((image, index) => <li key={image.id}><span className="create-pdf-image-number">{index + 1}</span><div className="create-pdf-image-description"><strong>{image.name}</strong><span>{t("m.pixels.0503c5", { v0: image.info.width, v1: image.info.height, v2: image.info.format.toUpperCase() })}</span></div>
+            <div className="create-pdf-image-actions"><button type="button" aria-label={t("m.move.image.earlier.2bdde1", { v0: index + 1 })} disabled={busy || index === 0} onClick={() => move(index, -1)}>↑</button>
+              <button type="button" aria-label={t("m.move.image.later.83f463", { v0: index + 1 })} disabled={busy || index === images.length - 1} onClick={() => move(index, 1)}>↓</button>
+              <button type="button" aria-label={t("m.remove.image.eda196", { v0: index + 1, v1: image.name })} onClick={() => setImages(previous => previous.filter(item => item.id !== image.id))}>{t("m.remove.e96390")}</button></div></li>)}
         </ol>}
         <div className="create-pdf-options">
-          <label>Page size<select value={pageSize} onChange={event => setPageSize(event.target.value as ImagePDFOptions['pageSize'])}><option value="a4">A4</option><option value="letter">Letter</option><option value="image">Match image size</option></select></label>
-          <label>Orientation<select value={orientation} disabled={busy || pageSize === 'image'} onChange={event => setOrientation(event.target.value as ImagePDFOptions['orientation'])}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
-          <label>Margin (mm)<input type="number" min="0" max="50.8" step="any" value={margin} onChange={event => setMargin(event.target.value)} /></label>
+          <label>{t("m.page.size.c118e2")}<select value={pageSize} onChange={event => setPageSize(event.target.value as ImagePDFOptions['pageSize'])}><option value="a4">{t("m.a4.de69a6")}</option><option value="letter">{t("m.letter.ee1405")}</option><option value="image">{t("m.match.image.size.559142")}</option></select></label>
+          <label>{t("m.orientation.86e4e3")}<select value={orientation} disabled={busy || pageSize === 'image'} onChange={event => setOrientation(event.target.value as ImagePDFOptions['orientation'])}><option value="portrait">{t("m.portrait.92b6b1")}</option><option value="landscape">{t("m.landscape.7dc4be")}</option></select></label>
+          <label>{t("m.margin.mm.bcf854")}<input type="number" min="0" max="50.8" step="any" value={margin} onChange={event => setMargin(event.target.value)} /></label>
         </div>
-        {pageSize === 'image' && <p className="conversion-hint">Match image size uses 1 PDF point per image pixel, plus the margins. JPEG orientation is applied automatically.</p>}
-        <label>PDF file name<input value={fileName} onChange={event => setFileName(event.target.value)} /></label>
+        {pageSize === 'image' && <p className="conversion-hint">{t("m.match.image.size.uses.1.pdf.point.per.image.pixe.a90562")}</p>}
+        <label>{t("m.pdf.file.name.917f85")}<input value={fileName} onChange={event => setFileName(event.target.value)} /></label>
       </fieldset>
-      {busy && <div className="conversion-progress"><progress max={progress.total} value={progress.completed} aria-label="PDF creation progress" /><p role="status">{canceling ? 'Canceling…' : stage === 'reading' ? `Reading images (${progress.completed}/${progress.total})…` : stage === 'opening' ? 'Opening the created PDF…' : `Creating PDF (${progress.completed}/${progress.total})…`}</p></div>}
-      {error && <p role="alert" className="conversion-error">{error}</p>}
-      <footer><button type="button" disabled={stage === 'opening' || canceling} onClick={close}>Cancel</button><button type="submit" className="conversion-primary" disabled={busy || !images.length}>Create PDF</button></footer>
+      {busy && <div className="conversion-progress"><progress max={progress.total} value={progress.completed} aria-label={t("m.pdf.creation.progress.7a5ac7")} /><p role="status">{canceling ? t("m.canceling.9dd59f") : stage === 'reading' ? t("m.reading.images.8cec4e", { v0: progress.completed, v1: progress.total }) : stage === 'opening' ? t("m.opening.the.created.pdf.9f1a97") : t("m.creating.pdf.fb2d73", { v0: progress.completed, v1: progress.total })}</p></div>}
+      {error && <p role="alert" className="conversion-error">{translateError(error)}</p>}
+      <footer><button type="button" disabled={stage === 'opening' || canceling} onClick={close}>{t("m.cancel.77dfd2")}</button><button type="submit" className="conversion-primary" disabled={busy || !images.length}>{t("m.create.pdf.a18c88")}</button></footer>
     </form>
   </dialog>;
 }

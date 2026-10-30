@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 /**
  * RedactionLayer - Allows users to mark areas for redaction
  * Shows pending redactions as outlined boxes, applied as solid black
@@ -24,6 +25,7 @@ export function RedactionLayer({
   scale,
   rotation,
 }: RedactionLayerProps) {
+  useLocale();
   const {
     mode,
     redactions,
@@ -191,12 +193,12 @@ export function RedactionLayer({
           >
             {!redaction.applied && (
               <>
-                <span className="redaction-label">REDACT</span>
+                <span className="redaction-label">{t("m.redact.910892")}</span>
                 {isSelected && (
                   <div className="redaction-controls">
                     <input
                       type="text"
-                      placeholder="Overlay text"
+                      placeholder={t("m.overlay.text.eae931")}
                       value={redaction.overlayText || ''}
                       onChange={(e) => handleOverlayTextChange(redaction.id, e.target.value)}
                       onClick={(e) => e.stopPropagation()}
@@ -205,7 +207,7 @@ export function RedactionLayer({
                     <button
                       className="redaction-delete-btn"
                       onClick={(e) => handleDelete(redaction.id, e)}
-                      title="Remove redaction"
+                      title={t("m.remove.redaction.5b83df")}
                     >
                       ✕
                     </button>
@@ -226,7 +228,7 @@ export function RedactionLayer({
           className="redaction-box drawing"
           style={drawRect}
         >
-          <span className="redaction-label">REDACT</span>
+          <span className="redaction-label">{t("m.redact.910892")}</span>
         </div>
       )}
     </div>

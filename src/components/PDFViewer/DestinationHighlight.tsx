@@ -1,3 +1,4 @@
+import { useLocale } from "../../i18n";
 import { useEffect, useState, useMemo } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
@@ -18,6 +19,7 @@ export function DestinationHighlight({
   top,
   left,
 }: DestinationHighlightProps) {
+  useLocale();
   const [isVisible, setIsVisible] = useState(false);
   const position = useMemo(() => {
     const viewport = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) });

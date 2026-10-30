@@ -31,7 +31,7 @@ test('annotation arrows nudge without navigating and modal keys cannot change th
   await expect(page.getByRole('spinbutton', { name: 'Page number' })).toHaveValue('1');
   await expect.poll(async () => Number(await region.getAttribute('x'))).toBeCloseTo(initialX + 1);
 
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Merge PDFs', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Insert PDF Pages', exact: true });
   await expect(dialog).toBeVisible();
@@ -105,7 +105,7 @@ test('Escape cancels a pending merge dialog before a delayed PDF read completes'
       });
     };
   });
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Merge PDFs', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as Window & { mergeReadPaused?: boolean }).mergeReadPaused)).toBe(true);
   await page.keyboard.press('Escape');
@@ -115,7 +115,7 @@ test('Escape cancels a pending merge dialog before a delayed PDF read completes'
   });
   await expect(page.locator('dialog.merge-dialog-overlay')).toHaveCount(0);
   // A cancelled request must not prevent the next deliberate open.
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Merge PDFs', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Insert PDF Pages', exact: true })).toBeVisible();
 });

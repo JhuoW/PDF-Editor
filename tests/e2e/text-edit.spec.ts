@@ -21,8 +21,8 @@ async function openSource(page: Page) {
 }
 
 async function editText(page: Page, original: string, replacement: string) {
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: original }).dblclick();
   const editor = page.getByRole('textbox', { name: /^Edit text on page/ });
   await editor.fill(replacement);

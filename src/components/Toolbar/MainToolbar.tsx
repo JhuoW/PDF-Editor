@@ -1,4 +1,9 @@
+import { useLocale, t } from "../../i18n";
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { FilePenLine } from 'lucide-react';
+import { LanguageSwitcher } from '../Workspace/LanguageSwitcher';
+import { useDocumentSessionStore } from '../../store/documentSession';
 import {
   FileUp,
   Download,
@@ -20,6 +25,7 @@ import type { ZoomMode } from '../../store/documentStore';
 import './MainToolbar.css';
 
 interface MainToolbarProps {
+  navigationHost?: HTMLElement | null;
   currentPage: number;
   totalPages: number;
   zoom: number;
@@ -48,6 +54,7 @@ interface MainToolbarProps {
 const ZOOM_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 
 export function MainToolbar({
+  navigationHost,
   currentPage,
   totalPages,
   zoom,
@@ -72,6 +79,7 @@ export function MainToolbar({
   onToggleSearch,
   hasDocument,
 }: MainToolbarProps) {
+  useLocale();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileMenuButton = useRef<HTMLButtonElement>(null);
   const fileMenu = useRef<HTMLDivElement>(null);
@@ -130,82 +138,8 @@ export function MainToolbar({
     e.target.value = '';
   };
 
-  return (
-    <header className="main-toolbar">
-      {/* Left section - File operations */}
-      <div className="toolbar-group">
-        {(onCreatePDF || onExportPages) && <>
-          <button ref={fileMenuButton} type="button" className="toolbar-btn" aria-expanded={!!menuPosition} aria-controls="toolbar-file-actions"
-            onClick={() => menuPosition ? setMenuPosition(null) : openFileMenu()}
-            onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); openFileMenu(); } }}>
-            File <ChevronDown size={14} />
-          </button>
-          {menuPosition && <div ref={fileMenu} id="toolbar-file-actions" role="group" aria-label="File actions" className="toolbar-file-actions"
-            style={{ ...menuPosition, maxHeight: `calc(100dvh - ${menuPosition.top + 8}px)` }}
-            onBlur={event => {
-              if (!event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== fileMenuButton.current) setMenuPosition(null);
-            }}
-            onKeyDown={event => {
-              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); selectFileAction(); }
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                event.preventDefault();
-                const buttons = [...(fileMenu.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
-                const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-                buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
-              }
-            }}>
-            {onCreatePDF && <button type="button" onClick={() => selectFileAction(onCreatePDF)}>Create PDF from Images…</button>}
-            {onExportPages && <button type="button" disabled={!hasDocument} onClick={() => selectFileAction(onExportPages)}>Export Pages…</button>}
-          </div>}
-        </>}
-        <button
-          className="toolbar-btn"
-          onClick={() => fileInputRef.current?.click()}
-          title="Open PDF (Ctrl+O)"
-        >
-          <FileUp size={18} />
-          <span className="btn-label">Open</span>
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf"
-          onChange={handleFileChange}
-          style={{ display: 'none' }}
-        />
-        <button
-          className="toolbar-btn toolbar-btn-primary"
-          onClick={onExport}
-          disabled={!hasDocument}
-          title="Export / Download PDF (Ctrl+S)"
-        >
-          <Download size={18} />
-          <span className="btn-label">Export</span>
-        </button>
-      </div>
-
-      <div className="toolbar-divider" />
-
-      {/* Sidebar toggle */}
-      {hasDocument && (
-        <>
-          <div className="toolbar-group">
-            <button
-              className={`toolbar-btn icon-only ${sidebarOpen ? 'active' : ''}`}
-              onClick={onToggleSidebar}
-              title="Toggle Sidebar"
-              aria-label="Toggle sidebar"
-              aria-pressed={sidebarOpen}
-            >
-              <PanelLeft size={18} />
-            </button>
-          </div>
-
-          <div className="toolbar-divider" />
-        </>
-      )}
-
-      {/* Center section - Navigation */}
+  const fileName = useDocumentSessionStore(state => state.active?.fileName);
+  const navigation = <div className="document-navigation">      {/* Center section - Navigation */}
       {hasDocument && (
         <>
           <div className="toolbar-group navigation">
@@ -213,8 +147,8 @@ export function MainToolbar({
               className="toolbar-btn icon-only"
               onClick={onPreviousPage}
               disabled={currentPage <= 1}
-              title="Previous Page (←)"
-              aria-label="Previous page"
+              title={t("m.previous.page.b09544")}
+              aria-label={t("m.previous.page.81f547")}
             >
               <ChevronLeft size={18} />
             </button>
@@ -236,8 +170,8 @@ export function MainToolbar({
                     resetPageDraft();
                   }
                 }}
-                aria-label="Page number"
-                title="Page number (press Enter to navigate)"
+                aria-label={t("m.page.number.8b08ca")}
+                title={t("m.page.number.press.enter.to.navigate.b9f61b")}
                 className="page-input"
               />
               <span className="page-separator">/</span>
@@ -248,8 +182,8 @@ export function MainToolbar({
               className="toolbar-btn icon-only"
               onClick={onNextPage}
               disabled={currentPage >= totalPages}
-              title="Next Page (→)"
-              aria-label="Next page"
+              title={t("m.next.page.6c68bf")}
+              aria-label={t("m.next.page.4bfc19")}
             >
               <ChevronRight size={18} />
             </button>
@@ -262,8 +196,8 @@ export function MainToolbar({
             <button
               className="toolbar-btn icon-only"
               onClick={onZoomOut}
-              title="Zoom Out (-)"
-              aria-label="Zoom out"
+              title={t("m.zoom.out.0a41b9")}
+              aria-label={t("m.zoom.out.a4ae4b")}
             >
               <ZoomOut size={18} />
             </button>
@@ -281,15 +215,15 @@ export function MainToolbar({
                 }
               }}
               className="zoom-select"
-              aria-label="Zoom"
+              aria-label={t("m.zoom.9b3cbe")}
             >
               <option value="fit-page">
-                {zoomMode === 'fit-page' ? `Fit Page (${Math.round(zoom * 100)}%)` : 'Fit Page'}
+                {zoomMode === 'fit-page' ? t("m.fit.page.9a3439", { v0: Math.round(zoom * 100) }) : t("m.fit.page.0fa2ae")}
               </option>
               <option value="fit-width">
-                {zoomMode === 'fit-width' ? `Fit Width (${Math.round(zoom * 100)}%)` : 'Fit Width'}
+                {zoomMode === 'fit-width' ? t("m.fit.width.bae4b9", { v0: Math.round(zoom * 100) }) : t("m.fit.width.31ce6a")}
               </option>
-              <optgroup label="Zoom">
+              <optgroup label={t("m.zoom.9b3cbe")}>
                 {zoomMode === 'manual' && !ZOOM_PRESETS.includes(zoom) && (
                   <option value={zoom}>{Math.round(zoom * 100)}%</option>
                 )}
@@ -304,8 +238,8 @@ export function MainToolbar({
             <button
               className="toolbar-btn icon-only"
               onClick={onZoomIn}
-              title="Zoom In (+)"
-              aria-label="Zoom in"
+              title={t("m.zoom.in.ff7033")}
+              aria-label={t("m.zoom.in.4fc05f")}
             >
               <ZoomIn size={18} />
             </button>
@@ -313,8 +247,8 @@ export function MainToolbar({
             <button
               className={`toolbar-btn icon-only ${zoomMode === 'fit-page' ? 'active' : ''}`}
               onClick={onFitToPage}
-              title="Fit to Page"
-              aria-label="Fit to page"
+              title={t("m.fit.to.page.05eb0e")}
+              aria-label={t("m.fit.to.page.950c34")}
               aria-pressed={zoomMode === 'fit-page'}
             >
               <Maximize size={18} />
@@ -323,8 +257,8 @@ export function MainToolbar({
             <button
               className={`toolbar-btn icon-only ${zoomMode === 'fit-width' ? 'active' : ''}`}
               onClick={onFitToWidth}
-              title="Fit to Width"
-              aria-label="Fit to width"
+              title={t("m.fit.to.width.8abdd9")}
+              aria-label={t("m.fit.to.width.4d6ed0")}
               aria-pressed={zoomMode === 'fit-width'}
             >
               <MoveHorizontal size={18} />
@@ -338,8 +272,8 @@ export function MainToolbar({
             <button
               className={`toolbar-btn icon-only ${viewMode === 'single' ? 'active' : ''}`}
               onClick={() => onSetViewMode('single')}
-              title="Single Page View"
-              aria-label="Single page view"
+              title={t("m.single.page.view.f4b9e8")}
+              aria-label={t("m.single.page.view.ece971")}
               aria-pressed={viewMode === 'single'}
             >
               <File size={18} />
@@ -347,8 +281,8 @@ export function MainToolbar({
             <button
               className={`toolbar-btn icon-only ${viewMode === 'continuous' ? 'active' : ''}`}
               onClick={() => onSetViewMode('continuous')}
-              title="Continuous View"
-              aria-label="Continuous view"
+              title={t("m.continuous.view.cd3796")}
+              aria-label={t("m.continuous.view.596640")}
               aria-pressed={viewMode === 'continuous'}
             >
               <Files size={18} />
@@ -356,8 +290,8 @@ export function MainToolbar({
             <button
               className={`toolbar-btn icon-only ${viewMode === 'two-page' ? 'active' : ''}`}
               onClick={() => onSetViewMode('two-page')}
-              title="Two Page View"
-              aria-label="Two page view"
+              title={t("m.two.page.view.210bf0")}
+              aria-label={t("m.two.page.view.29330c")}
               aria-pressed={viewMode === 'two-page'}
             >
               <Columns size={18} />
@@ -371,8 +305,8 @@ export function MainToolbar({
             <button
               className="toolbar-btn icon-only"
               onClick={onRotate}
-              title="Rotate Clockwise (Ctrl+R)"
-              aria-label="Rotate clockwise"
+              title={t("m.rotate.clockwise.ctrl.r.31828f")}
+              aria-label={t("m.rotate.clockwise.acf3bc")}
             >
               <RotateCw size={18} />
             </button>
@@ -380,19 +314,92 @@ export function MainToolbar({
 
           <div className="toolbar-spacer" />
 
-          {/* Search */}
-          <div className="toolbar-group">
-            <button
-              className="toolbar-btn icon-only"
-              onClick={onToggleSearch}
-              title="Search (Ctrl+F)"
-              aria-label="Search document"
-            >
-              <Search size={18} />
-            </button>
-          </div>
         </>
       )}
+</div>;
+  return <>
+    <header className="main-toolbar">
+      <div className="app-brand"><span className="app-brand-icon"><FilePenLine size={22} /></span><span>{t("m.pdf.editor.3bb8b8")}</span></div>
+      {/* Sidebar toggle */}
+      {hasDocument && (
+        <>
+          <div className="toolbar-group">
+            <button
+              className={`toolbar-btn icon-only ${sidebarOpen ? 'active' : ''}`}
+              onClick={onToggleSidebar}
+              title={t("m.toggle.sidebar.dffc47")}
+              aria-label={t("m.toggle.sidebar.8b9b1b")}
+              aria-pressed={sidebarOpen}
+            >
+              <PanelLeft size={18} />
+            </button>
+          </div>
+
+          <div className="toolbar-divider" />
+        </>
+      )}
+
+      {/* Left section - File operations */}
+      <div className="toolbar-group">
+        {(onCreatePDF || onExportPages) && <>
+          <button ref={fileMenuButton} type="button" className="toolbar-btn" aria-expanded={!!menuPosition} aria-controls="toolbar-file-actions"
+            onClick={() => menuPosition ? setMenuPosition(null) : openFileMenu()}
+            onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); openFileMenu(); } }}>
+            {t("m.file.2c3caf")}{' '}<ChevronDown size={14} />
+          </button>
+          {menuPosition && <div ref={fileMenu} id="toolbar-file-actions" role="group" aria-label={t("m.file.actions.9e1b94")} className="toolbar-file-actions"
+            style={{ ...menuPosition, maxHeight: `calc(100dvh - ${menuPosition.top + 8}px)` }}
+            onBlur={event => {
+              if (!event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== fileMenuButton.current) setMenuPosition(null);
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); selectFileAction(); }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const buttons = [...(fileMenu.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+                const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+              }
+            }}>
+            {onCreatePDF && <button type="button" onClick={() => selectFileAction(onCreatePDF)}>{t("m.create.pdf.from.images.74adad")}</button>}
+            {onExportPages && <button type="button" disabled={!hasDocument} onClick={() => selectFileAction(onExportPages)}>{t("m.export.pages.8f8203")}</button>}
+          </div>}
+        </>}
+        <button
+          className="toolbar-btn"
+          onClick={() => fileInputRef.current?.click()}
+          title={t("m.open.pdf.ctrl.o.ce7388")} aria-label={t("m.open.cf9b77")}
+        >
+          <FileUp size={18} />
+          <span className="btn-label">{t("m.open.cf9b77")}</span>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf"
+          onChange={handleFileChange}
+          style={{ display: 'none' }}
+        />
+        <button
+          className="toolbar-btn toolbar-btn-primary"
+          onClick={onExport}
+          disabled={!hasDocument}
+          title={t("m.export.download.pdf.ctrl.s.85da1f")} aria-label={t("m.export.f3e4fa")}
+        >
+          <Download size={18} />
+          <span className="btn-label">{t("m.export.f3e4fa")}</span>
+        </button>
+      </div>
+
+
+
+
+      <div className="document-title" data-document-content title={fileName}>{fileName ?? t("m.no.document.open.998af1")}</div>
+      <div className="header-actions">
+        {hasDocument && <button className="toolbar-btn icon-only" onClick={onToggleSearch} title={t("m.search.ctrl.f.2b439f")} aria-label={t("m.search.document.09bd84")}><Search size={18} /></button>}
+        <LanguageSwitcher />
+      </div>
     </header>
-  );
+    {navigationHost ? createPortal(navigation, navigationHost) : navigation}
+  </>;
 }

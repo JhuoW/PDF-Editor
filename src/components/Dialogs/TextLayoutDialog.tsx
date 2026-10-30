@@ -1,3 +1,6 @@
+import { translateError } from '../../i18n';
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateMessage } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { prepareTextEditLayoutInWorker } from '../../editing/TextLayoutClient';
@@ -16,6 +19,7 @@ function signature(edit: TextEditOperation) {
   return JSON.stringify([edit.newText, rect ? [rect.x, rect.y, rect.width, rect.height] : null, layout?.fontName, layout?.fontSize, layout?.fontColor, layout?.alignment, layout?.lineHeight, layout?.keepBaseline]);
 }
 export function TextLayoutDialog(props: TextLayoutDialogProps) {
+  useLocale();
   const [session, setSession] = useState({ key: props.documentKey, revision: props.revision, blockId: props.blockId, sequence: 0 });
   if (!Object.is(session.key, props.documentKey) || session.revision !== props.revision || session.blockId !== props.blockId) {
     setSession({ key: props.documentKey, revision: props.revision, blockId: props.blockId, sequence: session.sequence + 1 }); return null;
@@ -23,6 +27,7 @@ export function TextLayoutDialog(props: TextLayoutDialogProps) {
   return <TextLayoutSession key={session.sequence} {...props} />;
 }
 function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDialogProps) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null), textarea = useRef<HTMLTextAreaElement>(null), active = useRef(false);
   const reading = useRef<AbortController | null>(null), measuring = useRef<AbortController | null>(null), savingRequest = useRef<AbortController | null>(null), saveLatest = useRef<() => Promise<void>>(async () => {});
   const [retry, setRetry] = useState(0), [loaded, setLoaded] = useState<Loaded | null>(null), [loadError, setLoadError] = useState<{ key: object; message: string } | null>(null);
@@ -122,46 +127,46 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
       void saveLatest.current();
     }
   }}>
-    <header><div><h2 id="text-layout-title">Text layout</h2><p>Reflow original PDF text and preview the exported page before saving a draft.</p></div><button type="button" aria-label="Close text layout" onClick={close}>×</button></header>
-    {!current && loadError?.key !== loadKey && <p role="status" className="text-layout-loading">Preparing text layout…</p>}
-    {loadError?.key === loadKey && <div className="text-layout-loading"><p role="alert" className="text-layout-error">{loadError.message}</p><button type="button" onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
+    <header><div><h2 id="text-layout-title">{t("m.text.layout.2392cb")}</h2><p>{t("m.reflow.original.pdf.text.and.preview.the.exporte.0ffea2")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.text.layout.45632f")} onClick={close}>×</button></header>
+    {!current && loadError?.key !== loadKey && <p role="status" className="text-layout-loading">{t("m.preparing.text.layout.dfd862")}</p>}
+    {loadError?.key === loadKey && <div className="text-layout-loading"><p role="alert" className="text-layout-error">{translateError(loadError.message)}</p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && draft && input && <div className="text-layout-body">
-      <section className="text-layout-settings" aria-label="Text layout settings">
+      <section className="text-layout-settings" aria-label={t("m.text.layout.settings.b8b81d")}>
         <fieldset disabled={saving} key={resetSequence}>
-          <label>Text<textarea ref={textarea} rows={6} maxLength={TEXT_LAYOUT_LIMITS.characters} value={draft.newText} onChange={event => { const newText = event.target.value; setDraft(previous => previous ? { ...previous, newText, timestamp: Date.now() } : previous); setSaveError(null); }} /></label>
-          <p className="text-layout-help">Leave the text empty to delete the original block.</p>
-          <h3>Target text area</h3><div className="text-layout-numbers">
-            <DecorationNumberInput label="X" value={input.rect.x} min={0} max={page ? Math.max(0, page.width - input.rect.width) : TEXT_LAYOUT_LIMITS.dimension} onDraftChange={dirty => numberDraft('x', dirty)} onChange={x => changeRect({ ...input.rect, x })} />
-            <DecorationNumberInput label="Y" value={input.rect.y} min={0} max={page ? Math.max(0, page.height - input.rect.height) : TEXT_LAYOUT_LIMITS.dimension} onDraftChange={dirty => numberDraft('y', dirty)} onChange={y => changeRect({ ...input.rect, y })} />
-            <DecorationNumberInput label="Width" value={input.rect.width} min={1} max={Math.min(TEXT_LAYOUT_LIMITS.dimension, page ? page.width - input.rect.x : TEXT_LAYOUT_LIMITS.dimension)} onDraftChange={dirty => numberDraft('width', dirty)} onChange={width => changeRect({ ...input.rect, width })} />
-            <DecorationNumberInput label="Height" value={input.rect.height} min={1} max={Math.min(TEXT_LAYOUT_LIMITS.dimension, page ? page.height - input.rect.y : TEXT_LAYOUT_LIMITS.dimension)} onDraftChange={dirty => numberDraft('height', dirty)} onChange={height => changeRect({ ...input.rect, height })} />
+          <label>{t("m.text.c3328c")}<textarea ref={textarea} rows={6} maxLength={TEXT_LAYOUT_LIMITS.characters} value={draft.newText} onChange={event => { const newText = event.target.value; setDraft(previous => previous ? { ...previous, newText, timestamp: Date.now() } : previous); setSaveError(null); }} /></label>
+          <p className="text-layout-help">{t("m.leave.the.text.empty.to.delete.the.original.bloc.aa3df2")}</p>
+          <h3>{t("m.target.text.area.85c23d")}</h3><div className="text-layout-numbers">
+            <DecorationNumberInput label={t("m.x.c032ad")} value={input.rect.x} min={0} max={page ? Math.max(0, page.width - input.rect.width) : TEXT_LAYOUT_LIMITS.dimension} onDraftChange={dirty => numberDraft('x', dirty)} onChange={x => changeRect({ ...input.rect, x })} />
+            <DecorationNumberInput label={t("m.y.23eb4d")} value={input.rect.y} min={0} max={page ? Math.max(0, page.height - input.rect.height) : TEXT_LAYOUT_LIMITS.dimension} onDraftChange={dirty => numberDraft('y', dirty)} onChange={y => changeRect({ ...input.rect, y })} />
+            <DecorationNumberInput label={t("m.width.a58ddf")} value={input.rect.width} min={1} max={Math.min(TEXT_LAYOUT_LIMITS.dimension, page ? page.width - input.rect.x : TEXT_LAYOUT_LIMITS.dimension)} onDraftChange={dirty => numberDraft('width', dirty)} onChange={width => changeRect({ ...input.rect, width })} />
+            <DecorationNumberInput label={t("m.height.3f608b")} value={input.rect.height} min={1} max={Math.min(TEXT_LAYOUT_LIMITS.dimension, page ? page.height - input.rect.y : TEXT_LAYOUT_LIMITS.dimension)} onDraftChange={dirty => numberDraft('height', dirty)} onChange={height => changeRect({ ...input.rect, height })} />
           </div>
-          <p className="text-layout-help">Positions use unrotated page points. Drag the blue area or its corner handle to move or resize it.</p>
-          <label>Font<select value={draft.layout?.fontName ?? 'original'} onChange={event => change({ fontName: event.target.value === 'original' ? undefined : event.target.value })}><option value="original">Original PDF font</option>{TEXT_LAYOUT_FONTS.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
-          <div className="text-layout-numbers"><DecorationNumberInput label="Font size" value={input.fontSize} min={1} max={TEXT_LAYOUT_LIMITS.fontSize} onDraftChange={dirty => numberDraft('fontSize', dirty)} onChange={fontSize => change({ fontSize })} />
-            <DecorationNumberInput label="Line spacing" value={input.lineHeight} min={1} max={TEXT_LAYOUT_LIMITS.lineHeight} onDraftChange={dirty => numberDraft('lineHeight', dirty)} onChange={lineHeight => change({ lineHeight })} /></div>
-          {dirtyNumbers.size > 0 && <p role="status" className="text-layout-help">Press Enter or leave the numeric field to update the preview.</p>}
-          <label>Text color<input type="color" value={input.fontColor} onChange={event => change({ fontColor: event.target.value })} /></label>
-          <label>Alignment<select value={input.alignment} onChange={event => change({ alignment: event.target.value as TextLayoutInput['alignment'] })}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option></select></label>
-          <div className="text-layout-fit-actions"><button type="button" disabled={!canFitHeight || saving} onClick={() => changeRect({ ...input.rect, height: fitHeight })}>Fit height</button>
-            <button type="button" disabled={!canShrink || saving} onClick={() => { if (layout?.suggestedFontSize) change({ fontSize: layout.suggestedFontSize }); }}>Shrink font to fit</button></div>
+          <p className="text-layout-help">{t("m.positions.use.unrotated.page.points.drag.the.blu.f1dd43")}</p>
+          <label>{t("m.font.b97c4d")}<select value={draft.layout?.fontName ?? 'original'} onChange={event => change({ fontName: event.target.value === 'original' ? undefined : event.target.value })}><option value="original">{t("m.original.pdf.font.0d4133")}</option>{TEXT_LAYOUT_FONTS.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
+          <div className="text-layout-numbers"><DecorationNumberInput label={t("m.font.size.83ca9e")} value={input.fontSize} min={1} max={TEXT_LAYOUT_LIMITS.fontSize} onDraftChange={dirty => numberDraft('fontSize', dirty)} onChange={fontSize => change({ fontSize })} />
+            <DecorationNumberInput label={t("m.line.spacing.18f550")} value={input.lineHeight} min={1} max={TEXT_LAYOUT_LIMITS.lineHeight} onDraftChange={dirty => numberDraft('lineHeight', dirty)} onChange={lineHeight => change({ lineHeight })} /></div>
+          {dirtyNumbers.size > 0 && <p role="status" className="text-layout-help">{t("m.press.enter.or.leave.the.numeric.field.to.update.bffe6e")}</p>}
+          <label>{t("m.text.color.1c7a30")}<input type="color" value={input.fontColor} onChange={event => change({ fontColor: event.target.value })} /></label>
+          <label>{t("m.alignment.7f8c51")}<select value={input.alignment} onChange={event => change({ alignment: event.target.value as TextLayoutInput['alignment'] })}><option value="left">{t("m.left.8ae1c3")}</option><option value="center">{t("m.center.a23911")}</option><option value="right">{t("m.right.954daa")}</option><option value="justify">{t("m.justify.536d27")}</option></select></label>
+          <div className="text-layout-fit-actions"><button type="button" disabled={!canFitHeight || saving} onClick={() => changeRect({ ...input.rect, height: fitHeight })}>{t("m.fit.height.e33d68")}</button>
+            <button type="button" disabled={!canShrink || saving} onClick={() => { if (layout?.suggestedFontSize) change({ fontSize: layout.suggestedFontSize }); }}>{t("m.shrink.font.to.fit.f613cf")}</button></div>
         </fieldset>
-        <p className="text-layout-help">Standard replacement fonts are used. The preview shows the actual font and any supported character fallback.</p>
-        {!!layout?.warnings.length && <ul className="text-layout-help">{layout.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>}
+        <p className="text-layout-help">{t("m.standard.replacement.fonts.are.used.the.preview..05f58c")}</p>
+        {!!layout?.warnings.length && <ul className="text-layout-help">{layout.warnings.map((warning, index) => <li key={index}>{translateMessage(warning)}</li>)}</ul>}
       </section>
-      <section className="text-layout-preview-column" aria-label="Text layout preview">
-        <div className="text-layout-preview-toolbar"><label>Preview zoom<select value={zoom} disabled={dragging} onChange={event => setZoom(event.target.value)}><option value="fit">Fit width</option><option value="1">100%</option><option value="2">200%</option></select></label>
-          <p role="status">{dirtyNumbers.size ? 'Finish numeric input to update the preview.' : ready ? 'Preview ready' : dragging ? 'Adjusting target area…' : measured?.error ? 'Preview unavailable' : layout && !layout.fits ? 'Text does not fit' : 'Updating preview…'}</p>
-          <div className="text-layout-legend"><span>Original removal area</span><span>Target text area</span></div></div>
+      <section className="text-layout-preview-column" aria-label={t("m.text.layout.preview.e6eadf")}>
+        <div className="text-layout-preview-toolbar"><label>{t("m.preview.zoom.e32787")}<select value={zoom} disabled={dragging} onChange={event => setZoom(event.target.value)}><option value="fit">{t("m.fit.width.0071b9")}</option><option value="1">100%</option><option value="2">200%</option></select></label>
+          <p role="status">{dirtyNumbers.size ? t("m.finish.numeric.input.to.update.the.preview.4415fd") : ready ? t("m.preview.ready.8a0295") : dragging ? t("m.adjusting.target.area.3340cf") : measured?.error ? t("m.preview.unavailable.36d31d") : layout && !layout.fits ? t("m.text.does.not.fit.cc08d5") : t("m.updating.preview.3b1b2b")}</p>
+          <div className="text-layout-legend"><span>{t("m.original.removal.area.d9b664")}</span><span>{t("m.target.text.area.85c23d")}</span></div></div>
         {shownData && <TextLayoutPreview data={shownData} pageNumber={current.source.block.pageNumber} sourceRect={current.source.block.rect} targetRect={input.rect} scale={zoom === 'fit' ? undefined : Number(zoom)} disabled={saving || !!dirtyNumbers.size} onChange={changeRect} onInteractionChange={setDragging} onReady={() => setRenderedKey(displayKey)} onError={message => setRenderError({ key: displayKey, message })} />}
-        {layout && !layout.fits && <p className="text-layout-help">The last valid preview is shown. Adjust the area or font before saving.</p>}
+        {layout && !layout.fits && <p className="text-layout-help">{t("m.the.last.valid.preview.is.shown.adjust.the.area..74c3f4")}</p>}
       </section>
     </div>}
-    <footer><p className="text-layout-help">The original removal area stays unchanged. Moving or resizing the target only changes where replacement text is placed.</p>
-      {(layout?.overflow || measured?.error || saveError || (renderError?.key === displayKey && renderError.message)) && <p role="alert" className="text-layout-error">{saveError || measured?.error || layout?.overflow || renderError?.message}</p>}
-      {layout?.fits && <p className="text-layout-fit-status">Text fits · {layout.lines.length} {layout.lines.length === 1 ? 'line' : 'lines'} · {layout.requiredHeight.toFixed(1)} points high</p>}
-      <div><button type="button" disabled={!current || saving} onClick={() => { if (current) { setDraft({ blockId, originalText: current.initial.originalText, newText: current.initial.originalText, timestamp: Date.now() }); setResetSequence(value => value + 1); setDirtyNumbers(new Set()); setSaveError(null); } }}>Reset to original</button>
-        <button type="button" onClick={close}>Cancel</button><button type="button" className="text-layout-primary" disabled={!canSave} onClick={() => void save()}>{saving ? 'Saving…' : 'Save draft'}</button></div>
+    <footer><p className="text-layout-help">{t("m.the.original.removal.area.stays.unchanged.moving.fc42d5")}</p>
+      {(layout?.overflow || measured?.error || saveError || (renderError?.key === displayKey && renderError.message)) && <p role="alert" className="text-layout-error">{translateError(saveError || measured?.error || layout?.overflow || renderError?.message)}</p>}
+      {layout?.fits && <p className="text-layout-fit-status">{t("m.text.fits.f97d99")}{' '}{layout.lines.length} {layout.lines.length === 1 ? t("m.line.264f39") : t("m.lines.8525aa")} · {layout.requiredHeight.toFixed(1)}{' '}{t("m.points.high.e92e6d")}</p>}
+      <div><button type="button" disabled={!current || saving} onClick={() => { if (current) { setDraft({ blockId, originalText: current.initial.originalText, newText: current.initial.originalText, timestamp: Date.now() }); setResetSequence(value => value + 1); setDirtyNumbers(new Set()); setSaveError(null); } }}>{t("m.reset.to.original.352488")}</button>
+        <button type="button" onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="text-layout-primary" disabled={!canSave} onClick={() => void save()}>{saving ? t("m.saving.56a228") : t("m.save.draft.4f2563")}</button></div>
     </footer>
   </dialog>;
 }

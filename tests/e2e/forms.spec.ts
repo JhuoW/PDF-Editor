@@ -131,7 +131,7 @@ test('keeps a Chinese single-select list empty until chosen and exports its nati
   const text = display.toStructuredText('');
   try { expect(text.asText().replace(/\s/g, '')).toBe('北京上海'); }
   finally { text.destroy(); display.destroy(); widget.destroy(); renderedPage.destroy(); rendered.destroy(); }
-  await page.getByRole('button', { name: /^Form/ }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Reset Form Values' }).click();
   expect(await selection.evaluate((element: HTMLSelectElement) => element.selectedIndex)).toBe(-1);
   expect((await PDFDocument.load(await exportPDF(page))).getForm().getOptionList('City').getSelected()).toEqual([]);

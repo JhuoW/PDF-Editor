@@ -1,3 +1,4 @@
+import { useLocale } from "../../i18n";
 import { useEffect, useCallback, forwardRef, useImperativeHandle, useRef } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -57,6 +58,7 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
     },
     ref
   ) {
+  useLocale();
     const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const currentOnBlur = useRef(onBlur);
     useEffect(() => { currentOnBlur.current = onBlur; }, [onBlur]);

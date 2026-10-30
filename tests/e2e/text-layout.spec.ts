@@ -13,8 +13,8 @@ async function open(page: Page) {
 }
 async function layout(page: Page, text: string) {
   if (!await page.locator('.text-edit-layer').count()) {
-    await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-    await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+    await page.getByRole('button', { name: 'All tools' }).click();
+    await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   }
   await page.locator('.text-block').filter({ hasText: text }).dblclick();
   await page.getByRole('button', { name: 'Text layout…', exact: true }).click();

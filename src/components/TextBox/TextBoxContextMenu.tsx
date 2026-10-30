@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useState, useEffect, useRef } from 'react';
 import type { FreeTextAnnotation, TextStyle } from '../../annotations/types';
 import { DEFAULT_TEXT_STYLE } from '../../annotations/types';
@@ -22,6 +23,7 @@ export function TextBoxContextMenu({
   onShowTextProperties,
   onShowBoxProperties,
 }: TextBoxContextMenuProps) {
+  useLocale();
   const menuRef = useRef<HTMLDivElement>(null);
   const [showRotateSubmenu, setShowRotateSubmenu] = useState(false);
   const [showAlignSubmenu, setShowAlignSubmenu] = useState(false);
@@ -203,42 +205,42 @@ export function TextBoxContextMenu({
       }}
     >
       <button className="menu-item" onClick={handleCut}>
-        <span className="menu-label">Cut</span>
-        <span className="menu-shortcut">Ctrl+X</span>
+        <span className="menu-label">{t("m.cut.38d13b")}</span>
+        <span className="menu-shortcut">{t("m.ctrl.x.60f3d9")}</span>
       </button>
       <button className="menu-item" onClick={handleCopy}>
-        <span className="menu-label">Copy</span>
-        <span className="menu-shortcut">Ctrl+C</span>
+        <span className="menu-label">{t("m.copy.af74f7")}</span>
+        <span className="menu-shortcut">{t("m.ctrl.c.a208bf")}</span>
       </button>
       <button className="menu-item" onClick={handlePaste}>
-        <span className="menu-label">Paste</span>
-        <span className="menu-shortcut">Ctrl+V</span>
+        <span className="menu-label">{t("m.paste.db2483")}</span>
+        <span className="menu-shortcut">{t("m.ctrl.v.652c7d")}</span>
       </button>
       <button className="menu-item" onClick={handleDuplicate}>
-        <span className="menu-label">Duplicate</span>
-        <span className="menu-shortcut">Ctrl+D</span>
+        <span className="menu-label">{t("m.duplicate.972d57")}</span>
+        <span className="menu-shortcut">{t("m.ctrl.d.2b5caf")}</span>
       </button>
 
       <div className="menu-separator" />
 
       <button className="menu-item" onClick={handleDelete}>
-        <span className="menu-label">Delete</span>
-        <span className="menu-shortcut">Del</span>
+        <span className="menu-label">{t("m.delete.f6fdbe")}</span>
+        <span className="menu-shortcut">{t("m.del.717e1e")}</span>
       </button>
 
       <div className="menu-separator" />
 
       <button className="menu-item" onClick={onEditText}>
-        <span className="menu-label">Edit Text</span>
+        <span className="menu-label">{t("m.edit.text.f5f4f6")}</span>
       </button>
       {onShowTextProperties && (
         <button className="menu-item" onClick={() => { onShowTextProperties(); onClose(); }}>
-          <span className="menu-label">Text Properties...</span>
+          <span className="menu-label">{t("m.text.properties.8db157")}</span>
         </button>
       )}
       {onShowBoxProperties && (
         <button className="menu-item" onClick={() => { onShowBoxProperties(); onClose(); }}>
-          <span className="menu-label">Box Properties...</span>
+          <span className="menu-label">{t("m.box.properties.a9db43")}</span>
         </button>
       )}
 
@@ -254,25 +256,25 @@ export function TextBoxContextMenu({
         }}
         onMouseLeave={() => setShowLayerSubmenu(false)}
       >
-        <span className="menu-label">Arrange</span>
+        <span className="menu-label">{t("m.arrange.cfdd09")}</span>
         <span className="submenu-arrow">&#9654;</span>
         {showLayerSubmenu && (
           <div className="submenu">
             <button className="menu-item" onClick={handleBringToFront}>
-              <span className="menu-label">Bring to Front</span>
-              <span className="menu-shortcut">Ctrl+Shift+]</span>
+              <span className="menu-label">{t("m.bring.to.front.8a0950")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.shift.cd6f19")}</span>
             </button>
             <button className="menu-item" onClick={handleSendToBack}>
-              <span className="menu-label">Send to Back</span>
-              <span className="menu-shortcut">Ctrl+Shift+[</span>
+              <span className="menu-label">{t("m.send.to.back.887995")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.shift.f7f901")}</span>
             </button>
             <button className="menu-item" onClick={handleBringForward}>
-              <span className="menu-label">Bring Forward</span>
-              <span className="menu-shortcut">Ctrl+]</span>
+              <span className="menu-label">{t("m.bring.forward.3a5a62")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.52b04d")}</span>
             </button>
             <button className="menu-item" onClick={handleSendBackward}>
-              <span className="menu-label">Send Backward</span>
-              <span className="menu-shortcut">Ctrl+[</span>
+              <span className="menu-label">{t("m.send.backward.70dd87")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.65b758")}</span>
             </button>
           </div>
         )}
@@ -288,25 +290,25 @@ export function TextBoxContextMenu({
         }}
         onMouseLeave={() => setShowAlignSubmenu(false)}
       >
-        <span className="menu-label">Align Text</span>
+        <span className="menu-label">{t("m.align.text.58dd4d")}</span>
         <span className="submenu-arrow">&#9654;</span>
         {showAlignSubmenu && (
           <div className="submenu">
             <button className="menu-item" onClick={() => handleAlignText('left')}>
-              <span className="menu-label">Align Left</span>
-              <span className="menu-shortcut">Ctrl+L</span>
+              <span className="menu-label">{t("m.align.left.9fb06a")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.l.77d617")}</span>
             </button>
             <button className="menu-item" onClick={() => handleAlignText('center')}>
-              <span className="menu-label">Align Center</span>
-              <span className="menu-shortcut">Ctrl+E</span>
+              <span className="menu-label">{t("m.align.center.472e0d")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.e.37b83f")}</span>
             </button>
             <button className="menu-item" onClick={() => handleAlignText('right')}>
-              <span className="menu-label">Align Right</span>
-              <span className="menu-shortcut">Ctrl+R</span>
+              <span className="menu-label">{t("m.align.right.2e324b")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.r.8e2f2f")}</span>
             </button>
             <button className="menu-item" onClick={() => handleAlignText('justify')}>
-              <span className="menu-label">Justify</span>
-              <span className="menu-shortcut">Ctrl+J</span>
+              <span className="menu-label">{t("m.justify.536d27")}</span>
+              <span className="menu-shortcut">{t("m.ctrl.j.f55ab1")}</span>
             </button>
           </div>
         )}
@@ -322,22 +324,18 @@ export function TextBoxContextMenu({
         }}
         onMouseLeave={() => setShowRotateSubmenu(false)}
       >
-        <span className="menu-label">Rotate</span>
+        <span className="menu-label">{t("m.rotate.87b85d")}</span>
         <span className="submenu-arrow">&#9654;</span>
         {showRotateSubmenu && (
           <div className="submenu">
             <button className="menu-item" onClick={() => handleRotate(90)}>
-              Rotate 90° CW
-            </button>
+              {t("m.rotate.90.cw.fb9767")}</button>
             <button className="menu-item" onClick={() => handleRotate(-90)}>
-              Rotate 90° CCW
-            </button>
+              {t("m.rotate.90.ccw.369519")}</button>
             <button className="menu-item" onClick={() => handleRotate(180)}>
-              Rotate 180°
-            </button>
+              {t("m.rotate.180.8c8d54")}</button>
             <button className="menu-item" onClick={() => handleRotate(-(annotation.rotation || 0))}>
-              Reset Rotation
-            </button>
+              {t("m.reset.rotation.76139f")}</button>
           </div>
         )}
       </div>
@@ -345,7 +343,7 @@ export function TextBoxContextMenu({
       <div className="menu-separator" />
 
       <button className="menu-item" onClick={handleLockPosition}>
-        <span className="menu-label">{annotation.isLocked ? 'Unlock' : 'Lock'} Position</span>
+        <span className="menu-label">{annotation.isLocked ? t("m.unlock.1526a1") : t("m.lock.891ebc")}{' '}{t("m.position.cf1c85")}</span>
       </button>
     </div>
   );

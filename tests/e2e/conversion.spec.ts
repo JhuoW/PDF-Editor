@@ -92,8 +92,8 @@ test('exports current text and Unicode form edits to UTF-8 and rejects invalid r
   await page.goto('/');
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({ name: 'text-source.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) });
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('客户 中文');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'OLD PAGE CONTENT' }).dblclick();
   await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill('NEW TEXT');
   await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).press('Control+Enter');

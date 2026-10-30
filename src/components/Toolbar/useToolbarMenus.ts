@@ -1,10 +1,11 @@
-import { useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
 
 /** Disclosure menus retain native button semantics and own their navigation keys. */
 export function useToolbarMenus(host: RefObject<HTMLDivElement | null>, open: string | null, close: () => void) {
   const pendingFocus = useRef<{ name: string; last: boolean } | null>(null), previous = useRef<string | null>(null);
+  const origin = useRef<HTMLButtonElement | null>(null);
   const menuFor = (name: string) => host.current?.querySelector<HTMLElement>(`[data-toolbar-menu="${name}"]`);
-  const triggerFor = (name: string) => host.current?.querySelector<HTMLButtonElement>(`[data-toolbar-menu-trigger="${name}"]`);
+  const triggerFor = (name: string) => origin.current?.isConnected && origin.current.dataset.toolbarMenuTrigger === name ? origin.current : host.current?.querySelector<HTMLButtonElement>(`[data-toolbar-menu-trigger="${name}"]`);
   useLayoutEffect(() => {
     const old = previous.current; previous.current = open;
     if (!open) {
@@ -15,7 +16,7 @@ export function useToolbarMenus(host: RefObject<HTMLDivElement | null>, open: st
       return;
     }
     const menu = host.current?.querySelector<HTMLElement>(`[data-toolbar-menu="${open}"]`);
-    const trigger = host.current?.querySelector<HTMLButtonElement>(`[data-toolbar-menu-trigger="${open}"]`);
+    const trigger = origin.current?.isConnected && origin.current.dataset.toolbarMenuTrigger === open ? origin.current : host.current?.querySelector<HTMLButtonElement>(`[data-toolbar-menu-trigger="${open}"]`);
     if (!menu || !trigger) return;
     const position = () => {
       const bounds = trigger.getBoundingClientRect(), top = Math.max(8, Math.min(bounds.bottom + 4, window.innerHeight - 80));
@@ -61,5 +62,11 @@ export function useToolbarMenus(host: RefObject<HTMLDivElement | null>, open: st
     if (!open || !(event.relatedTarget instanceof Node)) return;
     if (!menuFor(open)?.contains(event.relatedTarget) && !triggerFor(open)?.contains(event.relatedTarget)) close();
   };
-  return { onKeyDown, onBlurCapture };
+  const onClickCapture = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target instanceof Element) {
+      const trigger = event.target.closest<HTMLButtonElement>('[data-toolbar-menu-trigger]');
+      if (trigger) origin.current = trigger;
+    }
+  };
+  return { onKeyDown, onBlurCapture, onClickCapture };
 }

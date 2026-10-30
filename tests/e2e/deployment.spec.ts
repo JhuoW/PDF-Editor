@@ -20,7 +20,7 @@ test('edits and follows native PDF links through local production workers while 
   const pageNumber = page.getByRole('spinbutton', { name: 'Page number', exact: true });
   await pageNumber.fill('2'); await pageNumber.press('Enter'); await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('链接保留中文');
   await pageNumber.fill('1'); await pageNumber.press('Enter');
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click(); await page.getByRole('button', { name: 'Links…', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click(); await page.getByRole('button', { name: 'Links…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Links', exact: true });
   await expect(panel.getByText('Preview ready', { exact: true })).toBeVisible({ timeout: 30_000 });
   const options = panel.getByRole('combobox', { name: 'Links', exact: true });
@@ -53,7 +53,7 @@ test('previews and saves longer original text with local layout workers under th
   await page.goto(baseURL!);
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({ name: 'production-layout.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await createTextLayoutPDF()) });
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('布局后保留中文');
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: LAYOUT_ORIGINAL }).dblclick();
   await page.getByRole('button', { name: 'Text layout…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Text layout', exact: true });
@@ -93,7 +93,7 @@ test('compresses native images in the production worker while retaining Chinese 
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('压缩后保留中文');
   const baselineReady = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export', exact: true }).click();
   const baseline = await readFile((await (await baselineReady).path())!);
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Compress PDF…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Compress PDF', exact: true });
   await expect(panel.getByRole('button', { name: 'Compress PDF', exact: true })).toBeEnabled({ timeout: 30_000 });
@@ -130,8 +130,8 @@ test('loads the PDF worker and content editing engine under the deployment base'
   });
   await expect(page.locator('.textLayer')).toContainText('Original content for deployment verification');
   expect(requests.some(url => /mupdf.*\.wasm/.test(url))).toBe(false);
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click();
-  await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
+  await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').dblclick();
   await page.getByRole('textbox', { name: 'Edit text on page 1' }).fill('Local content edit');
   await page.getByRole('textbox', { name: 'Edit text on page 1' }).press('Control+Enter');
@@ -141,7 +141,7 @@ test('loads the PDF worker and content editing engine under the deployment base'
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   const download = await downloadReady;
   expect(await download.failure()).toBeNull();
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Document Properties & Attachments…', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Document title', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save properties', exact: true })).toBeVisible();
@@ -203,7 +203,7 @@ test('recognizes a real Chinese and English scan using only local production ass
   });
   await expect(page.locator('.page-wrapper').first()).toBeVisible();
   expect(requests.some(url => url.includes('/ocr/'))).toBe(false);
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Scan OCR…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Scan OCR', exact: true });
   await dialog.getByLabel('Recognition language').selectOption('chi_sim+eng');
@@ -252,7 +252,7 @@ test('cancels OCR while the local engine is still loading without changing histo
     await page.locator('.main-toolbar input[type="file"]').setInputFiles({
       name: 'cancel-scan.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await createScannedPDF()),
     });
-    await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+    await page.getByRole('button', { name: 'All tools', exact: true }).click();
     await page.getByRole('button', { name: 'Scan OCR…', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Scan OCR', exact: true });
     const loadingEngine = page.waitForRequest('**/ocr/core/**');
@@ -320,7 +320,7 @@ test('creates a fillable Chinese dropdown using the deployed form designer', asy
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({
     name: 'design.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await source.save()),
   });
-  await page.getByRole('button', { name: /^Form.*▾$/ }).click();
+  await page.getByRole('button', { name: 'All tools' }).click();
   await page.getByRole('button', { name: 'Design Form…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Design Form', exact: true });
   await dialog.getByRole('button', { name: 'Dropdown', exact: true }).click();
@@ -363,7 +363,7 @@ test('previews and exports Chinese watermarks using local decoration assets unde
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({
     name: 'watermarks.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await source.save()),
   });
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Watermarks, Headers & Backgrounds…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Watermarks, Headers & Backgrounds', exact: true });
   await dialog.getByRole('button', { name: 'Add watermark', exact: true }).click();
@@ -395,7 +395,7 @@ test('cleans native data and downloads an independent visible copy through local
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({ name: 'cleanup-production.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await createCleanupPDF()) });
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('中文可见值');
   const open = async () => {
-    await page.getByRole('button', { name: 'Document ▾', exact: true }).click();
+    await page.getByRole('button', { name: 'All tools', exact: true }).click();
     await page.getByRole('button', { name: 'Clean Document…', exact: true }).click();
     return page.getByRole('dialog', { name: 'Clean Document', exact: true });
   };

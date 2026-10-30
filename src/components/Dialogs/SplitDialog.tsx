@@ -1,3 +1,6 @@
+import { useLocaleStore } from '../../i18n';
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateError } from "../../i18n";
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { splitPDF, downloadPDF, type SplitOptions, type PageRange } from '../../core/PDFManipulator';
 import './SplitDialog.css';
@@ -11,6 +14,7 @@ interface SplitDialogProps {
 type SplitMode = 'ranges' | 'every-n-pages' | 'extract-pages';
 
 export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProps) {
+  useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -116,13 +120,13 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
       onClick={event => { if (event.target === event.currentTarget && !isSplitting) onClose(); }}>
       <div className="split-dialog" onClick={e => e.stopPropagation()}>
         <div className="split-dialog-header">
-          <h3 id="split-dialog-title">Split PDF</h3>
-          <button className="split-dialog-close" aria-label="Close split dialog" disabled={isSplitting} onClick={onClose}>&times;</button>
-        </div>
+          <h3 id="split-dialog-title">{t("m.split.pdf.9c654c")}</h3>
+          <div className="dialog-language"><LanguageSwitcher /></div>
+        <button className="split-dialog-close" aria-label={t("m.close.split.dialog.9db236")} disabled={isSplitting} onClick={onClose}>&times;</button></div>
 
         <div className="split-dialog-content">
           <p className="split-dialog-info">
-            Document has {totalPages} page{totalPages !== 1 ? 's' : ''}
+            {t("m.document.has.6a4441")}{' '}{totalPages}{' '}{t("m.page.767013")}{useLocaleStore.getState().locale === 'en' && totalPages !== 1 ? 's' : ''}
           </p>
 
           <div className="split-mode-selector">
@@ -133,7 +137,7 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
                 checked={mode === 'ranges'}
                 onChange={() => setMode('ranges')}
               />
-              <span>Split by ranges</span>
+              <span>{t("m.split.by.ranges.4fed82")}</span>
             </label>
             <label className="split-mode-option">
               <input
@@ -142,7 +146,7 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
                 checked={mode === 'every-n-pages'}
                 onChange={() => setMode('every-n-pages')}
               />
-              <span>Split every N pages</span>
+              <span>{t("m.split.every.n.pages.1ead3f")}</span>
             </label>
             <label className="split-mode-option">
               <input
@@ -151,7 +155,7 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
                 checked={mode === 'extract-pages'}
                 onChange={() => setMode('extract-pages')}
               />
-              <span>Extract specific pages</span>
+              <span>{t("m.extract.specific.pages.41c987")}</span>
             </label>
           </div>
 
@@ -159,7 +163,7 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
             <div className="split-ranges">
               {ranges.map((range, index) => (
                 <div key={index} className="split-range-row">
-                  <span className="split-range-label">Range {index + 1}:</span>
+                  <span className="split-range-label">{t("m.range.a16c5b")}{' '}{index + 1}:</span>
                   <input
                     type="number"
                     min={1}
@@ -167,7 +171,7 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
                     value={range.start}
                     onChange={e => updateRange(index, 'start', parseInt(e.target.value) || 1)}
                   />
-                  <span>to</span>
+                  <span>{t("m.to.4374aa")}</span>
                   <input
                     type="number"
                     min={1}
@@ -186,26 +190,24 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
                 </div>
               ))}
               <button className="split-add-range" onClick={addRange}>
-                + Add Range
-              </button>
+                {t("m.add.range.c0f8e6")}</button>
             </div>
           )}
 
           {mode === 'every-n-pages' && (
             <div className="split-every-n">
               <label>
-                Split every
-                <input
+                {t("m.split.every.384b4f")}<input
                   type="number"
                   min={1}
                   max={totalPages}
                   value={everyN}
                   onChange={e => setEveryN(parseInt(e.target.value) || 1)}
                 />
-                page{everyN !== 1 ? 's' : ''}
+                {t("m.page.767013")}{useLocaleStore.getState().locale === 'en' && everyN !== 1 ? 's' : ''}
               </label>
               <p className="split-preview">
-                This will create {Math.ceil(totalPages / everyN)} file{Math.ceil(totalPages / everyN) !== 1 ? 's' : ''}
+                {t("m.this.will.create.f6657c")}{' '}{Math.ceil(totalPages / everyN)}{' '}{t("m.file.971c41")}{useLocaleStore.getState().locale === 'en' && Math.ceil(totalPages / everyN) !== 1 ? 's' : ''}
               </p>
             </div>
           )}
@@ -213,46 +215,42 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
           {mode === 'extract-pages' && (
             <div className="split-extract">
               <label>
-                Pages to extract:
-                <input
+                {t("m.pages.to.extract.c5ab0d")}<input
                   type="text"
                   value={extractPages}
                   onChange={e => setExtractPages(e.target.value)}
-                  placeholder="e.g., 1, 3, 5-10, 15"
+                  placeholder={t("m.e.g.1.3.5.10.15.2f6458")}
                 />
               </label>
               <p className="split-hint">
-                Use commas to separate pages, hyphens for ranges
-              </p>
+                {t("m.use.commas.to.separate.pages.hyphens.for.ranges.3fd54b")}</p>
             </div>
           )}
 
           <div className="split-output-name">
             <label>
-              Output prefix:
-              <input
+              {t("m.output.prefix.8225dc")}<input
                 type="text"
                 value={outputPrefix}
                 onChange={e => setOutputPrefix(e.target.value)}
-                placeholder="split"
+                placeholder={t("m.split.94d5ca")}
               />
             </label>
           </div>
 
-          <p className="split-hint">Internal links to pages outside each output file are omitted.</p>
-          {error && <div className="split-error">{error}</div>}
+          <p className="split-hint">{t("m.internal.links.to.pages.outside.each.output.file.128932")}</p>
+          {error && <div className="split-error">{translateError(error)}</div>}
         </div>
 
         <div className="split-dialog-actions">
           <button className="split-cancel" disabled={isSplitting} onClick={onClose}>
-            Cancel
-          </button>
+            {t("m.cancel.77dfd2")}</button>
           <button
             className="split-submit"
             onClick={handleSplit}
             disabled={isSplitting}
           >
-            {isSplitting ? 'Splitting...' : 'Split & Download'}
+            {isSplitting ? t("m.splitting.505f34") : t("m.split.download.0e6eaa")}
           </button>
         </div>
       </div>

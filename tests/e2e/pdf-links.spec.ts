@@ -14,7 +14,7 @@ async function go(page: Page, number: number) {
   await expect(page.locator(`.page-wrapper[data-page="${number}"] canvas.page-canvas`)).toBeVisible();
 }
 async function links(page: Page) {
-  await page.getByRole('button', { name: 'Document ▾', exact: true }).click(); await page.getByRole('button', { name: 'Links…', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools', exact: true }).click(); await page.getByRole('button', { name: 'Links…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Links', exact: true }); await ready(panel); return panel;
 }
 async function ready(panel: Locator) {
@@ -53,7 +53,7 @@ test.beforeEach(async ({ page }) => { await page.addInitScript(() => { Reflect.d
 test('edits native links with current body/forms, follows the saved page target, and restores changes across undo and refresh', async ({ page }) => {
   test.setTimeout(120_000); await open(page);
   await go(page, 2); await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Links 中文 form'); await go(page, 1);
-  await page.getByRole('button', { name: /^Edit .*▾$/ }).click(); await page.getByRole('button', { name: '✎ Edit Text', exact: true }).click();
+  await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: 'Original link body' }).dblclick();
   await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill('Edited body'); await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).press('Control+Enter');
   await page.getByTitle('Select (V)', { exact: true }).click();

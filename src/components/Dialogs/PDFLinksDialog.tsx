@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
+import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { inspectPDFLinksInWorker } from '../../core/PDFLinksClient';
@@ -10,6 +12,7 @@ import './PDFLinksDialog.css';
 export type { PDFLinksDialogProps, PDFLinksSource } from './PDFLinksDialogTypes';
 interface Loaded { key: object; source: PDFLinksSource; report: PDFLinkInspection }
 export function PDFLinksDialog(props: PDFLinksDialogProps) {
+  useLocale();
   const [committingSequence, setCommittingSequence] = useState<number | null>(null);
   const [session, setSession] = useState({ key: props.documentKey, revision: props.revision, sequence: 0 });
   if (!Object.is(session.key, props.documentKey) || session.revision !== props.revision) {
@@ -21,6 +24,7 @@ export function PDFLinksDialog(props: PDFLinksDialogProps) {
   return <PDFLinksSession key={session.sequence} {...props} onCommitState={value => setCommittingSequence(previous => value ? session.sequence : previous === session.sequence ? null : previous)} />;
 }
 function PDFLinksSession({ currentPage, readPDF, onApply, onClose, onCommitState }: PDFLinksDialogProps & { onCommitState: (value: boolean) => void }) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null), pageInput = useRef<HTMLSelectElement>(null), active = useRef(false), committing = useRef(false);
   const reading = useRef<AbortController | null>(null), previewRequest = useRef<AbortController | null>(null), applying = useRef<AbortController | null>(null), saveLatest = useRef<() => Promise<void>>(async () => {});
   const [retry, setRetry] = useState(0), [loaded, setLoaded] = useState<Loaded | null>(null), [loadError, setLoadError] = useState<{ key: object; message: string } | null>(null);
@@ -96,34 +100,34 @@ function PDFLinksSession({ currentPage, readPDF, onApply, onClose, onCommitState
   return <dialog ref={dialog} className="pdf-links-dialog" aria-labelledby="pdf-links-title" onCancel={event => { event.preventDefault(); close(); }} onKeyDown={event => {
     event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const input = document.activeElement; if (input instanceof HTMLInputElement && input.type === 'number') flushSync(() => input.blur()); void saveLatest.current(); }
   }}>
-    <header><div><h2 id="pdf-links-title">Links</h2><p>Create and edit native PDF links. Apply all changes together after reviewing the page.</p></div><button type="button" aria-label="Close links" disabled={committed} onClick={close}>×</button></header>
-    {!current && !failure && <p className="pdf-links-loading" role="status">Inspecting PDF links…</p>}
-    {failure && <div className="pdf-links-loading"><p className="pdf-links-error" role="alert">{failure}</p><button type="button" onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
-    {current && <div className="pdf-links-body"><section className="pdf-links-preview-column" aria-label="PDF link preview">
+    <header><div><h2 id="pdf-links-title">{t("m.links.014bcd")}</h2><p>{t("m.create.and.edit.native.pdf.links.apply.all.chang.0185ca")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.links.b1bec1")} disabled={committed} onClick={close}>×</button></header>
+    {!current && !failure && <p className="pdf-links-loading" role="status">{t("m.inspecting.pdf.links.ffe301")}</p>}
+    {failure && <div className="pdf-links-loading"><p className="pdf-links-error" role="alert">{translateError(failure)}</p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
+    {current && <div className="pdf-links-body"><section className="pdf-links-preview-column" aria-label={t("m.pdf.link.preview.fef8ec")}>
       <div className="pdf-links-preview-toolbar">
-        <label>Preview page<select ref={pageInput} value={pageNumber} disabled={saving || dragging} onChange={event => { setPageNumber(Number(event.target.value)); setPlacing(false); }}>{current.report.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>Page {page.pageNumber}</option>)}</select></label>
-        <label>Preview zoom<select value={zoom} disabled={saving || dragging} onChange={event => setZoom(event.target.value)}><option value="fit">Fit width</option><option value="1">100%</option><option value="2">200%</option></select></label>
-        <button type="button" disabled={saving || !current.report.canEdit || !!dirtyNumbers.size || links.length >= PDF_LINK_LIMITS.links} aria-pressed={placing} onClick={() => { setPlacing(value => !value); setShowAreas(true); }}>Add link</button>
-        {placing && <button type="button" disabled={saving} onClick={() => { const page = current.report.pages.find(item => item.pageNumber === pageNumber)!; create(fitLinkRect({ x: (page.width - 120) / 2, y: (page.height - 28) / 2, width: 120, height: 28 }, page.width, page.height)); }}>Place at page center</button>}
-        <label className="pdf-links-check"><input type="checkbox" checked={showAreas} disabled={saving || placing || dragging} onChange={event => setShowAreas(event.target.checked)} />Show link areas</label>
-        <p className="pdf-links-help">{placing ? 'Click or drag on the page to draw a new clickable area.' : 'Select an area to edit. Drag to move, use the corner to resize, or use arrow keys. Links are not opened here.'}</p>
+        <label>{t("m.preview.page.d24958")}<select ref={pageInput} value={pageNumber} disabled={saving || dragging} onChange={event => { setPageNumber(Number(event.target.value)); setPlacing(false); }}>{current.report.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label>
+        <label>{t("m.preview.zoom.e32787")}<select value={zoom} disabled={saving || dragging} onChange={event => setZoom(event.target.value)}><option value="fit">{t("m.fit.width.0071b9")}</option><option value="1">100%</option><option value="2">200%</option></select></label>
+        <button type="button" disabled={saving || !current.report.canEdit || !!dirtyNumbers.size || links.length >= PDF_LINK_LIMITS.links} aria-pressed={placing} onClick={() => { setPlacing(value => !value); setShowAreas(true); }}>{t("m.add.link.538b47")}</button>
+        {placing && <button type="button" disabled={saving} onClick={() => { const page = current.report.pages.find(item => item.pageNumber === pageNumber)!; create(fitLinkRect({ x: (page.width - 120) / 2, y: (page.height - 28) / 2, width: 120, height: 28 }, page.width, page.height)); }}>{t("m.place.at.page.center.3208d3")}</button>}
+        <label className="pdf-links-check"><input type="checkbox" checked={showAreas} disabled={saving || placing || dragging} onChange={event => setShowAreas(event.target.checked)} />{t("m.show.link.areas.cf8961")}</label>
+        <p className="pdf-links-help">{placing ? t("m.click.or.drag.on.the.page.to.draw.a.new.clickabl.9494f1") : t("m.select.an.area.to.edit.drag.to.move.use.the.corn.5597a0")}</p>
       </div>
       {shownData && <PDFLinksPreview data={shownData} pageNumber={pageNumber} links={previewItems} selectedId={selectedId} placing={placing} showAreas={showAreas} scale={zoom === 'fit' ? undefined : Number(zoom)} disabled={saving || !!dirtyNumbers.size || !current.report.canEdit} onSelect={select} onCreate={create} onMove={(id, rect) => { const item = links.find(link => link.id === id); if (item?.definition) change(id, { ...item.definition, rect }); }} onDelete={remove} onInteractionChange={setDragging} onReady={() => setRenderedKey(displayKey)} onError={message => setRenderError({ key: displayKey, message })} />}
-    </section><aside className="pdf-links-settings" aria-label="Link settings">
-      {!current.report.canEdit && <p className="pdf-links-warning" role="status">{current.report.unsupportedReason || 'This document can be inspected but not modified.'}</p>}
-      <label>Links on page<select value={filter} disabled={saving} onChange={event => { setFilter(event.target.value); select(null); }}><option value="all">All pages</option>{current.report.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>Page {page.pageNumber}</option>)}</select></label>
-      <label>Links<select aria-label="Links" value={filtered.some(item => item.id === selectedId) ? selectedId! : ''} disabled={saving} onChange={event => select(event.target.value || null)}><option value="">Choose a link ({filtered.length})</option>{filtered.map((item, index) => <option key={item.id} value={item.id}>{index + 1}. Page {item.pageNumber} · {item.summary}{!item.editable ? ' (read only)' : ''}</option>)}</select></label>
+    </section><aside className="pdf-links-settings" aria-label={t("m.link.settings.14b504")}>
+      {!current.report.canEdit && <p className="pdf-links-warning" role="status">{translateError(current.report.unsupportedReason) || t("m.this.document.can.be.inspected.but.not.modified.ef237e")}</p>}
+      <label>{t("m.links.on.page.f1e3cf")}<select value={filter} disabled={saving} onChange={event => { setFilter(event.target.value); select(null); }}><option value="all">{t("m.all.pages.921a7e")}</option>{current.report.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label>
+      <label>{t("m.links.014bcd")}<select aria-label={t("m.links.014bcd")} value={filtered.some(item => item.id === selectedId) ? selectedId! : ''} disabled={saving} onChange={event => select(event.target.value || null)}><option value="">{t("m.choose.a.link.810b43")}{filtered.length})</option>{filtered.map((item, index) => <option key={item.id} value={item.id}>{index + 1}{t("m.page.6380df")}{' '}{item.pageNumber} · {translateMessage(item.summary)}{!item.editable ? t("m.read.only.3ababd") : ''}</option>)}</select></label>
       {selected ? <>
-        {!selected.editable && <p className="pdf-links-warning" role="status">{selected.unsupportedReason || 'This link uses a destination or appearance that cannot be edited safely.'}{selected.removable && ' You can explicitly delete this link.'}</p>}
-        {selected.namedDestination && <p className="pdf-links-help">Named destination: {selected.namedDestination}. Editing this link keeps the original named destination available to other links.</p>}
+        {!selected.editable && <p className="pdf-links-warning" role="status">{translateError(selected.unsupportedReason) || t("m.this.link.uses.a.destination.or.appearance.that..f1f8f5")}{selected.removable && t("m.you.can.explicitly.delete.this.link.3b32a3")}</p>}
+        {selected.namedDestination && <p className="pdf-links-help">{t("m.named.destination.aecf8b")}{' '}{selected.namedDestination}{t("m.editing.this.link.keeps.the.original.named.desti.d42e76")}</p>}
         {selected.editable && selected.definition && <PDFLinksSettings key={`${selected.id}-${selected.definition.pageNumber}-${selected.definition.target.type}-${selected.definition.target.type === 'page' ? selected.definition.target.view : ''}`} definition={selected.definition} pages={current.report.pages} disabled={saving || !current.report.canEdit} onChange={definition => change(selected.id, definition)} onNumericDraft={numberDraft} />}
-        <button type="button" className="pdf-links-delete" disabled={saving || !current.report.canEdit || !selected.removable} onClick={() => remove(selected.id)}>Delete link</button>
-      </> : <p className="pdf-links-help">{links.length ? 'Choose a link from the list or select its area on the page.' : 'This PDF has no links. Use Add link to draw a clickable area.'}</p>}
+        <button type="button" className="pdf-links-delete" disabled={saving || !current.report.canEdit || !selected.removable} onClick={() => remove(selected.id)}>{t("m.delete.link.943845")}</button>
+      </> : <p className="pdf-links-help">{links.length ? t("m.choose.a.link.from.the.list.or.select.its.area.o.e5309e") : t("m.this.pdf.has.no.links.use.add.link.to.draw.a.cli.2dcb8d")}</p>}
     </aside></div>}
     <footer>
-      {current && <p className="pdf-links-help" role="status">{saving ? committed ? 'Opening the updated PDF…' : 'Applying links…' : dirtyNumbers.size ? 'Finish numeric input to update the preview.' : dragging ? 'Release the area to update the PDF preview.' : ready ? `Preview ready${operations.length ? ` · ${operations.length} pending change${operations.length === 1 ? '' : 's'}` : ''}` : 'Updating PDF preview…'}</p>}
-      {previewError?.key === requestKey && <p className="pdf-links-error" role="alert">{previewError.message}</p>}{renderError?.key === displayKey && <p className="pdf-links-error" role="alert">{renderError.message}</p>}{saveError && <p className="pdf-links-error" role="alert">{saveError}</p>}
-      <div><button type="button" disabled={committed} onClick={close}>Cancel</button><button type="button" className="pdf-links-primary" disabled={!canApply} onClick={() => void apply()}>Apply links</button></div>
+      {current && <p className="pdf-links-help" role="status">{saving ? committed ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.links.000a6b") : dirtyNumbers.size ? t("m.finish.numeric.input.to.update.the.preview.4415fd") : dragging ? t("m.release.the.area.to.update.the.pdf.preview.ae0d84") : ready ? t("m.preview.ready.fa3fd8", { v0: operations.length ? ` · ${operations.length} pending change${operations.length === 1 ? '' : 's'}` : '' }) : t("m.updating.pdf.preview.262ba0")}</p>}
+      {previewError?.key === requestKey && <p className="pdf-links-error" role="alert">{translateError(previewError.message)}</p>}{renderError?.key === displayKey && <p className="pdf-links-error" role="alert">{translateError(renderError.message)}</p>}{saveError && <p className="pdf-links-error" role="alert">{translateError(saveError)}</p>}
+      <div><button type="button" disabled={committed} onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="pdf-links-primary" disabled={!canApply} onClick={() => void apply()}>{t("m.apply.links.eec2cf")}</button></div>
     </footer>
   </dialog>;
 }

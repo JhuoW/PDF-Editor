@@ -1,3 +1,4 @@
+import { useLocale, t } from "../../i18n";
 import { useState, useRef, useEffect } from 'react';
 import type { TextStyle } from '../../annotations/types';
 import { AVAILABLE_FONTS, FONT_SIZE_PRESETS } from '../../annotations/types';
@@ -36,6 +37,7 @@ const COLOR_PRESETS = [
 const LINE_HEIGHT_PRESETS = [1.0, 1.2, 1.4, 1.5, 1.6, 1.8, 2.0] as const;
 
 export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFormatToolbarProps) {
+  useLocale();
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSizeDropdown, setShowSizeDropdown] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -136,10 +138,10 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
             setShowColorPicker(false);
             setShowBgColorPicker(false);
           }}
-          title="Font Family"
+          title={t("m.font.family.694eff")}
         >
           <span className="dropdown-label" style={{ fontFamily: isMixed?.fontFamily ? 'inherit' : style.fontFamily }}>
-            {isMixed?.fontFamily ? 'Multiple' : (style.fontFamily || 'Arial')}
+            {isMixed?.fontFamily ? t("m.multiple.740922") : (style.fontFamily || 'Arial')}
           </span>
           <span className="dropdown-arrow">▼</span>
         </button>
@@ -169,7 +171,7 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
             setShowColorPicker(false);
             setShowBgColorPicker(false);
           }}
-          title="Font Size"
+          title={t("m.font.size.b456f4")}
         >
           <input
             type="text"
@@ -208,30 +210,30 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
         <button
           className={`format-btn ${style.fontWeight === 'bold' ? 'active' : ''} ${isMixed?.fontWeight ? 'partial' : ''}`}
           onClick={toggleBold}
-          title="Bold (Ctrl+B)"
+          title={t("m.bold.ctrl.b.022c0e")}
         >
-          <strong>B</strong>
+          <strong>{t("m.b.ae4f28")}</strong>
         </button>
         <button
           className={`format-btn ${style.fontStyle === 'italic' ? 'active' : ''} ${isMixed?.fontStyle ? 'partial' : ''}`}
           onClick={toggleItalic}
-          title="Italic (Ctrl+I)"
+          title={t("m.italic.ctrl.i.48bead")}
         >
-          <em>I</em>
+          <em>{t("m.i.ca73ab")}</em>
         </button>
         <button
           className={`format-btn ${style.textDecoration === 'underline' ? 'active' : ''} ${isMixed?.textDecoration ? 'partial' : ''}`}
           onClick={toggleUnderline}
-          title="Underline (Ctrl+U)"
+          title={t("m.underline.ctrl.u.a39b55")}
         >
-          <u>U</u>
+          <u>{t("m.u.b2c7c0")}</u>
         </button>
         <button
           className={`format-btn ${style.textDecoration === 'line-through' ? 'active' : ''} ${isMixed?.textDecoration ? 'partial' : ''}`}
           onClick={toggleStrikethrough}
-          title="Strikethrough (Ctrl+Shift+X)"
+          title={t("m.strikethrough.ctrl.shift.x.dc7ae9")}
         >
-          <s>S</s>
+          <s>{t("m.s.02aa62")}</s>
         </button>
       </div>
 
@@ -242,21 +244,21 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
         <button
           className={`format-btn ${style.textAlign === 'left' ? 'active' : ''}`}
           onClick={() => handleAlignChange('left')}
-          title="Align Left"
+          title={t("m.align.left.9fb06a")}
         >
           &#9776;
         </button>
         <button
           className={`format-btn ${style.textAlign === 'center' ? 'active' : ''}`}
           onClick={() => handleAlignChange('center')}
-          title="Align Center"
+          title={t("m.align.center.472e0d")}
         >
           &#9783;
         </button>
         <button
           className={`format-btn ${style.textAlign === 'right' ? 'active' : ''}`}
           onClick={() => handleAlignChange('right')}
-          title="Align Right"
+          title={t("m.align.right.2e324b")}
         >
           &#9782;
         </button>
@@ -276,7 +278,7 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
             setShowBgColorPicker(false);
             setShowLineHeightDropdown(newState);
           }}
-          title="Line Height"
+          title={t("m.line.height.ac3292")}
         >
           <span className="spacing-icon">&#8691;</span>
           <span className="spacing-value">{style.lineHeight?.toFixed(1) || '1.4'}</span>
@@ -298,8 +300,8 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
 
       {/* Letter Spacing */}
       <div className="format-group">
-        <div className="spacing-input-group" title="Letter Spacing (px)">
-          <span className="spacing-label">Aa</span>
+        <div className="spacing-input-group" title={t("m.letter.spacing.px.a19ab3")}>
+          <span className="spacing-label">{t("m.aa.2c419e")}</span>
           <input
             type="number"
             className="spacing-number-input"
@@ -324,9 +326,9 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
             setShowFontDropdown(false);
             setShowSizeDropdown(false);
           }}
-          title="Text Color"
+          title={t("m.text.color.3a53d5")}
         >
-          <span className="color-icon">A</span>
+          <span className="color-icon">{t("m.a.6dcd4c")}</span>
           <span className="color-indicator" style={{ backgroundColor: style.color }} />
         </button>
         {showColorPicker && (
@@ -343,7 +345,7 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
               ))}
             </div>
             <div className="custom-color">
-              <label>Custom:</label>
+              <label>{t("m.custom.94f40c")}</label>
               <input
                 type="color"
                 value={style.color}
@@ -364,7 +366,7 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
             setShowFontDropdown(false);
             setShowSizeDropdown(false);
           }}
-          title="Background Color"
+          title={t("m.background.color.874df4")}
         >
           <span className="bg-color-icon">&#9632;</span>
           <span
@@ -381,8 +383,7 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
               className={`transparent-btn ${style.backgroundColor === 'transparent' ? 'active' : ''}`}
               onClick={() => handleBgColorChange('transparent')}
             >
-              No Fill (Transparent)
-            </button>
+              {t("m.no.fill.transparent.20be58")}</button>
             <div className="color-presets">
               {COLOR_PRESETS.map((color) => (
                 <button
@@ -395,7 +396,7 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
               ))}
             </div>
             <div className="custom-color">
-              <label>Custom:</label>
+              <label>{t("m.custom.94f40c")}</label>
               <input
                 type="color"
                 value={style.backgroundColor === 'transparent' ? '#ffffff' : style.backgroundColor}
@@ -409,7 +410,7 @@ export function TextFormatToolbar({ style, onChange, onClose, isMixed }: TextFor
       {onClose && (
         <>
           <div className="format-separator" />
-          <button className="format-btn close-btn" onClick={onClose} title="Close">
+          <button className="format-btn close-btn" onClick={onClose} title={t("m.close.bbfa77")}>
             ✕
           </button>
         </>
