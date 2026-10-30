@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useFormStore } from '../../store/formStore';
 import { useEditingStore } from '../../store/editingStore';
+import { commitPendingEditors } from '../../store/workspaceHistory';
 import type { AnnotationTool } from '../../annotations/types';
 import { PREDEFINED_STAMPS, SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations/types';
 import type { EditingMode } from '../../editing/types';
@@ -611,6 +612,7 @@ export function CombinedToolbar({
       <div className="toolbar-divider" />
 
       <div id="pdf-text-edit-controls" className={`pdf-text-edit-controls ${editingMode === 'text' ? 'active' : ''}`}>
+        {editingMode === 'text' && <button type="button" className="toolbar-btn" onClick={() => { commitPendingEditors(); handleToolClick('select'); }}>Done</button>}
         {editingMode === 'text' && !selectedBlockId && <span>Click text in the PDF to edit</span>}
       </div>
 

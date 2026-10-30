@@ -6,6 +6,7 @@ import { useEditingStore } from '../../store/editingStore';
 import { useHistoryStore } from '../../store/historyStore';
 import { cancelWorkspaceGroup, registerPendingEditor } from '../../store/workspaceHistory';
 import { detectTextBlocks } from '../../editing/TextBlockDetector';
+import { originalParagraphText } from '../../editing/ParagraphText';
 import type { TextBlock, TextRect } from '../../editing/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { mapViewportPoint, mapViewportRect } from '../../utils/viewportMapping';
@@ -34,8 +35,10 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const activeId = mode === 'text' ? editingBlockId : null;
   const preview = useInlineTextPreview(page, pageNumber, pageBlocks, pageEdits, activeId, scale, rotation);
   const activeBlock = pageBlocks.find(block => block.id === activeId);
-  const fallback = useMemo(() => activeBlock ? sourceInlineGeometry(activeBlock) : undefined, [activeBlock]);
-  const prepared = preview?.activeId === activeId ? preview.prepared ?? fallback : fallback;
+  const fallback = useMemo(() => activeBlock ? sourceInlineGeometry({ ...activeBlock, text: editText }) : undefined, [activeBlock, editText]);
+  const measured = preview?.activeId === activeId ? preview.prepared : undefined;
+  const prepared = useMemo(() => measured && measured.input.text !== editText && originalParagraphText(measured.input.text) === editText
+    ? { ...measured, input: { ...measured.input, text: editText } } : measured ?? fallback, [measured, editText, fallback]);
   const source = page.getViewport({ scale: 1, rotation: 0 });
   const viewport = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) });
   const rectStyle = (rect: TextRect) => {
@@ -85,7 +88,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   useEffect(() => {
     const previous = activeId ? layouts.get(activeId) : undefined;
     if (activeId && group.current && pageEdits.some(edit => edit.blockId === activeId) && preview?.activeId === activeId && preview.availableRect && (!previous || previous.keepBaseline)) {
-      updateBlockText(activeId, editText, group.current, { targetRect: preview.availableRect, keepBaseline: true });
+      updateBlockText(activeId, editText, group.current, { ...previous, targetRect: preview.availableRect, keepBaseline: true, reflow: true });
     }
   }, [activeId, pageEdits, layouts, preview, editText, updateBlockText]);
 
@@ -100,11 +103,13 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     if (activeId !== block.id) {
       finish(); useHistoryStore.getState().endGroup();
       focusedBlock.current = block.id; group.current = `text:${block.id}:${crypto.randomUUID()}`;
-      selectBlock(block.id); setEditText(block.text); setEditingBlockId(block.id);
+      const previous = layouts.get(block.id);
+      const text = previous?.reflow || (previous && !previous.keepBaseline) ? block.text : originalParagraphText(block.text);
+      selectBlock(block.id); setEditText(text); setEditingBlockId(block.id);
       setSelection({ start: 0, end: 0 });
       pendingPoint.current = { ...point, detail: event.detail };
       const cached = preview?.geometry.get(block.id);
-      pointer.current = { id: event.pointerId, anchor: inlineOffsetAt(cached?.input.text === block.text ? cached : sourceInlineGeometry(block), point.x, point.y) };
+      pointer.current = { id: event.pointerId, anchor: inlineOffsetAt(cached?.input.text === text ? cached : sourceInlineGeometry({ ...block, text }), point.x, point.y) };
       layer.current?.setPointerCapture?.(event.pointerId);
     } else if (prepared) {
       const offset = inlineOffsetAt(prepared, point.x, point.y);
@@ -122,7 +127,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     pendingPoint.current = null;
     setEditText(value);
     const previous = activeId ? layouts.get(activeId) : undefined;
-    const automatic = !previous || previous.keepBaseline ? { ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), keepBaseline: true } : undefined;
+    const automatic = !previous || previous.keepBaseline ? { ...previous, ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), keepBaseline: true, reflow: true } : undefined;
     if (activeId && group.current) updateBlockText(activeId, value, group.current, automatic);
     if (input.current) setSelection({ start: input.current.selectionStart, end: input.current.selectionEnd });
   };
@@ -162,7 +167,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const regions = activeId && prepared ? inlineSelection(prepared, selection.start, selection.end).map(rectStyle) : [];
   const toolbarHost = window.document.getElementById('pdf-text-edit-controls');
   const editActions = selectedBlock && selectedRect && <div ref={actions} className={`text-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { left: Math.max(0, Math.min(selectedRect.left, (viewport.width || 500) - 270)), top: Math.max(0, selectedRect.top - 40) }}>
-    {activeId && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => finish()}>Done</button>}
+    {activeId && !toolbarHost && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); setMode('none'); }}>Done</button>}
     {onTextLayout && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); onTextLayout(selectedBlock.id); }}>Text layout…</button>}
     <span id="pdf-text-edit-help">Enter: new line · Ctrl/⌘ Enter: done</span>
   </div>;

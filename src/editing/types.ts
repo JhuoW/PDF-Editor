@@ -39,6 +39,8 @@ export interface TextLayoutOptions {
   lineHeight?: number;
   /** Direct edits keep the original baseline when growing into adjacent space. */
   keepBaseline?: boolean;
+  /** Physical source rows have been joined; remaining newlines are deliberate. */
+  reflow?: boolean;
 }
 
 export interface TextBlock {

@@ -29,6 +29,7 @@ export function inlineTextRows(prepared: PreparedTextEditLayout) {
     let offset = start;
     const glyphs = line.glyphs.map(glyph => { const index = offset; offset += glyph.character.length; return { ...glyph, index, end: offset }; });
     cursor = offset;
+    if (line.paragraphEnd && prepared.input.text[cursor] === '\n') cursor++;
     return { ...line, start, end: offset, glyphs };
   });
 }
@@ -44,7 +45,7 @@ export function inlineCaret(prepared: PreparedTextEditLayout, offset: number) {
   const rows = inlineTextRows(prepared), size = prepared.layout.fontSize;
   const row = rows.find(row => offset >= row.start && offset <= row.end) ?? rows.at(-1);
   const glyph = row?.glyphs.find(glyph => glyph.index >= offset), last = row?.glyphs.at(-1);
-  return { x: glyph?.x ?? (last ? last.x + last.advance : prepared.input.rect.x), y: (row?.baseline ?? prepared.input.legacyBaseline ?? prepared.input.rect.y + size * .8) - size * .8, width: 1, height: size };
+  return { x: glyph?.x ?? (last ? last.x + last.advance : row?.x ?? prepared.input.rect.x), y: (row?.baseline ?? prepared.input.legacyBaseline ?? prepared.input.rect.y + size * .8) - size * .8, width: 1, height: size };
 }
 
 export function inlineSelection(prepared: PreparedTextEditLayout, start: number, end: number) {

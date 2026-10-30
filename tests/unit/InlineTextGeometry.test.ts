@@ -15,6 +15,13 @@ const prepared: PreparedTextEditLayout = {
 };
 
 describe('direct PDF editing geometry', () => {
+  it('locates an intentionally blank row between two paragraph breaks', () => {
+    const value = structuredClone(prepared);
+    value.input.text = 'ab 😀\n\ncd';
+    value.layout.lines.splice(1, 0, { text: '', x: 25, baseline: 34, width: 0, paragraphEnd: true, glyphs: [] });
+    expect(inlineTextRows(value).map(row => [row.start, row.end])).toEqual([[0, 5], [6, 6], [7, 9]]);
+    expect(inlineCaret(value, 6)).toEqual({ x: 25, y: 26, width: 1, height: 10 });
+  });
   it('allows single-line text to grow into clear space and stops before neighboring text and artwork', () => {
     const beside = neighbor({ x: 180, y: 50, width: 60, height: 10 });
     const below = { ...neighbor({ x: 30, y: 150, width: 200, height: 20 }), id: 'below' };

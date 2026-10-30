@@ -20,6 +20,7 @@ export interface TextLayoutInput {
   sourceFontKey?: string;
   /** Physical source rows retain their PDF word spacing when unchanged. */
   sourceRows?: Array<{ text: string; width: number }>;
+  reflow?: boolean;
 }
 export interface TextLayoutGlyph {
   character: string; fontName: string; glyphId: number;
@@ -65,7 +66,8 @@ function normalize(input: TextLayoutInput) {
   if (!/^#[0-9a-f]{6}$/i.test(input.fontColor)) throw new Error('Text colors must use six-digit hexadecimal notation, such as #336699.');
   if (!['left', 'center', 'right', 'justify'].includes(input.alignment)) throw new Error('Choose a supported paragraph alignment.');
   if (!Number.isFinite(input.fontSize) || input.fontSize < 1 || input.fontSize > TEXT_LAYOUT_LIMITS.fontSize) throw new Error('Font size must be between 1 and 500 points.');
-  if (!Number.isFinite(input.lineHeight) || input.lineHeight < 1 || input.lineHeight > TEXT_LAYOUT_LIMITS.lineHeight) throw new Error('Line spacing must be between 1 and 5 times the font size.');
+  const minimumLeading = input.legacyBaseline !== undefined ? .25 : 1;
+  if (!Number.isFinite(input.lineHeight) || input.lineHeight < minimumLeading || input.lineHeight > TEXT_LAYOUT_LIMITS.lineHeight) throw new Error(`Line spacing must be between ${minimumLeading} and 5 times the font size.`);
   const rect = input.rect;
   if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0
     || rect.width > TEXT_LAYOUT_LIMITS.dimension || rect.height > TEXT_LAYOUT_LIMITS.dimension || Math.abs(rect.x) > 1_000_000 || Math.abs(rect.y) > 1_000_000) throw new Error('Text layout bounds must be finite, positive, and at most 14,400 points wide and high.');
@@ -148,9 +150,15 @@ export class TextLayoutSession {
     const legacy = input.legacyBaseline !== undefined;
     if (legacy && !Number.isFinite(input.legacyBaseline)) throw new Error('The original text baseline is invalid.');
     const primary = input.sourceFontKey && this.fonts.has(input.sourceFontKey) ? input.sourceFontKey : input.fontName;
+    // Reuse the source's tight character spacing as well as its font. Without
+    // this, rows that fit in the PDF can wrap again after joining soft breaks.
+    const advanceScale = input.reflow ? Math.min(1, ...(input.sourceRows ?? []).map(row => {
+      const width = Array.from(row.text, character => this.glyph(character, primary).advance).reduce((sum, advance) => sum + advance, 0) * input.fontSize;
+      return width > 0 ? Math.max(.8, row.width / width) : 1;
+    })) : 1;
     const paragraphs = text.split('\n').map(paragraph => {
-      const glyphs = Array.from(paragraph, character => this.glyph(character, primary));
-      const source = input.sourceRows?.find(row => row.text === paragraph);
+      const glyphs = Array.from(paragraph, character => { const glyph = this.glyph(character, primary); return advanceScale === 1 ? glyph : { ...glyph, advance: glyph.advance * advanceScale }; });
+      const source = !input.reflow && input.sourceRows?.find(row => row.text === paragraph);
       const spaces = glyphs.filter(glyph => space(glyph.character));
       if (!source || !spaces.length) return glyphs;
       // PDF word spacing can shrink as well as stretch a line. Embedded font

@@ -5,6 +5,13 @@ const input = (overrides: Partial<TextLayoutInput> = {}): TextLayoutInput => ({ 
 const compact = (text: string) => text.replace(/\s/g, '');
 
 describe('shared measured paragraph layout', () => {
+  it('keeps tight source leading so two 11pt rows fit their original 20pt region', async () => {
+    const value = input({ text: 'omega beta\ngamma delta', fontName: 'Courier', fontSize: 11, lineHeight: 9 / 11, legacyBaseline: 80, rect: { x: 40, y: 69, width: 73, height: 20 } });
+    expect((await layoutText({ ...value, lineHeight: 1 })).overflow).toContain('needs 22 points of height, but the region has 20');
+    const result = await layoutText(value);
+    expect(result.fits).toBe(true); expect(result.requiredHeight).toBe(20);
+    expect(result.lines.map(line => line.baseline)).toEqual([80, 89]);
+  });
   it('preserves compressed word spacing in an unchanged source row instead of wrapping it again', async () => {
     const text = 'Original justified source row';
     const natural = await layoutText(input({ text, rect: { x: 0, y: 0, width: 600, height: 100 } }));
