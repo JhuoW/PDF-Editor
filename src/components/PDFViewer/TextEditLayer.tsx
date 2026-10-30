@@ -131,6 +131,9 @@ export function TextEditLayer({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Enter/Escape first confirm or dismiss an IME candidate, not the edit.
+      // Some browsers report the final composition key as keyCode 229.
+      if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
       if (e.key === 'Escape') {
         // Cancel this focus session without leaving its live draft in history.
         const key = editingGroup.current;
@@ -198,6 +201,8 @@ export function TextEditLayer({
         const isSelected = selectedBlockId === block.id;
         const isEditing = block.editable && editingBlockId === block.id;
         const layout = layouts.get(block.id);
+        const fontSize = (layout?.fontSize ?? block.style.fontSize) * scale;
+        const lineHeight = layout?.lineHeight ?? block.style.lineHeight;
 
         return (
           <div
@@ -205,7 +210,9 @@ export function TextEditLayer({
             className={`text-block ${!block.editable ? 'readonly' : ''} ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`}
             aria-disabled={!block.editable || undefined}
             title={block.unsupportedReason}
-            style={style}
+            // A PDF glyph rectangle can be shorter than an HTML line box.
+            // Enlarge only the input surface, leaving the PDF removal bounds intact.
+            style={isEditing ? { ...style, minHeight: Math.max(32, fontSize * lineHeight + 8) } : style}
             onClick={(e) => handleBlockClick(block, e)}
           >
             {isEditing ? (
@@ -218,10 +225,10 @@ export function TextEditLayer({
                 onBlur={event => handleBlur(!!actionsRef.current?.contains(event.relatedTarget))}
                 onKeyDown={handleKeyDown}
                 style={{
-                  fontSize: (layout?.fontSize ?? block.style.fontSize) * scale,
+                  fontSize,
                   color: layout?.fontColor ?? block.style.fontColor ?? '#000000',
                   textAlign: layout?.alignment ?? block.style.alignment,
-                  lineHeight: layout?.lineHeight ?? block.style.lineHeight,
+                  lineHeight,
                 }}
               />
             ) : (

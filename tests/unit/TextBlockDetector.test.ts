@@ -113,3 +113,115 @@ describe('hidden and clipping text safety', () => {
     expect(await getTextEditingRestriction(operatorPage([[OPS.beginText, []], [OPS.setTextRenderingMode, [3]], [OPS.endText, []], [OPS.beginText, []], [OPS.showText, text]]))).toBe(INVISIBLE_TEXT_EDIT_REASON);
   });
 });
+
+function textItem(str: string, x: number, baseline: number, width: number, size = 10, fontName = 'body') {
+  return { str, transform: [size, 0, 0, size, x, baseline], width, height: size, fontName };
+}
+function paperPage(items: ReturnType<typeof textItem>[]): PDFPageProxy {
+  return {
+    pageNumber: 1, userUnit: 1,
+    getOperatorList: async () => ({ fnArray: [], argsArray: [] }),
+    getViewport: () => ({ convertToViewportPoint: (x: number, y: number) => [x, 600 - y] }),
+    getTextContent: async () => ({ items, styles: Object.fromEntries(items.map(item => [item.fontName, { fontFamily: 'sans-serif' }])) }),
+  } as unknown as PDFPageProxy;
+}
+
+describe('paper text reading order and paragraph boundaries', () => {
+  it('keeps tightly spaced body baselines distinct and derives their real leading', async () => {
+    // Like the JMLR sample: one line is only 1.2 font sizes below the previous.
+    // Items deliberately arrive out of order and the second row has a smaller x.
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('Second row stays second', 30, 488, 200),
+      textItem('First row', 40, 500, 50),
+      textItem('continues', 94, 500, 80),
+      textItem('Third row stays third', 30, 476, 200),
+    ]));
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].text).toBe('First row continues\nSecond row stays second\nThird row stays third');
+    expect(blocks[0].lines).toHaveLength(3);
+    expect(blocks[0].lines.map(line => line.baseline)).toEqual([100, 112, 124]);
+    expect(blocks[0].style.lineHeight).toBeCloseTo(1.2);
+    expect(blocks[0].editable).toBe(true);
+  });
+
+  it('separates title, authors and body even when every embedded font has the same CSS family', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('Paper title', 100, 540, 240, 14, 'title'),
+      textItem('Second title line', 160, 522.5, 120, 14, 'title'),
+      textItem('Author Name', 30, 500, 90, 10, 'author-bold'),
+      textItem('Abstract', 200, 480, 50, 10, 'heading-bold'),
+      textItem('First body line', 30, 468, 300, 10, 'body-regular'),
+      textItem('Second body line', 30, 456, 300, 10, 'body-regular'),
+    ]));
+    expect(blocks.map(block => block.text)).toEqual([
+      'Paper title\nSecond title line', 'Author Name', 'Abstract', 'First body line\nSecond body line',
+    ]);
+    expect(blocks[0].style.alignment).toBe('center');
+    expect(blocks[0].style.lineHeight).toBeCloseTo(1.25);
+    expect(blocks[3].style.fontSize).toBe(10);
+  });
+
+  it('keeps separate columns apart even when their baselines and font identities match', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('Left first', 30, 500, 110), textItem('Right first', 300, 500, 110),
+      textItem('Left second', 30, 488, 110), textItem('Right second', 300, 488, 110),
+    ]));
+    expect(blocks.map(block => block.text)).toEqual(['Left first\nLeft second', 'Right first\nRight second']);
+    expect(blocks.every(block => block.rect.width === 110)).toBe(true);
+  });
+
+  it('starts a new paragraph at an indented line instead of moving it before the preceding line', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('First paragraph line one', 30, 500, 300),
+      textItem('First paragraph line two', 30, 488, 260),
+      textItem('Indented second paragraph', 47, 476, 283),
+      textItem('Second paragraph continues', 30, 464, 300),
+    ]));
+    expect(blocks.map(block => block.text)).toEqual([
+      'First paragraph line one\nFirst paragraph line two',
+      'Indented second paragraph\nSecond paragraph continues',
+    ]);
+  });
+
+  it('separates blank paragraphs and page numbers from body content', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('First paragraph', 30, 500, 300),
+      textItem('Continued', 30, 488, 300),
+      textItem('Second paragraph', 30, 468, 300),
+      textItem('Continued again', 30, 456, 300),
+      textItem('1933', 170, 426, 20, 9),
+    ]));
+    expect(blocks.map(block => block.text)).toEqual(['First paragraph\nContinued', 'Second paragraph\nContinued again', '1933']);
+  });
+
+  it('isolates a mixed-font line so it cannot change the style of surrounding plain paragraphs', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('Before', 30, 500, 200),
+      textItem('Mixed ', 30, 488, 40), textItem('emphasis', 70, 488, 60, 10, 'italic'),
+      textItem('After', 30, 476, 200),
+    ]));
+    expect(blocks.map(block => block.text)).toEqual(['Before', 'Mixed emphasis', 'After']);
+  });
+
+  it('protects a superscript region without making the neighboring ordinary text read-only', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('Plain text before', 30, 530, 200),
+      textItem('x', 30, 500, 6), textItem('2', 36, 504, 4, 7, 'superscript'),
+      textItem('Plain text after', 30, 470, 200),
+    ]));
+    expect(blocks).toHaveLength(3);
+    expect(blocks.map(block => block.editable)).toEqual([true, false, true]);
+    expect(blocks[1].unsupportedReason).toContain('Ordinary text blocks can still be edited');
+    expect(blocks[1].rect.height).toBeGreaterThan(10);
+  });
+
+  it('protects overlapping and rotated glyphs rather than interpreting them as horizontal prose', async () => {
+    const rotated = textItem('Rotated', 300, 400, 50);
+    rotated.transform = [0, 10, -10, 0, 300, 400];
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('Overlaid', 30, 500, 50), textItem('copy', 30, 500, 30), rotated,
+    ]));
+    expect(blocks).toHaveLength(2);
+    expect(blocks.every(block => !block.editable)).toBe(true);
+  });
+});

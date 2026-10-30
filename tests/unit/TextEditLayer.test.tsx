@@ -5,6 +5,7 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TextEditLayer } from '../../src/components/PDFViewer/TextEditLayer';
 import { useEditingStore } from '../../src/store/editingStore';
+import { useHistoryStore } from '../../src/store/historyStore';
 import type { TextBlock } from '../../src/editing/types';
 import { INVISIBLE_TEXT_EDIT_REASON } from '../../src/editing/types';
 
@@ -38,6 +39,7 @@ async function render(pdfPage: PDFPageProxy, scale = 1, onTextLayout?: (blockId:
 
 beforeEach(() => {
   vi.resetAllMocks();
+  useHistoryStore.setState(useHistoryStore.getInitialState(), true);
   useEditingStore.setState(useEditingStore.getInitialState(), true);
   useEditingStore.getState().setMode('text');
   container = document.createElement('div');
@@ -79,6 +81,67 @@ describe('text editing interaction', () => {
     act(() => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
     expect(useEditingStore.getState().textBlocks.get(1)?.[0].text).toBe('');
     expect(useEditingStore.getState().textEdits[0].newText).toBe('');
+  });
+
+  it('keeps composition Enter and Escape inside the editor, then commits on a normal Enter', async () => {
+    useEditingStore.getState().setTextBlocks(1, [block]);
+    await render(page());
+    act(() => container.querySelector<HTMLElement>('.text-block')!.click());
+    const textarea = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, '中文候选');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    for (const key of ['Enter', 'Escape']) {
+      act(() => textarea.dispatchEvent(new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true, cancelable: true })));
+      expect(container.querySelector('textarea')).toBe(textarea);
+      expect(useEditingStore.getState().getBlock(block.id)?.text).toBe('中文候选');
+    }
+    // Safari-like final composition events can use 229 without isComposing.
+    act(() => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true, cancelable: true })));
+    expect(container.querySelector('textarea')).toBe(textarea);
+    act(() => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(useEditingStore.getState().getBlock(block.id)?.text).toBe('中文候选');
+    expect(useEditingStore.getState().textEdits).toHaveLength(1);
+  });
+
+  it('cancels only the current typing session with Escape and preserves an earlier saved edit', async () => {
+    useEditingStore.getState().setTextBlocks(1, [block]);
+    await render(page());
+    const type = (value: string) => {
+      const textarea = container.querySelector('textarea')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, value);
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      return textarea;
+    };
+    act(() => container.querySelector<HTMLElement>('.text-block')!.click());
+    const first = type('Saved edit');
+    act(() => first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    act(() => container.querySelector<HTMLElement>('.text-block')!.click());
+    const second = type('Discard this session');
+    act(() => second.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(useEditingStore.getState().getBlock(block.id)?.text).toBe('Saved edit');
+    expect(useEditingStore.getState().textEdits.at(-1)?.newText).toBe('Saved edit');
+  });
+
+  it('gives short PDF glyph boxes a readable input height without changing the source or target rectangle', async () => {
+    const short = { ...block, rect: { x: 10, y: 20, width: 100, height: 8 }, style: { ...block.style, fontSize: 10 } };
+    useEditingStore.getState().setTextBlocks(1, [short]);
+    await render(page());
+    const element = container.querySelector<HTMLElement>('.text-block')!;
+    expect(element.style.height).toBe('8px');
+    act(() => element.click());
+    expect(element.style.minHeight).toBe('32px');
+    expect(useEditingStore.getState().getBlock(block.id)?.rect).toEqual(short.rect);
+    const textarea = container.querySelector('textarea')!;
+    act(() => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(element.style.minHeight).toBe('');
+    expect(element.style.height).toBe('8px');
+    expect(useEditingStore.getState().textEdits).toEqual([]);
   });
 
   it('includes native rotation and viewport offsets when positioning edit blocks', async () => {

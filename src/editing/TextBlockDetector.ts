@@ -9,10 +9,24 @@ import type { TextItem, TextLine, TextBlock } from './types';
 import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON } from './types';
 import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
 
-// Thresholds for grouping text
-const LINE_SPACING_THRESHOLD = 1.5; // Items within this multiple of font height are same line
-const BLOCK_SPACING_THRESHOLD = 2.0; // Lines within this multiple are same block
-const WORD_SPACING_THRESHOLD = 0.3; // Items within this multiple of font width are same word
+const WORD_SPACING_THRESHOLD = 0.3;
+const COMPLEX_REGION_REASON = 'Some text regions contain superscripts, overlapping glyphs, or rotated text that cannot be safely reflowed. Ordinary text blocks can still be edited.';
+
+// Keep the original PDF font identity for grouping. Different embedded fonts can
+// all report the same generic CSS family (for example Computer Modern in papers).
+interface DetectedItem extends TextItem { fontKey: string; rotated: boolean }
+interface DetectedLine extends TextLine {
+  items: DetectedItem[];
+  fontKey: string;
+  fontSize: number;
+  complex: boolean;
+  mixedFonts: boolean;
+}
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
 
 /** Text extraction includes OCR glyphs that were never painted on the page. */
 export async function getTextEditingRestriction(page: PDFPageProxy): Promise<string | null> {
@@ -48,7 +62,7 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
   // Convert text content items to our TextItem format
   // PDF.js returns TextItem | TextMarkedContent, we only want TextItem (which has 'str')
   const markedContent: boolean[] = [];
-  const items: TextItem[] = textContent.items
+  const items: DetectedItem[] = textContent.items
     .filter((item): item is import('pdfjs-dist/types/src/display/api').TextItem => {
       if ('type' in item) {
         if (item.type === 'endMarkedContent') markedContent.pop();
@@ -77,6 +91,8 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
         width,
         height,
         fontName: textContent.styles[item.fontName]?.fontFamily ?? item.fontName ?? 'unknown',
+        fontKey: item.fontName ?? 'unknown',
+        rotated: !!textContent.styles[item.fontName]?.vertical || Math.abs(tx[1]) > 0.01 || Math.abs(tx[2]) > 0.01 || tx[0] < 0,
         fontSize,
         transform: tx,
       };
@@ -86,14 +102,9 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
     return [];
   }
 
-  // Sort items by y position (top to bottom), then x position (left to right)
-  items.sort((a, b) => {
-    const yDiff = a.y - b.y;
-    if (Math.abs(yDiff) > a.height * 0.5) {
-      return yDiff;
-    }
-    return a.x - b.x;
-  });
+  // Sort by baseline, never by approximate top bounds. Sorting by top can put
+  // smaller fragments of the same physical line into another reading row.
+  items.sort((a, b) => (a.y + a.height) - (b.y + b.height) || a.x - b.x);
 
   // Group items into lines
   const lines = groupIntoLines(items);
@@ -111,183 +122,124 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
   return blocks;
 }
 
-/**
- * Group text items into lines based on y-position proximity
- */
-function groupIntoLines(items: TextItem[]): TextLine[] {
-  const lines: TextLine[] = [];
-  let currentLine: TextItem[] = [];
-  let currentLineY = -Infinity;
-  let currentLineHeight = 0;
-
+/** Cluster physical baselines first, then separate distant columns on each row. */
+function groupIntoLines(items: DetectedItem[]): DetectedLine[] {
+  const rows: Array<{ items: DetectedItem[]; baseline: number; size: number }> = [];
   for (const item of items) {
-    // Check if this item is on the same line
-    const issameLine =
-      currentLine.length === 0 ||
-      Math.abs(item.y - currentLineY) < currentLineHeight * LINE_SPACING_THRESHOLD;
+    const baseline = item.y + item.height;
+    // Adjacent body lines are normally only 1.2 font sizes apart. They must not
+    // share a row. Small superscripts/subscripts may overlap their main row, but
+    // the resulting complex region will be protected from replacement.
+    const row = rows.at(-1);
+    const difference = row ? Math.abs(baseline - row.baseline) : Infinity;
+    const sameBaseline = row && difference <= Math.max(0.75, Math.min(row.size, item.fontSize) * 0.2);
+    const script = row && Math.min(row.size, item.fontSize) < Math.max(row.size, item.fontSize) * 0.85
+      && difference <= Math.max(row.size, item.fontSize) * 0.65;
+    if (row && (sameBaseline || script)) {
+      row.items.push(item);
+      if (item.fontSize > row.size) { row.size = item.fontSize; row.baseline = baseline; }
+    } else rows.push({ items: [item], baseline, size: item.fontSize });
+  }
 
-    if (issameLine) {
-      currentLine.push(item);
-      if (currentLine.length === 1) {
-        currentLineY = item.y;
-        currentLineHeight = item.height;
+  const lines: DetectedLine[] = [];
+  for (const row of rows) {
+    row.items.sort((a, b) => a.x - b.x);
+    let segment: DetectedItem[] = [], right = -Infinity;
+    for (const item of row.items) {
+      const gap = item.x - right;
+      if (segment.length && gap > Math.max(12, row.size * 1.8)) {
+        lines.push(createLine(segment)); segment = [];
       }
-    } else {
-      // Finish current line and start a new one
-      if (currentLine.length > 0) {
-        lines.push(createLine(currentLine));
-      }
-      currentLine = [item];
-      currentLineY = item.y;
-      currentLineHeight = item.height;
+      segment.push(item); right = Math.max(segment.length === 1 ? -Infinity : right, item.x + item.width);
     }
+    if (segment.length) lines.push(createLine(segment));
   }
-
-  // Don't forget the last line
-  if (currentLine.length > 0) {
-    lines.push(createLine(currentLine));
-  }
-
-  return lines;
+  return lines.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
 }
 
-/**
- * Create a TextLine from a list of items
- */
-function createLine(items: TextItem[]): TextLine {
-  // Sort items left to right
-  items.sort((a, b) => a.x - b.x);
-
-  // Combine text with appropriate spacing
+function createLine(items: DetectedItem[]): DetectedLine {
   let text = '';
-  let prevItem: TextItem | null = null;
-
+  let previous: DetectedItem | null = null;
+  let overlapping = false;
+  const size = Math.max(...items.map(item => item.fontSize));
+  const mainItems = items.filter(item => item.fontSize >= size * 0.85);
+  const baseline = median(mainItems.map(item => item.y + item.height));
   for (const item of items) {
-    if (prevItem) {
-      const gap = item.x - (prevItem.x + prevItem.width);
-      const avgCharWidth = prevItem.width / Math.max(prevItem.str.length, 1);
-
-      // Add space if there's a significant gap
-      if (gap > avgCharWidth * WORD_SPACING_THRESHOLD) {
-        text += ' ';
-      }
+    if (previous) {
+      const gap = item.x - (previous.x + previous.width);
+      const avgCharWidth = previous.width / Math.max(previous.str.length, 1);
+      if (gap > avgCharWidth * WORD_SPACING_THRESHOLD && !/\s$/.test(text) && !/^\s/.test(item.str)) text += ' ';
+      if (gap < -Math.max(1.5, size * 0.2)) overlapping = true;
     }
-    text += item.str;
-    prevItem = item;
+    text += item.str; previous = item;
   }
-
-  const minX = Math.min(...items.map((i) => i.x));
-  const maxX = Math.max(...items.map((i) => i.x + i.width));
-  const minY = Math.min(...items.map((i) => i.y));
-  const maxY = Math.max(...items.map((i) => i.y + i.height));
-
+  const minX = Math.min(...items.map(item => item.x));
+  const maxX = Math.max(...items.map(item => item.x + item.width));
+  const minY = Math.min(...items.map(item => item.y));
+  const maxY = Math.max(...items.map(item => item.y + item.height));
+  const fonts = [...new Set(items.map(item => item.fontKey))].sort();
   return {
-    items,
-    text: text.trim(),
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
-    baseline: items[0]?.y + items[0]?.height || minY,
+    items, text: text.trim(), x: minX, y: minY, width: maxX - minX, height: maxY - minY,
+    baseline, fontKey: fonts.join('|'), fontSize: size, mixedFonts: fonts.length > 1,
+    complex: overlapping || items.some(item => item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
   };
 }
 
-/**
- * Group lines into logical text blocks
- */
-function groupIntoBlocks(lines: TextLine[], pageNumber: number): TextBlock[] {
-  if (lines.length === 0) return [];
-
-  const blocks: TextBlock[] = [];
-  let currentBlockLines: TextLine[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const prevLine = currentBlockLines[currentBlockLines.length - 1];
-
-    // Check if this line should be in the same block
-    const isSameBlock =
-      currentBlockLines.length === 0 ||
-      (prevLine &&
-        // Vertical proximity check
-        line.y - (prevLine.y + prevLine.height) < prevLine.height * BLOCK_SPACING_THRESHOLD &&
-        // Horizontal overlap check (lines should somewhat align)
-        hasHorizontalOverlap(line, prevLine));
-
-    if (isSameBlock) {
-      currentBlockLines.push(line);
-    } else {
-      // Finish current block and start a new one
-      if (currentBlockLines.length > 0) {
-        blocks.push(createBlock(currentBlockLines, pageNumber));
+/** Build paragraphs within a column, without joining headings, other fonts, or page numbers. */
+function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[] {
+  const groups: DetectedLine[][] = [];
+  const active: DetectedLine[][] = [];
+  for (const line of lines) {
+    let best: DetectedLine[] | undefined;
+    let nearest = Infinity;
+    for (let index = active.length - 1; index >= 0; index--) {
+      const group = active[index];
+      const previous = group[group.length - 1];
+      const gap = line.baseline - previous.baseline;
+      // A distant paragraph can never match a later line. Avoid rescanning all
+      // prior blocks on pages with many columns, labels, or style changes.
+      if (gap > previous.fontSize * 1.8) { active.splice(index, 1); continue; }
+      if (gap >= nearest || gap <= line.fontSize * 0.5 || gap > line.fontSize * 1.7) continue;
+      if (line.complex || previous.complex || line.mixedFonts || previous.mixedFonts) continue;
+      if (line.fontKey !== previous.fontKey || Math.abs(line.fontSize - previous.fontSize) > Math.max(0.1, line.fontSize * 0.03)) continue;
+      const overlap = Math.min(line.x + line.width, previous.x + previous.width) - Math.max(line.x, previous.x);
+      if (overlap <= Math.min(line.width, previous.width) * 0.3) continue;
+      const left = Math.min(...group.map(part => part.x));
+      const centered = Math.abs(line.x + line.width / 2 - previous.x - previous.width / 2) < line.fontSize * 0.25;
+      // An indented first line starts a new paragraph even when leading is unchanged.
+      if (line.x - left > line.fontSize * 0.65 && !centered) continue;
+      // A larger-than-usual baseline gap also marks a paragraph boundary.
+      if (group.length > 1) {
+        const leading = median(group.slice(1).map((part, index) => part.baseline - group[index].baseline));
+        if (gap > leading * 1.2) continue;
       }
-      currentBlockLines = [line];
+      best = group; nearest = gap;
     }
+    if (best) best.push(line);
+    else { const group = [line]; groups.push(group); active.push(group); }
   }
-
-  // Don't forget the last block
-  if (currentBlockLines.length > 0) {
-    blocks.push(createBlock(currentBlockLines, pageNumber));
-  }
-
-  return blocks;
+  return groups.map(group => createBlock(group, pageNumber)).sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
 }
 
-/**
- * Check if two lines have horizontal overlap (for column detection)
- */
-function hasHorizontalOverlap(line1: TextLine, line2: TextLine): boolean {
-  const overlap =
-    Math.min(line1.x + line1.width, line2.x + line2.width) - Math.max(line1.x, line2.x);
-  const minWidth = Math.min(line1.width, line2.width);
-  return overlap > minWidth * 0.3; // At least 30% overlap
-}
-
-/**
- * Create a TextBlock from a list of lines
- */
-function createBlock(lines: TextLine[], pageNumber: number): TextBlock {
-  const text = lines.map((l) => l.text).join('\n');
-
-  const minX = Math.min(...lines.map((l) => l.x));
-  const maxX = Math.max(...lines.map((l) => l.x + l.width));
-  const minY = Math.min(...lines.map((l) => l.y));
-  const maxY = Math.max(...lines.map((l) => l.y + l.height));
-
-  // Determine dominant style from first line
-  const firstItem = lines[0]?.items[0];
-  const fontSize = firstItem?.fontSize || 12;
-  const fontName = firstItem?.fontName || 'unknown';
-
-  // Estimate alignment
-  const alignment = estimateAlignment(lines);
-
-  // Calculate line height
-  const lineHeight =
-    lines.length > 1
-      ? (lines[1].y - lines[0].y) / fontSize
-      : 1.2;
-
+function createBlock(lines: DetectedLine[], pageNumber: number): TextBlock {
+  const minX = Math.min(...lines.map(line => line.x));
+  const maxX = Math.max(...lines.map(line => line.x + line.width));
+  const minY = Math.min(...lines.map(line => line.y));
+  const maxY = Math.max(...lines.map(line => line.y + line.height));
+  const fontSize = lines[0].fontSize;
+  const fontName = lines[0].items.find(item => item.fontSize === fontSize)?.fontName ?? 'unknown';
+  const lineHeight = lines.length > 1
+    ? median(lines.slice(1).map((line, index) => line.baseline - lines[index].baseline)) / fontSize
+    : 1.2;
+  const complex = lines.some(line => line.complex);
   return {
-    // Page numbers change during reorder/insert/delete. A fresh detection must
-    // never reuse an ID belonging to a block retained on another page.
-    id: `block-${crypto.randomUUID()}`,
-    pageNumber,
-    lines,
-    text,
-    rect: {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY,
-    },
-    style: {
-      fontName,
-      fontSize,
-      alignment,
-      lineHeight,
-    },
-    editable: true,
+    // Never reuse a block ID across fresh detection after page organization.
+    id: `block-${crypto.randomUUID()}`, pageNumber, lines,
+    text: lines.map(line => line.text).join('\n'),
+    rect: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+    style: { fontName, fontSize, alignment: estimateAlignment(lines), lineHeight },
+    editable: !complex,
+    ...(complex ? { unsupportedReason: COMPLEX_REGION_REASON } : {}),
   };
 }
 
