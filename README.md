@@ -29,7 +29,7 @@
 
 ## Quick Start
 
-**Recommended:** Open [PDF-Editor online](https://pdf-editorapp.netlify.app/). No installation required.
+**Recommended:** Open [PDF-Editor online](https://wei2hu0.github.io/PDF-Editor/). No installation required.
 
 ### Basic Usage
 

@@ -29,7 +29,7 @@
 
 ## 快速开始
 
-**推荐方式：** 直接访问 [PDF-Editor 在线版](https://pdf-editorapp.netlify.app/)，无需安装。
+**推荐方式：** 直接访问 [PDF-Editor 在线版](https://wei2hu0.github.io/PDF-Editor/)，无需安装。
 
 ### 基本使用
 
