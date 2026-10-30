@@ -22,16 +22,7 @@
 
 ## Quick Start
 
-Requires [Node.js](https://nodejs.org/) 20.19+ (20.x) or 22.12+, and npm.
-
-```bash
-git clone https://github.com/JhuoW/PDF-Editor.git
-cd PDF-Editor
-npm ci
-npm run dev
-```
-
-Open `http://localhost:5173` in your browser.
+**Recommended:** Open [PDF-Editor online](https://pdf-editorapp.netlify.app/). No installation required.
 
 ### Basic Usage
 
@@ -40,6 +31,20 @@ Open `http://localhost:5173` in your browser.
 3. **Edit & Annotate**: Use **Edit objects** to move text and resize images, or **Edit text** to change the original wording. Add annotations from the toolbar.
 4. **Organize**: Use the page tools to merge, split, rotate, or reorder pages.
 5. **Export**: Download your edited PDF with **Export**, or use **Convert → PDF to images** for selected pages.
+
+### Local Build (Optional)
+
+Requires [Node.js](https://nodejs.org/) 20.19+ (20.x) or 22.12+, and npm.
+
+```bash
+git clone https://github.com/JhuoW/PDF-Editor.git
+cd PDF-Editor
+npm ci
+npm run build
+npm run preview
+```
+
+Open `http://localhost:4173` in your browser. For development, use `npm run dev`.
 
 ## Contributing
 

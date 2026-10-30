@@ -22,16 +22,7 @@
 
 ## 快速开始
 
-需要 [Node.js](https://nodejs.org/) 20.19+（20.x 系列）或 22.12+，以及 npm。
-
-```bash
-git clone https://github.com/JhuoW/PDF-Editor.git
-cd PDF-Editor
-npm ci
-npm run dev
-```
-
-在浏览器中打开 `http://localhost:5173`。
+**推荐方式：** 直接访问 [PDF-Editor 在线版](https://pdf-editorapp.netlify.app/)，无需安装。
 
 ### 基本使用
 
@@ -40,6 +31,20 @@ npm run dev
 3. **编辑与批注**：使用 **编辑对象** 移动文字、缩放图片，使用 **编辑文本** 修改原文；通过工具栏添加批注。
 4. **整理**：使用页面工具合并、拆分、旋转或重排页面。
 5. **导出**：点击 **导出** 下载 PDF，或使用 **格式转换 → PDF 转图片** 导出指定页面。
+
+### 本地构建（可选）
+
+需要 [Node.js](https://nodejs.org/) 20.19+（20.x 系列）或 22.12+，以及 npm。
+
+```bash
+git clone https://github.com/JhuoW/PDF-Editor.git
+cd PDF-Editor
+npm ci
+npm run build
+npm run preview
+```
+
+在浏览器中打开 `http://localhost:4173`。开发时可使用 `npm run dev`。
 
 ## 参与贡献
 
