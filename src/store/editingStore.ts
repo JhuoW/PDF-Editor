@@ -23,6 +23,7 @@ interface EditingStore {
   selectedBlockId: string | null;
   pendingTextEditId: string | null;
   selectedImageId: string | null;
+  selectedObjectIds: string[];
   selectedRedactionId: string | null;
   textEdits: TextEditOperation[];
   imageEdits: ImageEditOperation[];
@@ -37,10 +38,12 @@ interface EditingStore {
   selectBlock: (blockId: string | null) => void;
   selectImage: (imageId: string | null) => void;
   selectRedaction: (redactionId: string | null) => void;
+  selectObjects: (ids: string[], primaryId?: string) => void;
+  applyObjectEdits: (edits: { textEdits?: TextEditOperation[]; imageEdits?: ImageEditOperation[] }, actionName: string) => void;
 
   // Text editing
   updateBlockText: (blockId: string, newText: string, groupKey?: string, layout?: TextLayoutOptions) => void;
-  updateBlockLayout: (edit: TextEditOperation) => void;
+  updateBlockLayout: (edit: TextEditOperation, groupKey?: string) => void;
   getBlock: (blockId: string) => TextBlock | null;
 
   // Image editing
@@ -74,6 +77,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   selectedBlockId: null,
   pendingTextEditId: null,
   selectedImageId: null,
+  selectedObjectIds: [],
   selectedRedactionId: null,
   textEdits: [],
   imageEdits: [],
@@ -85,6 +89,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
       selectedBlockId: null,
       pendingTextEditId: null,
       selectedImageId: null,
+      selectedObjectIds: [],
       selectedRedactionId: null,
     });
   },
@@ -92,7 +97,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   requestTextEdit: blockId => {
     const block = get().getBlock(blockId);
     if (!block?.editable) return;
-    set({ mode: 'text', selectedBlockId: blockId, pendingTextEditId: blockId, selectedImageId: null, selectedRedactionId: null });
+    set({ mode: 'text', selectedBlockId: blockId, pendingTextEditId: blockId, selectedImageId: null, selectedRedactionId: null, selectedObjectIds: [blockId] });
   },
   clearTextEditRequest: () => set({ pendingTextEditId: null }),
 
@@ -113,15 +118,43 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   },
 
   selectBlock: (blockId) => {
-    set({ selectedBlockId: blockId, selectedImageId: null, selectedRedactionId: null });
+    set({ selectedBlockId: blockId, selectedImageId: null, selectedRedactionId: null, selectedObjectIds: blockId ? [blockId] : [] });
   },
 
   selectImage: (imageId) => {
-    set({ selectedImageId: imageId, selectedBlockId: null, selectedRedactionId: null });
+    set({ selectedImageId: imageId, selectedBlockId: null, selectedRedactionId: null, selectedObjectIds: imageId ? [imageId] : [] });
   },
 
   selectRedaction: (redactionId) => {
-    set({ selectedRedactionId: redactionId, selectedBlockId: null, selectedImageId: null });
+    set({ selectedRedactionId: redactionId, selectedBlockId: null, selectedImageId: null, selectedObjectIds: [] });
+  },
+
+  selectObjects: (ids, primaryId) => {
+    const state = get(), objects = [...state.textBlocks.values(), ...state.images.values()].flat();
+    const page = objects.find(object => object.id === (primaryId ?? ids.at(-1)))?.pageNumber;
+    const selected = [...new Set(ids)].filter(id => objects.some(object => object.id === id && object.pageNumber === page));
+    const primary = selected.includes(primaryId ?? '') ? primaryId! : selected.at(-1);
+    set({ selectedObjectIds: selected, selectedBlockId: primary && state.getBlock(primary) ? primary : null,
+      selectedImageId: primary && !state.getBlock(primary) ? primary : null, selectedRedactionId: null });
+  },
+
+  applyObjectEdits: (edits, actionName) => {
+    const state = get();
+    const texts = (edits.textEdits ?? []).filter(edit => state.getBlock(edit.blockId)?.editable);
+    const images = (edits.imageEdits ?? []).filter(edit => [...state.images.values()].some(items => items.some(image => image.id === edit.imageId && image.source && !image.unsupportedReason)));
+    if (!texts.length && !images.length) return;
+    recordEditingState(state, actionName);
+    let textEdits = [...state.textEdits];
+    const textBlocks = new Map(state.textBlocks);
+    for (const edit of texts) {
+      const block = state.getBlock(edit.blockId)!, previous = state.textEdits.find(item => item.blockId === edit.blockId);
+      const originalText = previous?.originalText ?? block.text;
+      textEdits = textEdits.filter(item => item.blockId !== edit.blockId);
+      if (edit.newText !== originalText || edit.layout) textEdits.push({ ...structuredClone(edit), originalText });
+      textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === block.id ? { ...item, text: edit.newText } : item));
+    }
+    const imageEdits = [...state.imageEdits, ...structuredClone(images)];
+    set({ textBlocks, textEdits, imageEdits, isDirty: !!textEdits.length || !!imageEdits.length || state.redactions.some(area => !area.applied) });
   },
 
   updateBlockText: (blockId, newText, groupKey, inlineLayout) => {
@@ -138,14 +171,14 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     set({ textBlocks, textEdits, isDirty: textEdits.length > 0 || state.imageEdits.length > 0 || state.redactions.some(area => !area.applied) });
   },
 
-  updateBlockLayout: edit => {
+  updateBlockLayout: (edit, groupKey) => {
     const state = get(), block = state.getBlock(edit.blockId);
     if (!block?.editable) return;
     const previous = state.textEdits.find(item => item.blockId === edit.blockId);
     const originalText = previous?.originalText ?? block.text;
     const layout = edit.layout && Object.keys(edit.layout).length ? structuredClone(edit.layout) : undefined;
     if (block.text === edit.newText && JSON.stringify(previous?.layout) === JSON.stringify(layout)) return;
-    recordEditingState(state, 'Change text layout');
+    recordEditingState(state, 'Change text layout', groupKey);
     const textEdits = state.textEdits.filter(item => item.blockId !== edit.blockId);
     if (edit.newText !== originalText || layout) textEdits.push({
       blockId: edit.blockId, originalText, newText: edit.newText, timestamp: Date.now(), ...(layout ? { layout } : {}),
@@ -222,6 +255,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
       redactions: [],
       selectedBlockId: null,
       selectedImageId: null,
+      selectedObjectIds: [],
       selectedRedactionId: null,
       textEdits: [],
       imageEdits: [],

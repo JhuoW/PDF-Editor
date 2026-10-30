@@ -335,6 +335,7 @@ export function CombinedToolbar({
     commitPendingEditors();
     if (imageJob.current?.kind === 'stamp') cancelImageRead();
     setEditingMode(editingMode === mode ? 'none' : mode);
+    if (editingMode !== mode && (mode === 'text' || mode === 'object') && window.innerWidth > 1250) setInspectorOpen(true);
 
     // Clear annotation tool when entering editing mode
     if (mode !== 'none') {

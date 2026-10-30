@@ -2,6 +2,9 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import type { PDFImage } from './types';
 import { identityMatrix, matrixBounds, multiplyMatrix, type ImageMatrix } from './imageMatrix';
 import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
+import { imageCropFromTag } from './ImageCropMarker';
+import { imageCropUV } from './imageAppearance';
+import type { TextRect } from './types';
 
 /** Detect individual XObject draws, retaining a source-space transform for export. */
 export async function detectImages(page: PDFPageProxy): Promise<PDFImage[]> {
@@ -14,16 +17,20 @@ export async function detectImages(page: PDFPageProxy): Promise<PDFImage[]> {
   let formDepth = 0;
   let unsupported = '';
   const markedContent: Array<string | undefined> = [];
+  const crops: Array<TextRect | undefined> = [];
   const decoration = () => {
     for (let index = markedContent.length - 1; index >= 0; index--) if (markedContent[index]) return markedContent[index];
     return undefined;
   };
   const add = (name: string, matrix: ImageMatrix, width?: number, height?: number) => {
-    const rect = matrixBounds(multiplyMatrix(viewport.transform, matrix));
+    const rawRect = matrixBounds(multiplyMatrix(viewport.transform, matrix)), crop = [...crops].reverse().find(Boolean);
+    const uv = crop ? imageCropUV(crop) : undefined;
+    const rect = uv ? matrixBounds(multiplyMatrix(multiplyMatrix(viewport.transform, matrix), [uv.width, 0, 0, uv.height, uv.x, uv.y])) : rawRect;
     images.push({
       id: `img-${crypto.randomUUID()}`, pageNumber: page.pageNumber, objectName: name,
       rect, originalRect: { ...rect },
       source: { occurrence: images.length, occurrenceCount: 0, transform: matrix, pixelWidth: width, pixelHeight: height, insideForm: formDepth > 0,
+        ...(crop ? { cropRect: crop, rawRect } : {}),
         ...(decoration() ? { decorationInstance: decoration() } : {}) },
       ...(decoration() ? { unsupportedReason: 'Edit this image in Document → Watermarks, Headers & Backgrounds…' } : {}),
     });
@@ -31,8 +38,8 @@ export async function detectImages(page: PDFPageProxy): Promise<PDFImage[]> {
   for (let i = 0; i < operatorList.fnArray.length; i++) {
     const fn = operatorList.fnArray[i];
     const args = operatorList.argsArray[i];
-    if (fn === OPS.beginMarkedContent || fn === OPS.beginMarkedContentProps) markedContent.push(decorationInstanceFromTag(args[0]));
-    else if (fn === OPS.endMarkedContent) markedContent.pop();
+    if (fn === OPS.beginMarkedContent || fn === OPS.beginMarkedContentProps) { markedContent.push(decorationInstanceFromTag(args[0])); crops.push(imageCropFromTag(args[0])); }
+    else if (fn === OPS.endMarkedContent) { markedContent.pop(); crops.pop(); }
     else if (fn === OPS.save) stack.push([...transform]);
     else if (fn === OPS.restore) transform = stack.pop() ?? identityMatrix();
     else if (fn === OPS.transform) transform = multiplyMatrix(transform, args as number[]);

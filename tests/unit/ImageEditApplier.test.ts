@@ -180,9 +180,9 @@ describe('applyImageEdits', () => {
     expect(inspect(output).count).toBe(1);
     expect(inspect(output).text).toContain('UNDER_IMAGE');
   });
-  it('fails closed for stale identities, legacy records, unsupported crops, and corrupt replacements', async () => {
+  it('fails closed for stale identities, legacy records, invalid crops, and corrupt replacements', async () => {
     const { data, images } = await fixture();
-    await expect(applyImageEdits(data, images, [operation('crop')])).rejects.toThrow('Cropping');
+    await expect(applyImageEdits(data, images, [operation('crop')])).rejects.toThrow('crop');
     await expect(applyImageEdits(data, images, [operation('replace', { newImageData: new Uint8Array([1, 2]).buffer })])).rejects.toThrow();
     images.get(1)![0].source!.occurrenceCount = 1;
     await expect(applyImageEdits(data, images, [operation('delete')])).rejects.toThrow('image count');

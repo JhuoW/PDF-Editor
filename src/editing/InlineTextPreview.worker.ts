@@ -45,7 +45,9 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
       ? await applyImageEdits(source.slice(0), new Map([[request.pageNumber, request.images ?? []]]), request.imageEdits) : null;
     const data = imageBytes ? new Uint8Array(imageBytes).buffer : source.slice(0);
     const prepared = active ? await prepareTextEditLayout(data, active, request.edits.find(edit => edit.blockId === active.id)) : undefined;
-    const bytes = await previewInlineTextEdits(data, blocks, request.edits);
+    const rects = new Map<string, import('./types').TextRect>();
+    const bytes = await previewInlineTextEdits(data, blocks, request.edits, rects);
+    const textGeometry = request.edits.flatMap(edit => { const rect = rects.get(edit.blockId); return rect ? [{ id: edit.blockId, signature: JSON.stringify([edit.newText, edit.layout]), rect }] : []; });
     const engine = await loadMuPDF();
     const availableRect = prepared?.availableRect;
     const document = new engine.PDFDocument(bytes);
@@ -79,7 +81,7 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
         })();
         try {
           const png = new Uint8Array(pixmap.asPNG());
-          self.postMessage({ id: request.id, activeId: request.activeId, png, prepared, bytes, availableRect }, { transfer: [png.buffer, bytes.buffer] });
+          self.postMessage({ id: request.id, activeId: request.activeId, png, prepared, bytes, availableRect, textGeometry }, { transfer: [png.buffer, bytes.buffer] });
         } finally { pixmap.destroy(); }
       } finally { page.destroy(); }
     } finally { document.destroy(); }

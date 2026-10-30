@@ -12,7 +12,7 @@
 ## Features
 
 - **📄 Viewing & Navigation**: Browse PDFs with thumbnails, bookmarks, search, and flexible page views.
-- **✏️ Text & Image Editing**: Edit existing text, move text and images, resize images, or insert new content.
+- **✏️ Text & Image Editing**: Format original text, arrange objects, crop and transform images, or insert new content.
 - **🖊️ Annotations & Signatures**: Highlight, draw, add notes, and place handwritten or image signatures.
 - **🔗 Page Organization**: Merge, split, insert, delete, rotate, and reorder pages.
 - **📝 Forms**: Create and fill PDF forms, import/export data, and flatten fields.

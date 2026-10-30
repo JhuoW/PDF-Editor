@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { detectImages } from '../../src/editing/ImageDetector';
+import { imageCropTag } from '../../src/editing/ImageCropMarker';
 const OPS = vi.hoisted(() => ({ save: 1, restore: 2, transform: 3, paintImageXObject: 4, paintFormXObjectBegin: 5, paintFormXObjectEnd: 6, paintImageXObjectRepeat: 7, paintInlineImageXObject: 8, paintInlineImageXObjectGroup: 9, beginGroup: 10, beginMarkedContent: 11, beginMarkedContentProps: 12, endMarkedContent: 13 }));
 vi.mock('pdfjs-dist', () => ({ OPS, AnnotationMode: { DISABLE: 0 } }));
 function page(operations: [number, unknown[]][]) {
@@ -8,6 +9,16 @@ function page(operations: [number, unknown[]][]) {
     getOperatorList: async () => ({ fnArray: operations.map(([op]) => op), argsArray: operations.map(([, args]) => args) }) } as unknown as PDFPageProxy;
 }
 describe('detectImages', () => {
+  it.each(['string', 'name-object'])('retains editable crop bounds without losing raw source geometry (%s)', async format => {
+    const crop = { x: .5, y: 0, width: .5, height: 1 }, tag = imageCropTag(crop);
+    const [image] = await detectImages(page([
+      [OPS.beginMarkedContent, [format === 'string' ? tag : { name: tag }]],
+      [OPS.transform, [80, 0, 0, 60, 80, 420]], [OPS.paintImageXObject, ['original', 8, 8]], [OPS.endMarkedContent, []],
+    ]));
+    expect(image.rect).toEqual({ x: 200, y: 200, width: 80, height: 120 });
+    expect(image.source?.rawRect).toEqual({ x: 120, y: 200, width: 160, height: 120 });
+    expect(image.source?.cropRect).toEqual(crop); expect(image.source?.insideForm).toBe(false);
+  });
   it('uses UUID identities and all four transformed corners including crop offsets and UserUnit', async () => {
     const source = page([[OPS.transform, [50, 10, -20, 60, 40, 480]], [OPS.paintImageXObject, ['name', 4, 4]]]);
     const first = (await detectImages(source))[0], second = (await detectImages(source))[0];

@@ -2,13 +2,15 @@ import type { PDFDocument, PDFObject } from 'mupdf';
 import { loadMuPDF } from '../utils/mupdf';
 import type { ImageEditOperation, PDFImage } from './types';
 import { identityMatrix, inverseMatrix, matrixBounds, multiplyMatrix, type ImageMatrix } from './imageMatrix';
+import { imageAppearance, imageAppearanceMatrix, imageCropUV, validImageCrop, type ImageAppearance } from './imageAppearance';
+import { imageCropFromTag, imageCropTag } from './ImageCropMarker';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
 interface Token { start: number; end: number; value: string; kind: 'name' | 'number' | 'object' | 'word' }
 interface Command { start: number; end: number; operator: string; operands: Token[] }
-interface Draw { command: Command; name: string; object: PDFObject; matrix: ImageMatrix; occurrence?: number; form?: ContentNode }
+interface Draw { command: Command; name: string; object: PDFObject; matrix: ImageMatrix; contextMatrix?: ImageMatrix; occurrence?: number; form?: ContentNode }
 interface ContentNode { text: string; resources: PDFObject; object?: PDFObject; draws: Draw[]; inheritsResources: boolean }
-interface Pending { image: PDFImage; deleted: boolean; replacement?: ArrayBuffer; rect?: PDFImage['rect'] }
+interface Pending { image: PDFImage; deleted: boolean; replacement?: ArrayBuffer; rect?: PDFImage['rect']; appearance: ImageAppearance; transformed?: boolean }
 
 const isWhite = (c: string) => ['\0', '\t', '\n', '\f', '\r', ' '].includes(c);
 const delimiter = (c: string) => !c || isWhite(c) || /[()[\]<>/%]/.test(c);
@@ -116,8 +118,21 @@ class Editor {
     if (ancestors.size > 32) throw new Error('Nested PDF image forms are too deep');
     const node: ContentNode = { text, resources, object, draws: [], inheritsResources };
     const stack: ImageMatrix[] = [];
+    const markers: Array<{ start: number; matrix: ImageMatrix; crop?: PDFImage['rect']; commands: Command[]; draws: Draw[] }> = [];
     for (const command of commands(text)) {
       const args = command.operands;
+      const marker = markers.at(-1);
+      if (command.operator === 'BMC' || command.operator === 'BDC') {
+        markers.push({ start: command.start, matrix: [...matrix], crop: imageCropFromTag(args[0]?.value), commands: [], draws: [] });
+      } else if (command.operator === 'EMC') {
+        const span = markers.pop();
+        if (span?.crop) {
+          const uv = imageCropUV(span.crop), clip = span.commands.find(item => item.operator === 're');
+          if (span.draws.length !== 1 || span.commands.map(item => item.operator).join(' ') !== 'q cm re W n Do Q'
+            || !clip || clip.operands.length !== 4 || clip.operands.some((item, index) => Math.abs(Number(item.value) - [uv.x, uv.y, uv.width, uv.height][index]) > 1e-7)) throw new Error('The cropped image no longer matches its editable source.');
+          const draw = span.draws[0]; draw.contextMatrix = span.matrix; draw.command = { ...draw.command, start: span.start, end: command.end };
+        }
+      } else if (marker?.crop) marker.commands.push(command);
       if (command.operator === 'q') stack.push([...matrix]);
       else if (command.operator === 'Q') {
         const previous = stack.pop();
@@ -134,6 +149,7 @@ class Editor {
         const draw: Draw = { command, name, object: target, matrix: [...matrix] };
         if (type === 'Image' && !this.get(target, 'ImageMask').asBoolean()) {
           draw.occurrence = this.nextOccurrence++;
+          if (marker?.crop) marker.draws.push(draw);
         } else if (type === 'Form') {
           const id = target.asIndirect();
           if (ancestors.has(id)) throw new Error('Recursive PDF image forms cannot be edited');
@@ -162,7 +178,7 @@ class Editor {
       if (expected !== undefined && this.get(draw.object, key).asNumber() !== expected) throw new Error('The selected image no longer matches its source dimensions.');
     }
     const actualRect = matrixBounds(multiplyMatrix(this.pageToTopLeft, draw.matrix));
-    if (Object.entries(actualRect).some(([key, value]) => Math.abs(value - pending.image.originalRect[key as keyof typeof actualRect]) > 0.1)) {
+    if (Object.entries(actualRect).some(([key, value]) => Math.abs(value - (source.rawRect ?? pending.image.originalRect)[key as keyof typeof actualRect]) > 0.1)) {
       throw new Error('The selected image no longer matches the page coordinates. Reopen the document and select it again.');
     }
   }
@@ -194,7 +210,12 @@ class Editor {
             name = add(this.own(this.document.addImage(image)));
           }
           let transform = identityMatrix();
-          if (pending.rect) {
+          if (pending.transformed) {
+            if (node.object) throw new Error('Moving or resizing images inside Form XObjects is not supported yet. Replace and Delete are supported.');
+            const base = multiplyMatrix(this.pageToTopLeft, draw.matrix);
+            const final = imageAppearanceMatrix(pending.image, pending.appearance, base);
+            transform = multiplyMatrix(inverseMatrix(draw.contextMatrix ?? draw.matrix), multiplyMatrix(inverseMatrix(this.pageToTopLeft), final));
+          } else if (pending.rect) {
             if (node.object) throw new Error('Moving or resizing images inside Form XObjects is not supported yet. Replace and Delete are supported.');
             const old = pending.image.originalRect, next = pending.rect;
             if (![next.x, next.y, next.width, next.height].every(Number.isFinite) || next.width <= 0 || next.height <= 0 || old.width <= 0 || old.height <= 0) throw new Error('Invalid image position or dimensions');
@@ -203,7 +224,11 @@ class Editor {
             const pdfDelta = multiplyMatrix(inverseMatrix(this.pageToTopLeft), multiplyMatrix(viewportDelta, this.pageToTopLeft));
             transform = multiplyMatrix(inverseMatrix(draw.matrix), multiplyMatrix(pdfDelta, draw.matrix));
           }
-          value = `q\n${transform.map(value => Number(value.toFixed(10))).join(' ')} cm\n${pdfName(name)} Do\nQ`;
+          const crop = imageCropUV(pending.appearance.crop);
+          const cropped = crop.x !== 0 || crop.y !== 0 || crop.width !== 1 || crop.height !== 1;
+          const clipping = cropped ? `${[crop.x, crop.y, crop.width, crop.height].map(value => Number(value.toFixed(10))).join(' ')} re W n\n` : '';
+          value = `q\n${transform.map(value => Number(value.toFixed(10))).join(' ')} cm\n${clipping}${pdfName(name)} Do\nQ`;
+          if (cropped) value = `/${imageCropTag(pending.appearance.crop)} BMC\n${value}\nEMC`;
         }
         edits.push({ ...draw.command, value });
       }
@@ -251,17 +276,23 @@ export async function applyImageEdits(data: ArrayBuffer, images: Map<number, PDF
     const image = known.get(edit.imageId);
     if (!image?.source || image.unsupportedReason) throw new Error(image?.unsupportedReason ?? 'Image source information is missing. Reopen the document and select the image again.');
     if (!Number.isInteger(image.source.occurrence) || image.source.occurrence < 0 || !Number.isInteger(image.source.occurrenceCount) || image.source.occurrenceCount <= image.source.occurrence || image.source.transform.length !== 6 || !image.source.transform.every(Number.isFinite)) throw new Error('Invalid image source information');
-    if (edit.type === 'crop') throw new Error('Cropping original PDF images is not supported yet.');
-    const state = pending.get(image.id) ?? { image, deleted: false };
+    if (edit.type === 'crop' && (!edit.cropRect || !validImageCrop(edit.cropRect))) throw new Error('The image crop must leave a nonempty area inside the original image.');
+    if (edit.rotation !== undefined && (!Number.isFinite(edit.rotation) || Math.abs(edit.rotation) > 1_000_000)) throw new Error('Invalid image rotation.');
+    if (edit.cropRect && !validImageCrop(edit.cropRect)) throw new Error('The image crop must leave a nonempty area inside the original image.');
+    if (edit.newRect && (!Object.values(edit.newRect).every(Number.isFinite) || edit.newRect.width <= 0 || edit.newRect.height <= 0)) throw new Error('Invalid image position or dimensions');
+    const state = pending.get(image.id) ?? { image, deleted: false, appearance: imageAppearance(image, []), transformed: !!image.source.cropRect };
     if (edit.type === 'delete') state.deleted = true;
     else if (edit.type === 'replace') {
       if (!edit.newImageData?.byteLength) throw new Error('Replacement image data is missing');
       state.replacement = edit.newImageData;
       state.deleted = false;
-    } else {
+    } else if (edit.type === 'move' || edit.type === 'resize') {
       if (!edit.newRect) throw new Error('New image dimensions are missing');
       state.rect = edit.newRect;
     }
+    state.appearance = { ...state.appearance, rect: edit.newRect ?? state.appearance.rect, crop: edit.cropRect ?? state.appearance.crop,
+      rotation: edit.rotation ?? state.appearance.rotation, flipX: edit.flipX ?? state.appearance.flipX, flipY: edit.flipY ?? state.appearance.flipY, deleted: state.deleted };
+    if (edit.rotation !== undefined || edit.flipX !== undefined || edit.flipY !== undefined || edit.cropRect) state.transformed = true;
     pending.set(image.id, state);
   }
   const engine = await loadMuPDF();

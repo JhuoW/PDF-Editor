@@ -3,7 +3,7 @@ import type { PDFPage, Rect } from 'mupdf';
 import type { loadMuPDF } from '../utils/mupdf';
 
 /** Read painted content so automatic growth also respects images and vectors. */
-export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, block: TextBlock, width: number, height: number, targetRect?: TextRect): TextRect {
+export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, block: TextBlock, width: number, height: number, targetRect?: TextRect, growWidth = false): TextRect {
   const obstacles: TextRect[] = [], inverse = engine.Matrix.invert(page.getTransform());
   const crop = engine.Rect.transform(page.getBounds(), inverse), unit = Math.hypot(...page.getTransform().slice(0, 2));
   const convert = (bounds: Rect): TextRect => {
@@ -33,7 +33,8 @@ export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF
   finally { device.destroy(); stroke.destroy(); }
   // The source glyphs will be removed from block.rect, but growth after a move
   // must be measured around the destination rather than the old paragraph.
-  return inlineAvailableRect(targetRect ? { ...block, rect: targetRect } : block, [block], width, height, obstacles);
+  const destination = targetRect ? { ...block, rect: targetRect } : block;
+  return inlineAvailableRect(growWidth ? { ...destination, lines: destination.lines.slice(0, 1) } : destination, [block], width, height, obstacles);
 }
 
 /** Grow only into clear space; retain the original source removal rectangle. */

@@ -2,6 +2,7 @@ import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useEditingStore } from '../../store/editingStore';
+import { useUIStore } from '../../store/uiStore';
 import { detectImages } from '../../editing/ImageDetector';
 import type { PDFImage } from '../../editing/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
@@ -87,6 +88,7 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
             <button className="image-btn replace" disabled={!!unsupported} onClick={() => fileInputRef.current?.click()}>{t("m.replace.a7cf7b")}</button>
             <button className="image-btn delete" disabled={!!unsupported || isDeleted(selected)} onClick={handleDelete}>{t("m.delete.f6fdbe")}</button>
             <button className="image-btn" disabled={editsFor(selected).length === 0} onClick={() => resetImageEdits(selected.id)}>{t("m.reset.image.edits.5e69da")}</button>
+            <button className="image-btn" onClick={() => useUIStore.getState().setInspectorOpen(true)}>{t('image.appearance')}</button>
           </div>
           {unsupported ? <p role="status">{translateMessage(unsupported)}</p> : selected.source?.insideForm ? <p>{t("m.images.inside.pdf.forms.support.replace.and.dele.567f73")}</p> : (
             <form key={`${selected.id}-${JSON.stringify(effectiveRect(selected))}`} className="image-geometry" onSubmit={event => {

@@ -5,6 +5,11 @@
 .object-edit-box:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
 .object-edit-box.readonly { cursor: not-allowed; }
 .object-edit-box.readonly.selected { border-color: #b7791f; }
+.object-group-bounds { position: absolute; border: 1px dashed #2563eb; box-sizing: border-box; pointer-events: none; }
+.object-marquee { position: absolute; border: 1px solid #2563eb; background: #2563eb18; pointer-events: none; }
+.object-snap-guide { position: absolute; pointer-events: none; z-index: 2; background: #16a34a; }
+.object-snap-guide.x { top: 0; bottom: 0; width: 1px; }
+.object-snap-guide.y { left: 0; right: 0; height: 1px; }
 .object-resize-handle { position: absolute; z-index: 1; width: 10px; height: 10px; min-width: 0; padding: 0; border: 1.5px solid #2563eb; border-radius: 2px; background: #fff; transform: translate(-50%, -50%); touch-action: none; }
 .object-resize-handle.nw { left: 0; top: 0; cursor: nwse-resize; }
 .object-resize-handle.n { left: 50%; top: 0; cursor: ns-resize; }

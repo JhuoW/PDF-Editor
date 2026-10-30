@@ -4,48 +4,26 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import { t, translateError, useLocale } from '../../i18n';
 import { useEditingStore } from '../../store/editingStore';
 import { useDocumentStore } from '../../store/documentStore';
-import { useObjectTransformStore } from '../../store/objectTransformStore';
+import { useUIStore } from '../../store/uiStore';
+import { useObjectTransformStore, type ObjectTransformDraft } from '../../store/objectTransformStore';
 import { registerPendingEditor } from '../../store/workspaceHistory';
 import { detectTextBlocks } from '../../editing/TextBlockDetector';
 import { detectImages } from '../../editing/ImageDetector';
-import { OBJECT_RESIZE_HANDLES, moveObjectRect, resizeObjectRect, sameObjectRect, type ObjectResizeHandle } from '../../editing/objectGeometry';
-import type { ImageEditOperation, PDFImage, TextBlock, TextEditOperation, TextRect } from '../../editing/types';
+import { imageAppearance } from '../../editing/imageAppearance';
+import { canTransformObject, objectRect, transformObjectEdits, type ObjectTarget } from '../../editing/objectOperations';
+import { OBJECT_RESIZE_HANDLES, moveObjectRect, resizeObjectRect, sameObjectRect, objectBounds, snapObjectRect, type ObjectResizeHandle } from '../../editing/objectGeometry';
+import type { TextRect } from '../../editing/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { mapViewportRect } from '../../utils/viewportMapping';
 import { hasOpenModal, isTextInput } from '../../utils/keyboard';
 import './ObjectEditLayer.css';
 
 interface Props { page: PDFPageProxy; pageNumber: number; scale: number; rotation: number; onTextLayout?: (blockId: string) => void }
-type ObjectTarget = { kind: 'text'; item: TextBlock } | { kind: 'image'; item: PDFImage };
-interface Draft { pageNumber: number; textEdit?: TextEditOperation; imageEdit?: ImageEditOperation }
 interface Gesture {
-  pointer: number; element: HTMLElement; target: ObjectTarget; handle?: ObjectResizeHandle;
-  start: { x: number; y: number }; rect: TextRect; next: TextRect; initialSource: TextRect; draft?: Draft;
+  pointer: number; element: HTMLElement; start: { x: number; y: number }; rect: TextRect; next: TextRect;
+  entries: { target: ObjectTarget; source: TextRect; display: TextRect }[]; handle?: ObjectResizeHandle;
+  marquee?: boolean; initialSelection?: string[]; draft?: ObjectTransformDraft;
   owner: ReturnType<typeof useDocumentStore.getState>;
-}
-
-function existingImageRect(image: PDFImage, edits: ImageEditOperation[]) {
-  return edits.filter(edit => edit.imageId === image.id).reduce((rect, edit) => edit.newRect ?? rect, image.rect);
-}
-function deletedImage(image: PDFImage, edits: ImageEditOperation[]) {
-  return edits.filter(edit => edit.imageId === image.id).reduce((deleted, edit) => edit.type === 'delete' ? true : edit.type === 'replace' ? false : deleted, false);
-}
-function textTransform(block: TextBlock, rect: TextRect): TextEditOperation {
-  const previous = useEditingStore.getState().textEdits.find(edit => edit.blockId === block.id);
-  const layout = previous?.layout;
-  return { blockId: block.id, originalText: previous?.originalText ?? block.text, newText: block.text, timestamp: Date.now(),
-    layout: { ...layout, targetRect: rect, ...(layout && !layout.keepBaseline ? {} : { keepBaseline: true, translate: true, autoGrow: false }) } };
-}
-function imageTransform(image: PDFImage, type: 'move' | 'resize' | 'delete', newRect?: TextRect): ImageEditOperation {
-  return { imageId: image.id, type, newRect, timestamp: Date.now() };
-}
-function canTransform(target: ObjectTarget) {
-  return target.kind === 'text' ? target.item.editable : !!target.item.source && !target.item.unsupportedReason && !target.item.source.insideForm;
-}
-function validOwner(gesture: Gesture) {
-  const state = useDocumentStore.getState();
-  return !state.isLoading && state.document === gesture.owner.document && state.documentVersion === gesture.owner.documentVersion
-    && state.loadRequestId === gesture.owner.loadRequestId && useEditingStore.getState().mode === 'object';
 }
 function toolbarPosition(rect: TextRect, page: { width: number; height: number }, size: { width: number; height: number }, visible: { left: number; right: number }) {
   const gap = 12, margin = 8;
@@ -58,18 +36,35 @@ function toolbarPosition(rect: TextRect, page: { width: number; height: number }
   return null;
 }
 
-/** A single selection layer for existing PDF content; edits keep their native PDF representation. */
+
+function validOwner(gesture: Gesture) {
+  const state = useDocumentStore.getState();
+  return !state.isLoading && state.document === gesture.owner.document && state.documentVersion === gesture.owner.documentVersion
+    && state.loadRequestId === gesture.owner.loadRequestId && useEditingStore.getState().mode === 'object';
+}
 export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayout }: Props) {
   useLocale();
-  const { mode, textBlocks, images, selectedBlockId, selectedImageId, textEdits, imageEdits } = useEditingStore();
-  const root = useRef<HTMLDivElement>(null), actions = useRef<HTMLDivElement>(null), gesture = useRef<Gesture | null>(null);
-  const [localDraft, setLocalDraft] = useState<{ id: string; rect: TextRect } | null>(null);
+  useObjectTransformStore(state => state.textGeometry);
+  const { mode, textBlocks, images, selectedObjectIds, selectedBlockId, selectedImageId, imageEdits } = useEditingStore();
+  const root = useRef<HTMLDivElement>(null), actions = useRef<HTMLDivElement>(null), gesture = useRef<Gesture | null>(null), suppressFocus = useRef(false);
+  const [localRects, setLocalRects] = useState<Map<string, TextRect>>(() => new Map());
+  const [marquee, setMarquee] = useState<TextRect | null>(null);
+  const [guides, setGuides] = useState<{ axis: 'x' | 'y'; position: number }[]>([]);
   const [toolbarSize, setToolbarSize] = useState({ width: 310, height: 44 });
   const [visible, setVisible] = useState<{ left: number; right: number } | null>(null);
   const [error, setError] = useState<{ page: PDFPageProxy; message: string } | null>(null);
   const blocks = textBlocks.get(pageNumber), pageImages = images.get(pageNumber);
   const source = useMemo(() => page.getViewport({ scale: 1, rotation: 0 }), [page]);
   const viewport = useMemo(() => page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) }), [page, scale, rotation]);
+  const targets: ObjectTarget[] = [
+    ...(blocks ?? []).filter(block => block.text.trim()).map(item => ({ kind: 'text' as const, item })),
+    ...(pageImages ?? []).filter(image => !imageAppearance(image, imageEdits).deleted).map(item => ({ kind: 'image' as const, item })),
+  ];
+  const ids = selectedObjectIds.length ? selectedObjectIds : [selectedBlockId, selectedImageId].filter((id): id is string => !!id);
+  const selected = targets.filter(target => ids.includes(target.item.id));
+  const displayRect = (target: ObjectTarget) => localRects.get(target.item.id) ?? mapViewportRect(objectRect(target), source, viewport);
+  const selectedRect = selected.length ? objectBounds(selected.map(displayRect)) : null;
+
   useLayoutEffect(() => {
     const element = root.current;
     if (!element || mode !== 'object') return;
@@ -80,43 +75,34 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
       const right = Math.min(box.width, Math.min(window.innerWidth, clip ? clip.left + viewer!.clientWidth : window.innerWidth) - box.left);
       setVisible(previous => previous && Math.abs(previous.left - left) < .1 && Math.abs(previous.right - right) < .1 ? previous : { left, right });
     };
-    const observer = new ResizeObserver(measure);
+    measure(); const observer = new ResizeObserver(measure);
     observer.observe(element); if (viewer) observer.observe(viewer);
     window.addEventListener('resize', measure); window.addEventListener('scroll', measure, true);
     return () => { observer.disconnect(); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
   }, [mode, page, scale, rotation]);
-  const targets: ObjectTarget[] = [
-    ...(blocks ?? []).filter(block => block.text.trim()).map(item => ({ kind: 'text' as const, item })),
-    ...(pageImages ?? []).filter(image => !deletedImage(image, imageEdits)).map(item => ({ kind: 'image' as const, item })),
-  ];
-  const selected = targets.find(target => target.item.id === (target.kind === 'text' ? selectedBlockId : selectedImageId));
-  const sourceRect = (target: ObjectTarget) => target.kind === 'text'
-    ? textEdits.find(edit => edit.blockId === target.item.id)?.layout?.targetRect ?? target.item.rect
-    : existingImageRect(target.item, imageEdits);
-  const displayRect = (target: ObjectTarget) => localDraft?.id === target.item.id ? localDraft.rect : mapViewportRect(sourceRect(target), source, viewport);
-
   useEffect(() => {
-    if (mode !== 'object') return;
+    if (mode !== 'object' || blocks) return;
     let canceled = false;
-    const jobs: Promise<unknown>[] = [];
-    if (!blocks) jobs.push(detectTextBlocks(page).then(found => { if (!canceled) useEditingStore.getState().setTextBlocks(pageNumber, found); }));
-    if (!pageImages) jobs.push(detectImages(page).then(found => { if (!canceled) useEditingStore.getState().setImages(pageNumber, found); }));
-    void Promise.all(jobs).catch(cause => { if (!canceled) setError({ page, message: cause instanceof Error ? cause.message : 'Could not detect page objects.' }); });
+    void detectTextBlocks(page).then(found => { if (!canceled) useEditingStore.getState().setTextBlocks(pageNumber, found); })
+      .catch(cause => { if (!canceled) setError({ page, message: cause instanceof Error ? cause.message : t('objects.detect.error') }); });
     return () => { canceled = true; };
-  }, [mode, blocks, pageImages, page, pageNumber]);
-
+  }, [mode, blocks, page, pageNumber]);
+  useEffect(() => {
+    if (mode !== 'object' || pageImages) return;
+    let canceled = false;
+    void detectImages(page).then(found => { if (!canceled) useEditingStore.getState().setImages(pageNumber, found); })
+      .catch(cause => { if (!canceled) setError({ page, message: cause instanceof Error ? cause.message : t('objects.detect.error') }); });
+    return () => { canceled = true; };
+  }, [mode, pageImages, page, pageNumber]);
   const finish = useCallback((cancel = false) => {
-    const active = gesture.current;
-    if (!active) return;
+    const active = gesture.current; if (!active) return;
     gesture.current = null;
     if (active.element.hasPointerCapture?.(active.pointer)) active.element.releasePointerCapture(active.pointer);
     if (!cancel && validOwner(active) && active.draft && !sameObjectRect(active.rect, active.next)) {
-      const state = useEditingStore.getState();
-      if (active.draft.textEdit && state.getBlock(active.target.item.id)?.editable) state.updateBlockLayout(active.draft.textEdit);
-      if (active.draft.imageEdit && state.images.get(active.target.item.pageNumber)?.some(image => image.id === active.target.item.id)) state.addImageEdit(active.draft.imageEdit);
+      useEditingStore.getState().applyObjectEdits(active.draft, active.handle ? 'Resize objects' : 'Move objects');
     }
     if (useObjectTransformStore.getState().draft === active.draft) useObjectTransformStore.getState().setDraft(null);
-    setLocalDraft(null);
+    setLocalRects(new Map()); setMarquee(null); setGuides([]);
   }, []);
   useEffect(() => registerPendingEditor(() => finish()), [finish]);
   useEffect(() => {
@@ -125,139 +111,139 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
     });
     return () => { unsubscribe(); finish(true); };
   }, [page, scale, rotation, finish]);
-  useEffect(() => {
-    const unsubscribe = useEditingStore.subscribe((next, previous) => {
-      if (next.mode !== 'object' || next.textEdits !== previous.textEdits || next.imageEdits !== previous.imageEdits) finish(true);
-    });
-    return unsubscribe;
-  }, [finish]);
+  useEffect(() => useEditingStore.subscribe((next, previous) => {
+    if (next.mode !== 'object' || next.textEdits !== previous.textEdits || next.imageEdits !== previous.imageEdits) finish(true);
+  }), [finish]);
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
       if (!gesture.current || event.defaultPrevented || event.key !== 'Escape' || hasOpenModal() || isTextInput(event.target)) return;
-      event.preventDefault(); event.stopPropagation(); finish(true);
+      event.preventDefault(); event.stopPropagation();
+      if (gesture.current.marquee) useEditingStore.getState().selectObjects(gesture.current.initialSelection ?? []);
+      finish(true);
     };
-    window.addEventListener('keydown', cancel, true);
-    return () => window.removeEventListener('keydown', cancel, true);
+    window.addEventListener('keydown', cancel, true); return () => window.removeEventListener('keydown', cancel, true);
   }, [finish]);
-
-  const select = (target: ObjectTarget) => {
-    if (target.kind === 'text') useEditingStore.getState().selectBlock(target.item.id);
-    else useEditingStore.getState().selectImage(target.item.id);
-  };
+  const focus = (element: HTMLElement) => { suppressFocus.current = true; element.focus({ preventScroll: true }); suppressFocus.current = false; };
   const point = (event: ReactPointerEvent) => {
-    const box = root.current!.getBoundingClientRect();
-    return { x: event.clientX - box.left, y: event.clientY - box.top };
+    const box = root.current!.getBoundingClientRect(); return { x: event.clientX - box.left, y: event.clientY - box.top };
   };
   const begin = (target: ObjectTarget, event: ReactPointerEvent, handle?: ObjectResizeHandle) => {
     if (event.button !== 0 || event.defaultPrevented || hasOpenModal()) return;
-    event.preventDefault(); event.stopPropagation(); finish(); select(target);
-    const element = event.currentTarget as HTMLElement;
-    element.focus({ preventScroll: true });
-    if (!canTransform(target) || useDocumentStore.getState().isLoading) return;
+    event.preventDefault(); event.stopPropagation(); finish();
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey || useObjectTransformStore.getState().multiSelectEnabled;
+    let chosen = selected;
+    if (additive && !handle) {
+      useEditingStore.getState().selectObjects(ids.includes(target.item.id) ? ids.filter(id => id !== target.item.id) : [...ids, target.item.id], target.item.id);
+      focus(event.currentTarget as HTMLElement); return;
+    }
+    if (!ids.includes(target.item.id)) { useEditingStore.getState().selectObjects([target.item.id]); chosen = [target]; }
+    focus(event.currentTarget as HTMLElement);
+    if (!chosen.length || !chosen.every(canTransformObject) || useDocumentStore.getState().isLoading) return;
+    const entries = chosen.map(item => ({ target: item, source: objectRect(item), display: displayRect(item) }));
+    const rect = objectBounds(entries.map(entry => entry.display)), element = event.currentTarget as HTMLElement;
     element.setPointerCapture(event.pointerId);
-    const rect = displayRect(target);
-    gesture.current = { pointer: event.pointerId, element, target, handle, start: point(event), rect, next: rect, initialSource: sourceRect(target), owner: useDocumentStore.getState() };
+    gesture.current = { pointer: event.pointerId, element, entries, handle, start: point(event), rect, next: rect, owner: useDocumentStore.getState() };
   };
   const move = (event: ReactPointerEvent) => {
-    const active = gesture.current;
-    if (!active || active.pointer !== event.pointerId) return;
+    const active = gesture.current; if (!active || active.pointer !== event.pointerId) return;
     if (!validOwner(active)) { finish(true); return; }
     event.preventDefault(); event.stopPropagation();
     const current = point(event), dx = current.x - active.start.x, dy = current.y - active.start.y;
-    const rect = active.handle ? resizeObjectRect(active.rect, active.handle, dx, dy, viewport, !event.shiftKey)
-      : moveObjectRect(active.rect, dx, dy, viewport);
+    if (active.marquee) {
+      const rect = { x: Math.max(0, Math.min(current.x, active.start.x)), y: Math.max(0, Math.min(current.y, active.start.y)), width: Math.abs(dx), height: Math.abs(dy) };
+      setMarquee(rect); active.next = rect;
+      if (rect.width < 3 && rect.height < 3) return;
+      const found = targets.filter(target => { const box = displayRect(target); return box.x >= rect.x && box.y >= rect.y && box.x + box.width <= rect.x + rect.width && box.y + box.height <= rect.y + rect.height; });
+      useEditingStore.getState().selectObjects([...(active.initialSelection ?? []), ...found.map(target => target.item.id)]); return;
+    }
+    let rect = active.handle ? resizeObjectRect(active.rect, active.handle, dx, dy, viewport, !event.shiftKey) : moveObjectRect(active.rect, dx, dy, viewport);
+    if (!active.handle && !event.altKey && useObjectTransformStore.getState().snappingEnabled && Math.abs(dx) + Math.abs(dy) > 2) {
+      const others = targets.filter(target => !active.entries.some(entry => entry.target.item.id === target.item.id)).map(displayRect);
+      const snapped = snapObjectRect(rect, others, viewport); rect = snapped.rect; setGuides(snapped.guides);
+    } else setGuides([]);
     active.next = rect;
-    const mapped = mapViewportRect(rect, viewport, source);
-    // Keep exact original dimensions on a pure move, avoiding float noise and reflow.
-    const next = active.handle ? mapped : { ...active.initialSource, x: mapped.x, y: mapped.y };
-    active.draft = active.target.kind === 'text' ? { pageNumber, textEdit: textTransform(active.target.item, next) }
-      : { pageNumber, imageEdit: imageTransform(active.target.item, active.handle ? 'resize' : 'move', next) };
-    setLocalDraft({ id: active.target.item.id, rect });
+    const moved = active.entries.map(entry => active.handle ? rect : { ...entry.display, x: entry.display.x + rect.x - active.rect.x, y: entry.display.y + rect.y - active.rect.y });
+    const rects = moved.map((box, index) => {
+      const mapped = mapViewportRect(box, viewport, source);
+      return active.handle ? mapped : { ...active.entries[index].source, x: mapped.x, y: mapped.y };
+    });
+    active.draft = { pageNumber, ...transformObjectEdits(active.entries.map(entry => entry.target), rects, !!active.handle) };
+    setLocalRects(new Map(active.entries.map((entry, index) => [entry.target.item.id, moved[index]])));
     useObjectTransformStore.getState().setDraft(active.draft);
   };
-  const remove = (target: ObjectTarget) => {
+  const remove = () => {
     finish(true);
-    if (target.kind === 'text') {
-      if (!target.item.editable) return;
-      useEditingStore.getState().updateBlockText(target.item.id, '');
-      useEditingStore.getState().selectBlock(null);
-    } else if (target.item.source && !target.item.unsupportedReason) {
-      useEditingStore.getState().addImageEdit(imageTransform(target.item, 'delete'));
-      useEditingStore.getState().selectImage(null);
-    }
-    root.current?.focus({ preventScroll: true });
+    useEditingStore.getState().applyObjectEdits({
+      textEdits: selected.filter((item): item is ObjectTarget & { kind: 'text' } => item.kind === 'text' && item.item.editable).map(item => ({ blockId: item.item.id, originalText: item.item.text, newText: '', timestamp: Date.now() })),
+      imageEdits: selected.filter(item => item.kind === 'image' && item.item.source && !item.item.unsupportedReason).map(item => ({ imageId: item.item.id, type: 'delete', timestamp: Date.now() })),
+    }, 'Delete objects');
+    useEditingStore.getState().selectObjects([]); root.current?.focus({ preventScroll: true });
   };
-  const editText = (block: TextBlock) => {
-    finish();
-    useEditingStore.getState().requestTextEdit(block.id);
-  };
+  const editText = (target: ObjectTarget) => { if (target.kind === 'text' && target.item.editable) { finish(); useEditingStore.getState().requestTextEdit(target.item.id); } };
+  const properties = () => { finish(); useUIStore.getState().setInspectorOpen(true); };
   const keyDown = (event: React.KeyboardEvent) => {
     if (event.defaultPrevented || hasOpenModal() || isTextInput(event.target) || (event.target as Element).closest('.object-edit-actions')) return;
-    if (!selected) return;
-    if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopPropagation(); remove(selected); return; }
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(true); useEditingStore.getState().selectBlock(null); root.current?.focus(); return; }
-    if (event.key === 'Enter' && selected.kind === 'text' && selected.item.editable) { event.preventDefault(); event.stopPropagation(); editText(selected.item); return; }
-    if (event.ctrlKey || event.metaKey || event.altKey || !canTransform(selected)) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); event.stopPropagation(); useEditingStore.getState().selectObjects(targets.filter(canTransformObject).map(target => target.item.id)); return; }
+    if (!selected.length) return;
+    if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); event.stopPropagation(); remove(); return; }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(true); useEditingStore.getState().selectObjects([]); root.current?.focus(); return; }
+    if (event.key === 'Enter' && selected.length === 1 && selected[0].kind === 'text') { event.preventDefault(); event.stopPropagation(); editText(selected[0]); return; }
+    if (event.ctrlKey || event.metaKey || event.altKey || !selected.every(canTransformObject)) return;
     const amount = (event.shiftKey ? 10 : 1) * scale;
     const dx = event.key === 'ArrowLeft' ? -amount : event.key === 'ArrowRight' ? amount : 0, dy = event.key === 'ArrowUp' ? -amount : event.key === 'ArrowDown' ? amount : 0;
     if (!dx && !dy) return;
     event.preventDefault(); event.stopPropagation();
-    const current = displayRect(selected), moved = moveObjectRect(current, dx, dy, viewport);
-    if (sameObjectRect(current, moved)) return;
-    const mapped = mapViewportRect(moved, viewport, source), original = sourceRect(selected), next = { ...original, x: mapped.x, y: mapped.y };
-    if (selected.kind === 'text') useEditingStore.getState().updateBlockLayout(textTransform(selected.item, next));
-    else useEditingStore.getState().addImageEdit(imageTransform(selected.item, 'move', next));
+    const box = selectedRect!, moved = moveObjectRect(box, dx, dy, viewport);
+    if (sameObjectRect(box, moved)) return;
+    const rects = selected.map(target => { const old = displayRect(target), mapped = mapViewportRect({ ...old, x: old.x + moved.x - box.x, y: old.y + moved.y - box.y }, viewport, source); return { ...objectRect(target), x: mapped.x, y: mapped.y }; });
+    useEditingStore.getState().applyObjectEdits(transformObjectEdits(selected, rects), 'Move objects');
   };
-
-  const selectedRect = selected ? displayRect(selected) : null;
   const visibleArea = visible ?? { left: 0, right: viewport.width };
   const placement = selectedRect ? toolbarPosition(selectedRect, viewport, toolbarSize, visibleArea) : null;
-  const toolbarHost = mode === 'object' && selected && !placement ? window.document.getElementById('pdf-text-edit-controls') : null;
+  const toolbarHost = selected.length && !placement ? window.document.getElementById('pdf-text-edit-controls') : null;
   useLayoutEffect(() => {
-    if (!actions.current || toolbarHost) return;
+    if (!actions.current || !selected.length || mode !== 'object') return;
     const observer = new ResizeObserver(entries => {
-      const size = entries[0]?.borderBoxSize[0];
-      if (size) setToolbarSize(previous => Math.abs(previous.width - size.inlineSize) < .1 && Math.abs(previous.height - size.blockSize) < .1
-        ? previous : { width: size.inlineSize, height: size.blockSize });
+      const size = entries[0]?.borderBoxSize?.[0];
+      if (size) setToolbarSize(previous => Math.abs(previous.width - size.inlineSize) < .1 && Math.abs(previous.height - size.blockSize) < .1 ? previous : { width: size.inlineSize, height: size.blockSize });
     });
-    observer.observe(actions.current);
-    return () => observer.disconnect();
-  }, [selected?.item.id, toolbarHost, mode]);
+    observer.observe(actions.current); return () => observer.disconnect();
+  }, [selected.length, toolbarHost, mode]);
   if (mode !== 'object') return null;
-  const unsupported = selected?.kind === 'text' ? selected.item.unsupportedReason : selected?.item.unsupportedReason
-    ?? (selected?.item.source?.insideForm ? t('objects.unsupported.move') : undefined);
-  const editActions = selected && <div ref={actions} className={`object-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`}
-    style={toolbarHost ? undefined : { ...(placement ?? { left: 8, top: -toolbarSize.height - 12 }), maxWidth: Math.max(0, visibleArea.right - visibleArea.left - 16) }} onPointerDown={event => event.stopPropagation()}>
-    {selected.kind === 'text' ? <>
-      <button type="button" disabled={!selected.item.editable} onClick={() => editText(selected.item)}>{t('objects.edit.text')}</button>
-      {onTextLayout && <button type="button" disabled={!selected.item.editable} onClick={() => { finish(); onTextLayout(selected.item.id); }}>{t('objects.layout')}</button>}
-    </> : <button type="button" onClick={() => { finish(); useEditingStore.getState().setMode('image'); useEditingStore.getState().selectImage(selected.item.id); }}>{t('objects.image.options')}</button>}
-    <button type="button" disabled={selected.kind === 'text' ? !selected.item.editable : !selected.item.source || !!selected.item.unsupportedReason} onClick={() => remove(selected)}>{t('objects.delete')}</button>
+  const one = selected.length === 1 ? selected[0] : undefined;
+  const unsupported = one?.item.unsupportedReason ?? (one?.kind === 'image' && one.item.source?.insideForm ? t('objects.unsupported.move') : undefined);
+  const editActions = selected.length > 0 && <div ref={actions} className={`object-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { ...(placement ?? { left: 8, top: -toolbarSize.height - 12 }), maxWidth: Math.max(0, visibleArea.right - visibleArea.left - 16) }} onPointerDown={event => event.stopPropagation()}>
+    {one?.kind === 'text' && <><button type="button" disabled={!one.item.editable} onClick={() => editText(one)}>{t('objects.edit.text')}</button>{onTextLayout && <button type="button" disabled={!one.item.editable} onClick={() => { finish(); onTextLayout(one.item.id); }}>{t('objects.layout')}</button>}</>}
+    {one?.kind === 'image' && <button type="button" onClick={() => { finish(); useEditingStore.getState().setMode('image'); useEditingStore.getState().selectImage(one.item.id); }}>{t('objects.image.options')}</button>}
+    <button type="button" onClick={properties}>{t(selected.length > 1 ? 'objects.arrange' : one?.kind === 'image' ? 'image.appearance' : 'text.format')}</button>
+    <button type="button" onClick={remove}>{t('objects.delete')}</button>
   </div>;
   return <div ref={root} className="object-edit-layer" tabIndex={-1} onKeyDown={keyDown} onPointerDown={event => {
-    if (event.target !== event.currentTarget || hasOpenModal()) return;
-    event.preventDefault(); event.stopPropagation(); finish(); useEditingStore.getState().selectBlock(null); root.current?.focus();
-  }} onPointerMove={move} onPointerUp={event => { if (gesture.current?.pointer === event.pointerId) { move(event); finish(); } }}
-    onPointerCancel={() => finish(true)} onLostPointerCapture={() => finish(true)}>
+    if (event.target !== event.currentTarget || event.button !== 0 || hasOpenModal()) return;
+    event.preventDefault(); event.stopPropagation(); finish();
+    const initialSelection = event.shiftKey || event.ctrlKey || event.metaKey ? ids : [];
+    useEditingStore.getState().selectObjects(initialSelection); focus(event.currentTarget);
+    const start = point(event), rect = { ...start, width: 0, height: 0 };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    gesture.current = { pointer: event.pointerId, element: event.currentTarget, entries: [], start, rect, next: rect, marquee: true, initialSelection, owner: useDocumentStore.getState() };
+  }} onPointerMove={move} onPointerUp={event => { if (gesture.current?.pointer === event.pointerId) { move(event); finish(); } }} onPointerCancel={() => finish(true)} onLostPointerCapture={() => finish(true)}>
     {(!blocks || !pageImages) && error?.page !== page && <div className="object-edit-loading" role="status">{t('objects.loading')}</div>}
     {error?.page === page && <div className="object-edit-notice" role="alert">{translateError(error.message)}</div>}
-    {[...targets].sort((a, b) => {
-      const first = sourceRect(a), second = sourceRect(b);
-      return second.width * second.height - first.width * first.height;
-    }).map(target => {
-      const rect = displayRect(target), isSelected = selected?.item.id === target.item.id;
-      return <div key={target.item.id} data-object-id={target.item.id} data-object-kind={target.kind}
-        role="button" tabIndex={0} aria-label={t(`objects.select.${target.kind}`, { index: targets.indexOf(target) + 1 })} aria-pressed={isSelected}
-        aria-disabled={!canTransform(target) || undefined}
-        className={`object-edit-box ${target.kind} ${isSelected ? 'selected' : ''} ${canTransform(target) ? '' : 'readonly'}`}
+    {[...targets].sort((a, b) => { const first = objectRect(a), second = objectRect(b); return second.width * second.height - first.width * first.height; }).map(target => {
+      const rect = displayRect(target), isSelected = ids.includes(target.item.id);
+      return <div key={target.item.id} data-object-id={target.item.id} data-object-kind={target.kind} role="button" tabIndex={0}
+        aria-label={t(`objects.select.${target.kind}`, { index: targets.indexOf(target) + 1 })} aria-pressed={isSelected} aria-disabled={!canTransformObject(target) || undefined}
+        className={`object-edit-box ${target.kind} ${isSelected ? 'selected' : ''} ${canTransformObject(target) ? '' : 'readonly'}`}
         style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-        onFocus={() => select(target)} onPointerDown={event => begin(target, event)} onClick={event => { event.stopPropagation(); select(target); }}
-        onDoubleClick={event => { if (target.kind === 'text' && target.item.editable) { event.preventDefault(); event.stopPropagation(); editText(target.item); } }}>
-        {target.kind === 'image' && isSelected && canTransform(target) && OBJECT_RESIZE_HANDLES.map(handle => <button key={handle} type="button" tabIndex={-1}
-          data-resize-handle={handle} className={`object-resize-handle ${handle}`} aria-label={t(`objects.resize.${handle}`)}
-          onPointerDown={event => begin(target, event, handle)} onClick={event => event.stopPropagation()} />)}
+        onFocus={() => { if (!suppressFocus.current && !ids.includes(target.item.id)) useEditingStore.getState().selectObjects([target.item.id]); }}
+        onPointerDown={event => begin(target, event)} onClick={event => event.stopPropagation()}
+        onDoubleClick={event => { event.preventDefault(); event.stopPropagation(); editText(target); }}>
+        {target.kind === 'image' && isSelected && selected.length === 1 && canTransformObject(target) && OBJECT_RESIZE_HANDLES.map(handle => <button key={handle} type="button" tabIndex={-1} data-resize-handle={handle} className={`object-resize-handle ${handle}`} aria-label={t(`objects.resize.${handle}`)} onPointerDown={event => begin(target, event, handle)} onClick={event => event.stopPropagation()} />)}
       </div>;
     })}
+    {selected.length > 1 && selectedRect && <div className="object-group-bounds" style={{ left: selectedRect.x, top: selectedRect.y, width: selectedRect.width, height: selectedRect.height }} />}
+    {marquee && <div className="object-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
+    {guides.map(guide => <div key={guide.axis} className={`object-snap-guide ${guide.axis}`} style={guide.axis === 'x' ? { left: guide.position } : { top: guide.position }} />)}
     {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
     {unsupported && <div className="object-edit-notice" role="status">{translateError(unsupported)}</div>}
   </div>;

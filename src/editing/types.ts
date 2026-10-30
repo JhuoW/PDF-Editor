@@ -43,6 +43,8 @@ export interface TextLayoutOptions {
   translate?: boolean;
   /** Direct typing can grow a moved region; dragging itself retains its size. */
   autoGrow?: boolean;
+  /** Quick formatting fits the block into nearby clear space without moving its baseline. */
+  fitToContent?: boolean;
   /** Physical source rows have been joined; remaining newlines are deliberate. */
   reflow?: boolean;
 }
@@ -97,6 +99,9 @@ export interface PDFImage {
     pixelWidth?: number;
     pixelHeight?: number;
     insideForm: boolean;
+    /** Original-image crop retained by this editor's native content span. */
+    cropRect?: TextRect;
+    rawRect?: TextRect;
     /** Managed page marks are edited through their batch settings. */
     decorationInstance?: string;
   };
@@ -116,7 +121,7 @@ export interface PDFImage {
 }
 
 export interface ImageEditOperation {
-  type: 'replace' | 'delete' | 'resize' | 'move' | 'crop';
+  type: 'replace' | 'delete' | 'resize' | 'move' | 'crop' | 'rotate' | 'flip';
   imageId: string;
   newImageData?: ArrayBuffer;
   newRect?: {
@@ -131,6 +136,10 @@ export interface ImageEditOperation {
     width: number;
     height: number;
   };
+  /** Absolute clockwise angle in the unrotated page; crop uses original-image UVs. */
+  rotation?: number;
+  flipX?: boolean;
+  flipY?: boolean;
   timestamp: number;
 }
 

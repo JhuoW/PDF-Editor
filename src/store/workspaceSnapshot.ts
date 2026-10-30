@@ -86,6 +86,7 @@ export function restoreWorkspace(snapshot: WorkspaceSnapshot): void {
     pendingTextEditId: null,
     selectedBlockId: null,
     selectedImageId: null,
+    selectedObjectIds: [],
     selectedRedactionId: null,
   });
   // A selection or an editor instance belongs to the old mounted editing layer.

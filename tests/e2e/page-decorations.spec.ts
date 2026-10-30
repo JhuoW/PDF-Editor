@@ -181,7 +181,8 @@ test('keeps owned text and image decorations separate from body editing and pres
     await page.getByRole('button', { name: `Select original image ${number}`, exact: true }).press('Enter');
     await expect(page.getByRole('button', { name: 'Replace', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
-    await expect(page.getByText('Edit this image in Document → Watermarks, Headers & Backgrounds…', { exact: true })).toBeVisible();
+    await expect(page.locator('.image-controls').getByText('Edit this image in Document → Watermarks, Headers & Backgrounds…', { exact: true })).toBeVisible();
+    await expect(page.locator('.native-image-properties').getByText('Edit this image in Document → Watermarks, Headers & Backgrounds…', { exact: true })).toBeVisible();
   }
   await page.getByRole('button', { name: 'Select original image 2', exact: true }).press('Enter');
   await expect(page.getByRole('button', { name: 'Replace', exact: true })).toBeEnabled();

@@ -17,7 +17,7 @@ async function layout(page: Page, text: string) {
     await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   }
   await page.locator('.text-block').filter({ hasText: text }).dblclick();
-  await page.getByRole('button', { name: 'Text layout…', exact: true }).click();
+  await page.locator('#pdf-text-edit-controls').getByRole('button', { name: 'Text layout…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Text layout', exact: true });
   await expect(panel.getByRole('textbox', { name: 'Text', exact: true })).toBeVisible();
   return panel;

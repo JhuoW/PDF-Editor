@@ -22,17 +22,21 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
     const ids = new Set(images.map(image => image.id));
     return allImageEdits.filter(edit => ids.has(edit.imageId));
   }, [images, allImageEdits]);
-  const previewEdits = useMemo(() => draft?.textEdit
-    ? [...edits.filter(edit => edit.blockId !== draft.textEdit!.blockId), draft.textEdit]
-    : edits, [edits, draft?.textEdit]);
-  const previewImageEdits = useMemo(() => draft?.imageEdit ? [...imageEdits, draft.imageEdit] : imageEdits, [imageEdits, draft?.imageEdit]);
+  const previewEdits = useMemo(() => {
+    const pending = draft?.textEdits ?? (draft?.textEdit ? [draft.textEdit] : []);
+    return pending.length ? [...edits.filter(edit => !pending.some(item => item.blockId === edit.blockId)), ...pending] : edits;
+  }, [edits, draft]);
+  const previewImageEdits = useMemo(() => {
+    const pending = draft?.imageEdits ?? (draft?.imageEdit ? [draft.imageEdit] : []);
+    return pending.length ? [...imageEdits, ...pending] : imageEdits;
+  }, [imageEdits, draft]);
   const htmlForms = useFormStore(state => state.fields.some(field => field.pageNumber === pageNumber && !field.hidden && !field.readOnly
     && ['text', 'checkbox', 'radio', 'dropdown', 'listbox'].includes(field.type)));
   // In-flight frames are useful while a pointer continues moving. A mode,
   // committed edit, selection or gesture change invalidates their old context.
-  const context = useMemo(() => ({ page, blocks, edits, images, imageEdits, imageId: draft?.imageEdit?.imageId,
-    blockId: draft?.textEdit?.blockId, activeId, scale, rotation, htmlForms }),
-  [page, blocks, edits, images, imageEdits, draft?.imageEdit?.imageId, draft?.textEdit?.blockId, activeId, scale, rotation, htmlForms]);
+  const draftIds = draft ? [...(draft.textEdits ?? (draft.textEdit ? [draft.textEdit] : [])).map(edit => edit.blockId), ...(draft.imageEdits ?? (draft.imageEdit ? [draft.imageEdit] : [])).map(edit => edit.imageId)].join('|') : '';
+  const context = useMemo(() => ({ page, blocks, edits, images, imageEdits, draftIds, activeId, scale, rotation, htmlForms }),
+  [page, blocks, edits, images, imageEdits, draftIds, activeId, scale, rotation, htmlForms]);
   const latest = useRef({ pageNumber, blocks, edits: previewEdits, images, imageEdits: previewImageEdits, activeId, scale, rotation, htmlForms, context });
   useEffect(() => { latest.current = { pageNumber, blocks, edits: previewEdits, images, imageEdits: previewImageEdits, activeId, scale, rotation, htmlForms, context }; });
   const needed = !!activeId || previewEdits.length > 0 || previewImageEdits.length > 0;
@@ -55,6 +59,7 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
       const resultContext = ownedContexts.get(result.id);
       for (const id of ownedContexts.keys()) if (id <= result.id) ownedContexts.delete(id);
       if (canceled || (result.id !== -1 && resultContext !== latest.current.context)) return;
+      if (result.textGeometry?.length) useObjectTransformStore.getState().setTextGeometry(result.textGeometry);
       setPreview(previous => {
         const geometry = new Map(previous?.page === page ? previous.geometry : []);
         if (result.activeId && result.prepared) geometry.set(result.activeId, result.prepared);

@@ -55,7 +55,7 @@ test('previews and saves longer original text with local layout workers under th
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('布局后保留中文');
   await page.getByRole('button', { name: 'All tools' }).click(); await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
   await page.locator('.text-block').filter({ hasText: LAYOUT_ORIGINAL }).dblclick();
-  await page.getByRole('button', { name: 'Text layout…', exact: true }).click();
+  await page.locator('#pdf-text-edit-controls').getByRole('button', { name: 'Text layout…', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Text layout', exact: true });
   await panel.getByRole('textbox', { name: 'Text', exact: true }).fill('Production 中文 reflow with a longer paragraph');
   await panel.getByRole('spinbutton', { name: 'Width', exact: true }).fill('280');

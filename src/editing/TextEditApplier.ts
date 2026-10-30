@@ -88,7 +88,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   const source = sourceStyle(engine, page, block, session), overrides = edit.layout ?? {}, geometry = pageGeometry(engine, page);
   const originalBaseline = overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined);
   const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,
-    overrides.translate ? overrides.targetRect : undefined);
+    overrides.translate ? overrides.targetRect : undefined, overrides.fitToContent);
   const rect = { ...(overrides.targetRect ?? (overrides.keepBaseline ? availableRect : block.rect)) };
   if (overrides.translate && overrides.keepBaseline && overrides.autoGrow) {
     rect.width = availableRect.width; rect.height = availableRect.height;
@@ -101,7 +101,15 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   if (originalBaseline) input.legacyBaseline = (block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8)
     + (overrides.translate ? rect.y - block.rect.y : 0);
   if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === block.style.fontSize) input.sourceRows = block.lines.map(line => ({ text: line.text, width: line.width }));
-  const layout = session.layout(input, control);
+  let layout = session.layout(input, control);
+  if (overrides.fitToContent && originalBaseline && !layout.fits) {
+    const natural = session.layout({ ...input, rect: { ...input.rect, width: availableRect.width, height: availableRect.height } }, control);
+    if (natural.fits) {
+      input.rect.width = Math.max(input.rect.width, Math.min(availableRect.width, Math.ceil(Math.max(0, ...natural.lines.map(line => line.width)) * 1000) / 1000 + .01));
+      input.rect.height = Math.max(input.rect.height, natural.requiredHeight);
+      layout = session.layout(input, control);
+    }
+  }
   return { block, input, layout, page: { width: geometry.width, height: geometry.height }, availableRect };
 }
 
@@ -197,11 +205,11 @@ export async function applyTextEdits(
 }
 
 /** Visual feedback may show overflowing text; the actual writer still rejects it. */
-export async function previewInlineTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[]): Promise<Uint8Array> {
-  return writeTextEdits(data, blocks, edits, {}, true);
+export async function previewInlineTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], rects?: Map<string, import('./types').TextRect>): Promise<Uint8Array> {
+  return writeTextEdits(data, blocks, edits, {}, true, rects);
 }
 
-async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], control: TextLayoutControl, preview: boolean): Promise<Uint8Array> {
+async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], control: TextLayoutControl, preview: boolean, rects?: Map<string, import('./types').TextRect>): Promise<Uint8Array> {
   cancelled(control);
   if (edits.length === 0) return new Uint8Array(data.slice(0));
   const latest = new Map<string, TextEditOperation>();
@@ -238,6 +246,7 @@ async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]
       try {
         assertReplaceableTextRendering(engine, page, pageNumber);
         const prepared = entries.map(({ block, edit }) => prepareBlock(engine, page, block, edit, session, control));
+        for (const item of prepared) rects?.set(item.block.id, { ...item.input.rect });
         const overflow = prepared.find(item => !item.layout.fits);
         if (overflow && !preview) throw new Error(`Page ${pageNumber}: ${overflow.layout.overflow}`);
         preparedPages.set(pageNumber, prepared);

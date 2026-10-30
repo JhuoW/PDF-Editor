@@ -169,7 +169,9 @@ for (const rotation of [90, 270]) test(`original image movement follows screen c
   // Rotation 270 places this image near the lower edge. Move upward there so
   // the expected delta tests coordinate mapping rather than page clamping.
   const dy = rotation === 270 ? -45 : 45;
+  await page.keyboard.down('Alt');
   await drag(page, images(page).first(), 35, dy);
+  await page.keyboard.up('Alt');
   const output = inspect(await exported(page));
   closeBounds(output.images[0], original.images[0].map((value, index) => value + (index % 2 ? dy * 2 : 70)));
   closeBounds(output.images[1], original.images[1]);
