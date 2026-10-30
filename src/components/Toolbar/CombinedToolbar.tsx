@@ -6,12 +6,13 @@ import { commitPendingEditors } from '../../store/workspaceHistory';
 import type { AnnotationTool } from '../../annotations/types';
 import { PREDEFINED_STAMPS, SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations/types';
 import type { EditingMode } from '../../editing/types';
+import type { PageManagementAction } from '../Dialogs/PageManagementDialog';
 import { useToolbarMenus } from './useToolbarMenus';
 import './CombinedToolbar.css';
 import { translateMessage, translateError, useLocale , t } from '../../i18n';
 import { useUIStore } from '../../store/uiStore';
 import { ToolButton, type WorkspaceCommand } from '../Workspace/ToolButton';
-import { House, Type, ImagePlus, Image as ImageIcon, Highlighter, Underline, Strikethrough, Pencil, Move, MoveUpRight, Minus, RectangleHorizontal, Circle, StickyNote, Stamp, MousePointer2, Hand, Files, Scissors, RotateCcw, RotateCw, Rotate3D, Trash2, FilePlus2, FileInput, FileOutput, ScanText, FileImage, FileDown, FilePenLine, Signature, FileJson, ListRestart, Layers, ShieldCheck, Eraser, EyeOff, FileKey2, Settings2, Link, BookMarked, Paintbrush, Undo2, Redo2, Check, LayoutGrid, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
+import { Copy, Replace, Crop, House, Type, ImagePlus, Image as ImageIcon, Highlighter, Underline, Strikethrough, Pencil, Move, MoveUpRight, Minus, RectangleHorizontal, Circle, StickyNote, Stamp, MousePointer2, Hand, Files, Scissors, RotateCcw, RotateCw, Rotate3D, Trash2, FilePlus2, FileInput, FileOutput, ScanText, FileImage, FileDown, FilePenLine, Signature, FileJson, ListRestart, Layers, ShieldCheck, Eraser, EyeOff, FileKey2, Settings2, Link, BookMarked, Paintbrush, Undo2, Redo2, Check, LayoutGrid, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
 
 import { readInsertImage, type PendingImageData } from '../../utils/readInsertImage';
 export type { PendingImageData } from '../../utils/readInsertImage';
@@ -31,6 +32,7 @@ interface CombinedToolbarProps {
   onInsertFromFile: (position: number) => void;
   onMerge: () => void;
   onSplit: () => void;
+  onManagePages?: (action: PageManagementAction) => void;
   hasDocument: boolean;
   // Undo/Redo
   onUndo: () => void;
@@ -82,6 +84,7 @@ export function CombinedToolbar({
   onInsertFromFile,
   onMerge,
   onSplit,
+  onManagePages,
   hasDocument,
   onUndo,
   onRedo,
@@ -376,6 +379,10 @@ export function CombinedToolbar({
     command('appearance', t("m.watermarks.headers.backgrounds.bb98b0"), t("m.page.appearance.ed9e8a"), 'Edit', Paintbrush, () => onPageDecorations?.(), hasDocument && !!onPageDecorations),
     command('merge', t("m.merge.pdfs.6471ae"), t("m.merge.ea8f0d"), 'Organize', Files, () => onMerge(), true),
     command('split', t("m.split.pdf.9c654c"), t("m.split.fc8230"), 'Organize', Scissors, () => onSplit()),
+    command('extract-pages', t('pages.extract.title'), t('pages.extract.title'), 'Organize', FileOutput, () => onManagePages?.('extract'), hasDocument && !!onManagePages),
+    command('duplicate-pages', t('pages.duplicate.title'), t('pages.duplicate.title'), 'Organize', Copy, () => onManagePages?.('duplicate'), hasDocument && !!onManagePages),
+    command('replace-pages', t('pages.replace.title'), t('pages.replace.title'), 'Organize', Replace, () => onManagePages?.('replace'), hasDocument && !!onManagePages),
+    command('crop-pages', t('pages.crop.title'), t('pages.crop.title'), 'Organize', Crop, () => onManagePages?.('crop'), hasDocument && !!onManagePages),
     command('rotate-left', t("m.rotate.pages.left.8402cf"), t("m.rotate.left.6f72f3"), 'Organize', RotateCcw, handleRotateCCW),
     command('rotate-right', t("m.rotate.pages.right.58a421"), t("m.rotate.right.b75f23"), 'Organize', RotateCw, handleRotateCW),
     command('rotate-180', t("m.rotate.pages.180.85a24e"), t("m.rotate.180.8c8d54"), 'Organize', Rotate3D, handleRotate180),
@@ -440,7 +447,7 @@ export function CombinedToolbar({
       {workspace === 'home' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image'])}{group(t("m.review.sign.acf4a5"), ['highlight', 'freetext', 'signature'])}{group(t("m.document.tools.044791"), ['merge', 'split', 'ocr', 'compress'])}</>}
       {workspace === 'edit' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image', 'freetext'])}{group(t("m.document.tools.044791"), ['links', 'bookmarks', 'appearance'])}</>}
       {workspace === 'annotate' && <>{group(t("m.markup.3d221e"), ['highlight', 'underline', 'strikeout'])}{group(t("m.draw.bfa50c"), ['ink', 'line', 'arrow', 'rectangle', 'ellipse'])}{group(t("m.notes.stamps.a8aea3"), ['sticky-note', 'freetext'])}<div className="ribbon-group"><button type="button" className="workspace-tool" disabled={!hasDocument || isBusy} title={t("m.stamp.973fc7")} onClick={() => toggleMenu('stamp')} data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"><Stamp size={21} /><span>{t("m.stamp.973fc7")}</span></button></div></>}
-      {workspace === 'organize' && <>{group(t("m.pages.600584"), ['merge', 'split', 'rotate-left', 'rotate-right', 'rotate-180', 'delete-pages'])}{group(t("m.insert.pages.5cca93"), ['blank-before', 'blank-after', 'blank-end', 'pdf-before', 'pdf-after'])}</>}
+      {workspace === 'organize' && <>{group(t('pages.manage'), ['extract-pages', 'duplicate-pages', 'replace-pages', 'crop-pages'])}{group(t("m.pages.600584"), ['merge', 'split', 'rotate-left', 'rotate-right', 'rotate-180', 'delete-pages'])}{group(t("m.insert.pages.5cca93"), ['blank-before', 'blank-after', 'blank-end', 'pdf-before', 'pdf-after'])}</>}
       {workspace === 'convert' && <>{group(t("m.create.export.ced19b"), ['create-pdf', 'pdf-to-images'])}{group(t("m.recognize.optimize.c5cdd5"), ['ocr', 'compress'])}</>}
       {workspace === 'forms' && <>{group(t("m.form.tools.b442aa"), ['form-designer', 'signature'])}{group(t("m.form.data.97ee0f"), ['form-import', 'form-json', 'form-fdf', 'form-xfdf', 'form-reset', 'form-flatten'])}</>}
       {workspace === 'protect' && <>{group(t("m.document.protection.3f11e2"), ['encrypt', 'clean'])}{group(t("m.content.removal.5f172b"), ['mark-content', 'apply-marks', 'remove-content'])}</>}

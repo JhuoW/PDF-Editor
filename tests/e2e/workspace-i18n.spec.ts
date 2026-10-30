@@ -85,7 +85,7 @@ test('all existing commands remain accessible and Chinese modal labels contain n
   await page.locator('[data-toolbar-menu-trigger="document"]').click();
   expect(await page.locator('.workspace-all-tools [data-command]').count()).toBeGreaterThanOrEqual(35);
   await page.keyboard.press('Escape');
-  for (const id of ['merge', 'split', 'create-pdf', 'pdf-to-images', 'export-pages', 'ocr', 'compress', 'form-designer', 'signature', 'encrypt', 'clean', 'properties', 'links', 'bookmarks', 'appearance']) {
+  for (const id of ['merge', 'split', 'extract-pages', 'duplicate-pages', 'replace-pages', 'crop-pages', 'create-pdf', 'pdf-to-images', 'export-pages', 'ocr', 'compress', 'form-designer', 'signature', 'encrypt', 'clean', 'properties', 'links', 'bookmarks', 'appearance']) {
     await command(page, id); const dialog = page.getByRole('dialog'); await expect(dialog).toBeVisible();
     await expect(dialog.locator('.language-switcher button[lang="zh-CN"]')).toHaveAttribute('aria-pressed', 'true');
     // Every visible action is localized. Technical formats/units and user data are allowed.

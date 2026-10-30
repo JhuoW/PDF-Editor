@@ -14,7 +14,7 @@
 - **📄 Viewing & Navigation**: Browse PDFs with thumbnails, bookmarks, search, and flexible page views.
 - **✏️ Text & Image Editing**: Format original text, arrange objects, crop and transform images, or insert new content.
 - **🖊️ Annotations & Signatures**: Highlight, draw, add notes, and place handwritten or image signatures.
-- **🔗 Page Organization**: Merge, split, insert, delete, rotate, and reorder pages.
+- **🔗 Page Organization**: Extract, duplicate, replace, crop, merge, split, and reorder pages.
 - **🖼️ PDF & Images**: Create PDFs from images, or export selected PDF pages as PNG/JPEG.
 - **📝 Forms**: Create and fill PDF forms, import/export data, and flatten fields.
 - **🔍 Scan OCR**: Make English and Simplified Chinese scans searchable with local recognition.

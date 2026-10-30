@@ -33,6 +33,7 @@ import {
   deletePages,
   insertBlankPages,
   insertPagesFromPDF,
+  splitPDF,
   downloadPDF,
 } from './core/PDFManipulator';
 import { readActivePDF } from './core/ActiveDocument';
@@ -62,6 +63,7 @@ import type { WorkspaceSnapshot } from './store/workspaceSnapshot';
 import type { TextEditOperation } from './editing/types';
 import type { PDFLinkOperation } from './core/PDFLinkTypes';
 import type { PDFBookmarkDraft } from './core/PDFBookmarksTypes';
+import type { PageManagementAction, PageManagementRequest } from './components/Dialogs/PageManagementDialog';
 import { PDF_LINK_SCROLL_INSET, pdfLinkCurrentPosition, pdfLinkNavigationScale, resolvePDFLinkNavigation, retainPDFLinkCoordinates } from './core/PDFLinkNavigation';
 import { hasOpenModal, isTextInput } from './utils/keyboard';
 
@@ -69,6 +71,7 @@ const DocumentPropertiesDialog = lazy(() => import('./components/Dialogs/Documen
 const OCRDialog = lazy(() => import('./components/Dialogs/OCRDialog'));
 const CreatePDFDialog = lazy(() => import('./components/Dialogs/CreatePDFDialog'));
 const ExportPagesDialog = lazy(() => import('./components/Dialogs/ExportPagesDialog'));
+const PageManagementDialog = lazy(() => import('./components/Dialogs/PageManagementDialog'));
 const FormDesignerDialog = lazy(() => import('./components/Dialogs/FormDesignerDialog'));
 const PageDecorationsDialog = lazy(() => import('./components/Dialogs/PageDecorationsDialog'));
 const CleanDocumentDialog = lazy(() => import('./components/Dialogs/CleanDocumentDialog'));
@@ -115,6 +118,7 @@ function App() {
   const [mergeDocumentData, setMergeDocumentData] = useState<{ data: ArrayBuffer; fileName: string; totalPages: number; documentVersion: number } | null>(null);
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
+  const [pageManagementAction, setPageManagementAction] = useState<PageManagementAction | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [encryptDialogOpen, setEncryptDialogOpen] = useState(false);
@@ -224,6 +228,7 @@ function App() {
     pendingMergeOpen.current = null;
     if (await loadFromFile(file)) {
       setSelectedPages([]);
+      setPageManagementAction(null);
       setPendingImages([]);
       setHighlightDest(null);
       setMergeDialogOpen(false);
@@ -758,6 +763,29 @@ function App() {
     }
   }, [prepareExport]);
 
+  const handlePageManagement = useCallback(async (request: PageManagementRequest, signal: AbortSignal, onCommit: () => void) => {
+    signal.throwIfAborted();
+    if (request.action === 'extract') {
+      const { data, fileName } = await prepareExport();
+      signal.throwIfAborted();
+      const [extracted] = await splitPDF(new Uint8Array(data).buffer, { mode: 'extract-pages', pages: request.pages });
+      signal.throwIfAborted();
+      onCommit();
+      await downloadPDF(extracted, `${fileName.replace(/\.pdf$/i, '')}-extracted.pdf`);
+      return;
+    }
+    const actionName = request.action === 'duplicate' ? 'Duplicate pages' : request.action === 'replace' ? 'Replace pages'
+      : request.resetCrop ? 'Restore page boundaries' : 'Crop pages';
+    await runOperation(actionName, async ({ data, workspace }) => {
+      const { performPageManagement } = await import('./core/PageManagementWorkspace');
+      const result = await performPageManagement(data, workspace, request, signal);
+      signal.throwIfAborted();
+      onCommit();
+      return result;
+    });
+    setSelectedPages([]);
+  }, [prepareExport, runOperation]);
+
   // Handle form data export
   const handleExportFormData = useCallback(async (format: 'json' | 'fdf' | 'xfdf') => {
     try {
@@ -912,6 +940,7 @@ function App() {
     pendingMergeOpen.current = null;
     if (await closeDocument()) {
       setSelectedPages([]);
+      setPageManagementAction(null);
       setPendingImages([]);
       setCloseDialogOpen(false);
       setEncryptDialogOpen(false);
@@ -1300,6 +1329,7 @@ function App() {
           onInsertFromFile={handleInsertFromFile}
           onMerge={handleOpenMergeDialog}
           onSplit={() => setSplitDialogOpen(true)}
+          onManagePages={setPageManagementAction}
           hasDocument={!!document}
           onUndo={handleUndo}
           onRedo={handleRedo}
@@ -1577,6 +1607,8 @@ function App() {
         {document && ocrOpen && <Suspense fallback={<div role="status">{t("m.loading.ocr.000da0")}</div>}><OCRDialog documentKey={getOriginalDocument()} totalPages={navigation.totalPages}
           currentPage={navigation.currentPage} onRun={handleOCR} onClose={() => setOCROpen(false)} /></Suspense>}
         {createPDFOpen && <Suspense fallback={<div role="status">{t("m.loading.pdf.creation.ca53ea")}</div>}><CreatePDFDialog onCreate={handleOpenFile} onClose={() => setCreatePDFOpen(false)} /></Suspense>}
+        {document && pageManagementAction && <Suspense fallback={<div role="status">{t('pages.loading')}</div>}><PageManagementDialog action={pageManagementAction}
+          totalPages={navigation.totalPages} currentPage={navigation.currentPage} selectedPages={selectedPages} onRun={handlePageManagement} onClose={() => setPageManagementAction(null)} /></Suspense>}
         {document && exportPagesOpen && <Suspense fallback={<div role="status">{t("m.loading.page.export.5b4fcb")}</div>}><ExportPagesDialog readPDF={prepareExport} imagesOnly={exportPagesOpen === 'images'}
           totalPages={navigation.totalPages} currentPage={navigation.currentPage} selectedPages={selectedPages} onClose={() => setExportPagesOpen(null)} /></Suspense>}
         {document && formDesignerOpen && <Suspense fallback={<div role="status">{t("m.loading.form.designer.de3723")}</div>}><FormDesignerDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}
