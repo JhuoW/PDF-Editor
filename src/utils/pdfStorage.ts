@@ -1,6 +1,7 @@
 import type { DocumentSnapshot, HistorySnapshot } from '../store/historyStore';
 import type { WorkspaceSnapshot } from '../store/workspaceSnapshot';
 import type { useDocumentStore } from '../store/documentStore';
+import type { PersistedDocumentSaveState } from '../store/documentSaveStore';
 
 const DB_NAME = 'pdf-editor-storage';
 const DB_VERSION = 1;
@@ -15,6 +16,7 @@ export interface StoredSessionState {
   originalDocument?: DocumentSnapshot | null;
   history?: { undoStack: HistorySnapshot[]; redoStack: HistorySnapshot[] };
   navigation?: ReturnType<typeof useDocumentStore.getState>['navigation'];
+  fileSaveState?: PersistedDocumentSaveState;
 }
 
 export interface StoredPDF extends StoredSessionState {
@@ -34,7 +36,7 @@ interface HistoryRecord {
   originalDocument?: DocumentSnapshot | DocumentReference | null;
   history?: StoredHistory;
 }
-interface SessionRecord extends Pick<StoredSessionState, 'workspace' | 'navigation'> {
+interface SessionRecord extends Pick<StoredSessionState, 'workspace' | 'navigation' | 'fileSaveState'> {
   id: string;
   sessionId?: string;
   pdfRevision?: string;
@@ -192,7 +194,7 @@ export async function saveCurrentPDF(
         const pdfRevision = writer.reference(data);
         const history = writer.checkpoint(session);
         store.put({ id: CURRENT_PDF_KEY, version: 2, pdfRevision, fileName, sessionId: session.sessionId, lastOpened: Date.now() } satisfies PDFRecord);
-        store.put({ id: CURRENT_SESSION_KEY, pdfRevision, sessionId: session.sessionId, workspace: session.workspace, navigation: session.navigation } satisfies SessionRecord);
+        store.put({ id: CURRENT_SESSION_KEY, pdfRevision, sessionId: session.sessionId, workspace: session.workspace, navigation: session.navigation, fileSaveState: session.fileSaveState } satisfies SessionRecord);
         store.put(history);
         writer.collect(fail);
       } catch (error) { fail(error); }
@@ -251,6 +253,7 @@ export async function loadCurrentPDF(): Promise<StoredPDF | null> {
       if (needsMigration) result.needsMigration = true;
       if (combined.workspace !== undefined) result.workspace = combined.workspace;
       if (combined.navigation !== undefined) result.navigation = combined.navigation;
+      if (combined.fileSaveState !== undefined) result.fileSaveState = combined.fileSaveState;
       if (combined.originalDocument !== undefined) result.originalDocument = combined.originalDocument ? hydrate(combined.originalDocument) as DocumentSnapshot : null;
       if (combined.history) result.history = { undoStack: combined.history.undoStack.map(hydrate), redoStack: combined.history.redoStack.map(hydrate) };
       for (const [id, data] of revisions) {
@@ -275,6 +278,7 @@ export async function saveCurrentSession(sessionId: string, state: StoredSession
         const next = { ...current };
         if (state.workspace !== undefined) next.workspace = state.workspace;
         if (state.navigation !== undefined) next.navigation = state.navigation;
+        if (state.fileSaveState !== undefined) next.fileSaveState = state.fileSaveState;
         store.put(next);
         updated = true;
         if (state.originalDocument === undefined && state.history === undefined) return;
@@ -304,14 +308,18 @@ export async function saveCurrentSession(sessionId: string, state: StoredSession
   });
 }
 
-export async function clearCurrentPDF(): Promise<void> {
+export async function clearCurrentPDF(expectedSessionId?: string): Promise<void> {
   const registry = revisionRegistry();
   await runTransaction('readwrite', (store, fail) => {
-    store.delete(CURRENT_PDF_KEY);
-    store.delete(CURRENT_SESSION_KEY);
-    store.delete(CURRENT_HISTORY_KEY);
-    const writer = revisionWriter(store, registry, undefined, fail);
-    writer.collect(fail);
-    return () => { writer.commit(); registry.buffers = new WeakMap(); };
+    let writer: ReturnType<typeof revisionWriter> | undefined;
+    const clear = () => {
+      store.delete(CURRENT_PDF_KEY); store.delete(CURRENT_SESSION_KEY); store.delete(CURRENT_HISTORY_KEY);
+      writer = revisionWriter(store, registry, undefined, fail); writer.collect(fail);
+    };
+    if (expectedSessionId) {
+      const request = store.get(CURRENT_PDF_KEY);
+      request.onsuccess = () => { if ((request.result as PDFRecord | undefined)?.sessionId === expectedSessionId) clear(); };
+    } else clear();
+    return () => { if (writer) { writer.commit(); registry.buffers = new WeakMap(); } };
   });
 }

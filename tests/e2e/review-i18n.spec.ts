@@ -20,19 +20,19 @@ async function tool(page: Page, id: string) {
 test('confirmation uses a true modal, contains focus through language changes and restores the opener', async ({ page }) => {
   await openPDF(page); await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Unexported draft');
   await tool(page, 'close');
-  const dialog = page.getByRole('dialog', { name: 'Close Document?', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Save changes?', exact: true });
   await expect(dialog).toBeVisible();
   expect(await dialog.evaluate(element => element.matches(':modal'))).toBe(true);
-  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeFocused();
   for (const viewport of [{ width: 320, height: 568 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
-    const bounds = (await dialog.locator('.confirmation-dialog').boundingBox())!;
+    const bounds = (await dialog.boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(8);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width - 8);
     expect(bounds.y).toBeGreaterThanOrEqual(8);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height - 8);
     await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
-    await expect(dialog.getByRole('button', { name: 'Close Without Saving', exact: true })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Don’t save', exact: true })).toBeInViewport();
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   expect(await dialog.evaluate(element => {
@@ -44,9 +44,9 @@ test('confirmation uses a true modal, contains focus through language changes an
     expect(await dialog.evaluate(element => element.contains(document.activeElement) || document.activeElement === document.body)).toBe(true);
   }
   await dialog.locator('.language-switcher button[lang="zh-CN"]').click();
-  const localized = page.locator('dialog.confirmation-dialog-overlay');
+  const localized = page.locator('dialog.save-changes-dialog');
   await expect(localized.getByRole('button', { name: '取消', exact: true })).toBeVisible();
-  await expect(localized.locator('.confirmation-dialog-title')).not.toContainText('Close');
+  await expect(localized.locator('h2')).not.toContainText('Save');
   expect(await localized.evaluate(element => element.matches(':modal'))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(localized).toHaveCount(0);

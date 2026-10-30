@@ -20,6 +20,7 @@ interface PageManagementDialogProps {
   totalPages: number;
   currentPage: number;
   selectedPages: number[];
+  initialMargins?: PageManagementRequest['margins'];
   onClose: () => void;
   onRun: (request: PageManagementRequest, signal: AbortSignal, onCommit: () => void) => Promise<void>;
 }
@@ -30,7 +31,7 @@ function pageRange(value: string, count: number): number[] {
   return parseExportPageRange(value, count);
 }
 
-export default function PageManagementDialog({ action, totalPages, currentPage, selectedPages, onClose, onRun }: PageManagementDialogProps) {
+export default function PageManagementDialog({ action, totalPages, currentPage, selectedPages, initialMargins, onClose, onRun }: PageManagementDialogProps) {
   useLocale();
   const dialog = useRef<HTMLDialogElement>(null), firstInput = useRef<HTMLInputElement>(null);
   const sourceInput = useRef<HTMLInputElement>(null);
@@ -44,7 +45,7 @@ export default function PageManagementDialog({ action, totalPages, currentPage, 
   const [sourceRange, setSourceRange] = useState('');
   const [reading, setReading] = useState(false), [busy, setBusy] = useState(false);
   const [commitStarted, setCommitStarted] = useState(false);
-  const [margins, setMargins] = useState({ top: '0', right: '0', bottom: '0', left: '0' });
+  const [margins, setMargins] = useState(() => Object.fromEntries(sides.map(side => [side, String(Math.round((initialMargins?.[side] ?? 0) / mmToPoints * 1000) / 1000)])) as Record<typeof sides[number], string>);
   const [resetCrop, setResetCrop] = useState(false);
   const [attempted, setAttempted] = useState(false), [error, setError] = useState<string | null>(null);
   useEffect(() => {

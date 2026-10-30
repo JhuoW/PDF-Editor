@@ -7,6 +7,7 @@ import { useDocumentSessionStore } from '../../store/documentSession';
 import {
   FileUp,
   Download,
+  Save,
   ChevronLeft,
   ChevronRight,
   ZoomIn,
@@ -34,6 +35,12 @@ interface MainToolbarProps {
   sidebarOpen: boolean;
   onOpenFile: (file: File) => void;
   onExport: () => void;
+  onSave?: () => void;
+  onSaveAs?: () => void;
+  onOpenFileFromPicker?: () => void;
+  isSaving?: boolean;
+  fileNameOverride?: string;
+  hasUnsavedChanges?: boolean;
   onCreatePDF?: () => void;
   onExportPages?: () => void;
   onPreviousPage: () => void;
@@ -63,6 +70,12 @@ export function MainToolbar({
   sidebarOpen,
   onOpenFile,
   onExport,
+  onSave,
+  onSaveAs,
+  onOpenFileFromPicker,
+  isSaving = false,
+  fileNameOverride,
+  hasUnsavedChanges = false,
   onCreatePDF,
   onExportPages,
   onPreviousPage,
@@ -132,13 +145,14 @@ export function MainToolbar({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (file && !isSaving) {
       onOpenFile(file);
     }
     e.target.value = '';
   };
 
-  const fileName = useDocumentSessionStore(state => state.active?.fileName);
+  const sessionFileName = useDocumentSessionStore(state => state.active?.fileName);
+  const fileName = fileNameOverride ?? sessionFileName;
   const navigation = <div className="document-navigation">      {/* Center section - Navigation */}
       {hasDocument && (
         <>
@@ -318,7 +332,7 @@ export function MainToolbar({
       )}
 </div>;
   return <>
-    <header className="main-toolbar">
+    <header className="main-toolbar" aria-busy={isSaving}>
       <div className="app-brand"><span className="app-brand-icon"><FilePenLine size={22} /></span><span>{t("m.pdf.editor.3bb8b8")}</span></div>
       {/* Sidebar toggle */}
       {hasDocument && (
@@ -341,7 +355,7 @@ export function MainToolbar({
 
       {/* Left section - File operations */}
       <div className="toolbar-group">
-        {(onCreatePDF || onExportPages) && <>
+        <>
           <button ref={fileMenuButton} type="button" className="toolbar-btn" aria-expanded={!!menuPosition} aria-controls="toolbar-file-actions"
             onClick={() => menuPosition ? setMenuPosition(null) : openFileMenu()}
             onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); openFileMenu(); } }}>
@@ -361,13 +375,20 @@ export function MainToolbar({
                 buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
               }
             }}>
-            {onCreatePDF && <button type="button" onClick={() => selectFileAction(onCreatePDF)}>{t("m.create.pdf.from.images.74adad")}</button>}
-            {onExportPages && <button type="button" disabled={!hasDocument} onClick={() => selectFileAction(onExportPages)}>{t("m.export.pages.8f8203")}</button>}
+            {(onSave || onSaveAs) && <div className="toolbar-file-save-actions">
+              {onSave && <button type="button" data-file-action="save" disabled={!hasDocument || isSaving} onClick={() => selectFileAction(onSave)} title={t('file.save.tooltip')}>{t('file.save')}<kbd aria-hidden="true">{t('file.save.shortcut')}</kbd></button>}
+              {onSaveAs && <button type="button" data-file-action="save-as" disabled={!hasDocument || isSaving} onClick={() => selectFileAction(onSaveAs)} title={t('file.saveAs.tooltip')}>{t('file.saveAs')}<kbd aria-hidden="true">{t('file.saveAs.shortcut')}</kbd></button>}
+              <button type="button" data-file-action="export" disabled={!hasDocument || isSaving} onClick={() => selectFileAction(onExport)}>{t('m.export.f3e4fa')}</button>
+            </div>}
+            {onCreatePDF && <button type="button" disabled={isSaving} onClick={() => selectFileAction(onCreatePDF)}>{t("m.create.pdf.from.images.74adad")}</button>}
+            {onExportPages && <button type="button" disabled={!hasDocument || isSaving} onClick={() => selectFileAction(onExportPages)}>{t("m.export.pages.8f8203")}</button>}
+            {!onSave && !onSaveAs && <button type="button" disabled={!hasDocument || isSaving} onClick={() => selectFileAction(onExport)}>{t('m.export.f3e4fa')}</button>}
           </div>}
-        </>}
+        </>
         <button
           className="toolbar-btn"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => onOpenFileFromPicker ? onOpenFileFromPicker() : fileInputRef.current?.click()}
+          disabled={isSaving}
           title={t("m.open.pdf.ctrl.o.ce7388")} aria-label={t("m.open.cf9b77")}
         >
           <FileUp size={18} />
@@ -378,13 +399,18 @@ export function MainToolbar({
           type="file"
           accept=".pdf"
           onChange={handleFileChange}
+          disabled={isSaving}
           style={{ display: 'none' }}
         />
+        {onSave && <button type="button" className="toolbar-btn toolbar-save-button" data-file-action="save" onClick={onSave} disabled={!hasDocument || isSaving}
+          title={t('file.save.tooltip')} aria-label={isSaving ? t('file.saving') : t('file.save')}>
+          <Save size={18} /><span className="btn-label">{isSaving ? t('file.saving') : t('file.save')}</span>
+        </button>}
         <button
           className="toolbar-btn toolbar-btn-primary"
           onClick={onExport}
-          disabled={!hasDocument}
-          title={t("m.export.download.pdf.ctrl.s.85da1f")} aria-label={t("m.export.f3e4fa")}
+          disabled={!hasDocument || isSaving}
+          title={t('file.export.tooltip')} aria-label={t("m.export.f3e4fa")}
         >
           <Download size={18} />
           <span className="btn-label">{t("m.export.f3e4fa")}</span>
@@ -394,7 +420,7 @@ export function MainToolbar({
 
 
 
-      <div className="document-title" data-document-content title={fileName}>{fileName ?? t("m.no.document.open.998af1")}</div>
+      <div className="document-title" data-document-content title={fileName ? hasUnsavedChanges ? t('file.unsaved.name', { fileName }) : fileName : undefined}>{fileName ? `${fileName}${hasUnsavedChanges ? ' *' : ''}` : t("m.no.document.open.998af1")}</div>
       <div className="header-actions">
         {hasDocument && <button className="toolbar-btn icon-only" onClick={onToggleSearch} title={t("m.search.ctrl.f.2b439f")} aria-label={t("m.search.document.09bd84")}><Search size={18} /></button>}
         <LanguageSwitcher />

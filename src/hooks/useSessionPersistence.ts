@@ -7,6 +7,7 @@ import { useAnnotationHistoryStore } from '../store/annotationHistoryStore';
 import { useFormStore } from '../store/formStore';
 import { useEditingStore } from '../store/editingStore';
 import { useHistoryStore } from '../store/historyStore';
+import { useDocumentSaveStore } from '../store/documentSaveStore';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 interface PersistenceState {
@@ -87,6 +88,7 @@ export function useSessionPersistence() {
 
     flushRef.current = flush;
     const unsubscribers = [
+      useDocumentSaveStore.subscribe((next, previous) => { if (next.revision !== previous.revision) schedule(); }),
       useDocumentSessionStore.subscribe(() => {
         savedCheckpoint = checkpoint();
         schedule();

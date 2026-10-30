@@ -212,8 +212,9 @@ test('opening another PDF cancels an in-progress object transform', async ({ pag
   await open(page);
   await startDrag(page, images(page).first(), 60, 60);
   await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'new-document.pdf', mimeType: 'application/pdf', buffer: await fixture(0, 'Different document') });
-  await expect(page.locator('.document-title')).toHaveText('new-document.pdf');
   await page.mouse.up();
+  await page.getByRole('dialog', { name: 'Save changes?', exact: true }).getByRole('button', { name: 'Don’t save', exact: true }).click();
+  await expect(page.locator('.document-title')).toHaveText('new-document.pdf');
   const output = inspect(await exported(page)), expected = inspect(await fixture(0, 'Different document'));
   expect(output.images).toEqual(expected.images);
   expect(output.text).toContain('Different document'); expect(output.text).not.toContain(paragraph);

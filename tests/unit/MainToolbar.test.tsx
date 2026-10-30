@@ -3,6 +3,7 @@ import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MainToolbar } from '../../src/components/Toolbar/MainToolbar';
+import { useLocaleStore } from '../../src/i18n';
 
 type Props = ComponentProps<typeof MainToolbar>;
 
@@ -11,6 +12,7 @@ let root: Root;
 let props: Props;
 
 beforeEach(() => {
+  useLocaleStore.getState().setLocale('en');
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -43,6 +45,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  useLocaleStore.getState().setLocale('en');
 });
 
 function render(overrides: Partial<Props> = {}) {
@@ -141,6 +144,51 @@ describe('zoom and toolbar accessibility', () => {
 });
 
 describe('file actions', () => {
+  it('keeps Save, Save as and Export separate and routes each file command to its own callback', () => {
+    const onSave = vi.fn(), onSaveAs = vi.fn();
+    render({ onSave, onSaveAs });
+    const saveButton = container.querySelector<HTMLButtonElement>('.toolbar-save-button')!;
+    expect(saveButton.title).toBe('Save PDF (Ctrl+S)');
+    act(() => saveButton.click());
+    expect(onSave).toHaveBeenCalledOnce(); expect(props.onExport).not.toHaveBeenCalled();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="toolbar-file-actions"]')!;
+    act(() => trigger.click());
+    act(() => container.querySelector<HTMLButtonElement>('.toolbar-file-actions [data-file-action="save-as"]')!.click());
+    expect(onSaveAs).toHaveBeenCalledOnce(); expect(props.onExport).not.toHaveBeenCalled();
+    act(() => trigger.click());
+    act(() => container.querySelector<HTMLButtonElement>('.toolbar-file-actions [data-file-action="export"]')!.click());
+    expect(props.onExport).toHaveBeenCalledOnce(); expect(onSave).toHaveBeenCalledOnce();
+  });
+
+  it('opens the native file picker callback while preserving the hidden file input fallback', () => {
+    const onOpenFileFromPicker = vi.fn();
+    render({ onOpenFileFromPicker });
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!, fallback = vi.spyOn(input, 'click');
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Open"]')!.click());
+    expect(onOpenFileFromPicker).toHaveBeenCalledOnce(); expect(fallback).not.toHaveBeenCalled();
+    render({ onOpenFileFromPicker: undefined });
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Open"]')!.click());
+    expect(fallback).toHaveBeenCalledOnce();
+  });
+
+  it('disables file mutation actions during saving and displays the chosen filename and unsaved marker', () => {
+    render({ onSave: vi.fn(), onSaveAs: vi.fn(), isSaving: true, fileNameOverride: 'saved-copy.pdf', hasUnsavedChanges: true });
+    expect(container.querySelector('.document-title')!.textContent).toBe('saved-copy.pdf *');
+    expect(container.querySelector<HTMLButtonElement>('.toolbar-save-button')!.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('.toolbar-btn-primary')!.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Open"]')!.disabled).toBe(true);
+    act(() => container.querySelector<HTMLButtonElement>('[aria-controls="toolbar-file-actions"]')!.click());
+    expect([...container.querySelectorAll<HTMLButtonElement>('.toolbar-file-save-actions button')].every(button => button.disabled)).toBe(true);
+  });
+
+  it('uses natural Chinese Save and Export labels without translating the PDF filename', () => {
+    render({ onSave: vi.fn(), onSaveAs: vi.fn(), fileNameOverride: 'English PDF.pdf' });
+    act(() => useLocaleStore.getState().setLocale('zh-CN'));
+    expect(container.querySelector('.toolbar-btn-primary')!.textContent).toBe('导出');
+    expect(container.querySelector('.toolbar-save-button')!.textContent).toBe('保存');
+    expect(container.querySelector('.document-title')!.textContent).toBe('English PDF.pdf');
+  });
+
   it('allows creation without an open document and disables page export', () => {
     const onCreatePDF = vi.fn(), onExportPages = vi.fn();
     render({ hasDocument: false, onCreatePDF, onExportPages });

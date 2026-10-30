@@ -1,0 +1,10 @@
+.save-changes-dialog { width: min(520px, calc(100vw - 32px)); }
+.save-changes-dialog p { overflow-wrap: anywhere; }
+.save-changes-dialog footer { flex-wrap: wrap; }
+@media (max-width: 480px) {
+  .save-changes-dialog { padding: 18px; }
+  .save-changes-dialog header { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .save-changes-dialog header > .dialog-language { justify-self: start; }
+  .save-changes-dialog footer { gap: 8px; }
+  .save-changes-dialog footer button { flex: 1 0 auto; }
+}

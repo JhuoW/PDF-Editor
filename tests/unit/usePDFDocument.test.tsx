@@ -14,6 +14,8 @@ import { useSearchStore } from '../../src/store/searchStore';
 import { useTextBoxStore } from '../../src/store/textBoxStore';
 import { captureWorkspace, createWorkspace } from '../../src/store/workspaceSnapshot';
 import { useDocumentSessionStore } from '../../src/store/documentSession';
+import { CURRENT_TAB_SESSION_KEY } from '../../src/utils/documentRecovery';
+import { clearDocumentSaveState } from '../../src/store/documentSaveStore';
 
 const mocks = vi.hoisted(() => ({
   getDocument: vi.fn(),
@@ -76,6 +78,11 @@ function pdfFile(name: string, data: ArrayBuffer) {
 let root: Root | null;
 let container: HTMLDivElement;
 let api: ReturnType<typeof usePDFDocument>;
+const originalNavigationGetter = Object.getOwnPropertyDescriptor(performance, 'getEntriesByType');
+function navigation(type: 'navigate' | 'reload' | 'back_forward', sessionId?: string) {
+  Object.defineProperty(performance, 'getEntriesByType', { configurable: true, value: vi.fn(() => [{ type }]) });
+  if (sessionId) sessionStorage.setItem(CURRENT_TAB_SESSION_KEY, sessionId);
+}
 
 function Harness() {
   const result = usePDFDocument();
@@ -118,6 +125,7 @@ function seedCurrentDocument() {
 beforeEach(() => {
   root = null;
   vi.resetAllMocks();
+  sessionStorage.clear(); navigation('navigate'); clearDocumentSaveState();
   mocks.loadCurrentPDF.mockResolvedValue(null);
   mocks.saveCurrentPDF.mockResolvedValue(undefined);
   mocks.clearCurrentPDF.mockResolvedValue(undefined);
@@ -138,9 +146,26 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root?.unmount());
   container?.remove();
+  if (originalNavigationGetter) Object.defineProperty(performance, 'getEntriesByType', originalNavigationGetter);
+  else Reflect.deleteProperty(performance, 'getEntriesByType');
 });
 
 describe('PDF document sessions', () => {
+  it.each(['navigate', 'back_forward'] as const)('starts empty on %s without reading or deleting another tab’s cache', async type => {
+    navigation(type, 'previous-session');
+    mocks.loadCurrentPDF.mockResolvedValue({ data: buffer(1), fileName: 'cached.pdf', sessionId: 'previous-session' });
+    await mount();
+    expect(api.document).toBeNull(); expect(mocks.loadCurrentPDF).not.toHaveBeenCalled();
+    expect(mocks.clearCurrentPDF).not.toHaveBeenCalled(); expect(mocks.getDocument).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(CURRENT_TAB_SESSION_KEY)).toBeNull();
+  });
+
+  it.each([undefined, 'another-tab'])('does not recover a refresh without matching ownership (%s)', async owned => {
+    navigation('reload', owned);
+    mocks.loadCurrentPDF.mockResolvedValue({ data: buffer(1), fileName: 'cached.pdf', sessionId: 'cached-session' });
+    await mount();
+    expect(api.document).toBeNull(); expect(mocks.getDocument).not.toHaveBeenCalled(); expect(mocks.clearCurrentPDF).not.toHaveBeenCalled();
+  });
   it('stores editable native notes separately while retaining the untouched original for Reset', async () => {
     const source = pdfDocument(1);
     const normalized = pdfDocument(1);
@@ -386,7 +411,8 @@ describe('PDF document sessions', () => {
   });
 
   it('ignores a cached file returned after the user explicitly opens a file', async () => {
-    const cached = deferred<{ data: ArrayBuffer; fileName: string } | null>();
+    navigation('reload', 'cached-session');
+    const cached = deferred<{ data: ArrayBuffer; fileName: string; sessionId: string } | null>();
     mocks.loadCurrentPDF.mockReturnValue(cached.promise);
     const openedDocument = pdfDocument();
     mocks.getDocument.mockReturnValue(loadingTask(Promise.resolve(openedDocument)));
@@ -395,7 +421,7 @@ describe('PDF document sessions', () => {
     await act(async () => {
       expect(await api.loadFromFile(pdfFile('chosen.pdf', buffer(2)))).toBe(true);
     });
-    await act(async () => { cached.resolve({ data: buffer(1), fileName: 'cached.pdf' }); });
+    await act(async () => { cached.resolve({ data: buffer(1), fileName: 'cached.pdf', sessionId: 'cached-session' }); });
 
     expect(api.document).toBe(openedDocument);
     expect(mocks.getDocument).toHaveBeenCalledOnce();
@@ -403,7 +429,8 @@ describe('PDF document sessions', () => {
   });
 
   it('ignores an already parsing cached document when the user opens another file', async () => {
-    mocks.loadCurrentPDF.mockResolvedValue({ data: buffer(1), fileName: 'cached.pdf' });
+    navigation('reload', 'cached-session');
+    mocks.loadCurrentPDF.mockResolvedValue({ data: buffer(1), fileName: 'cached.pdf', sessionId: 'cached-session' });
     const cachedParse = deferred<PDFDocumentProxy>();
     const cachedDocument = pdfDocument();
     const openedDocument = pdfDocument();
@@ -422,20 +449,18 @@ describe('PDF document sessions', () => {
     expect(useHistoryStore.getState().getOriginalDocument()?.fileName).toBe('chosen.pdf');
   });
 
-  it('migrates a legacy cached PDF into a complete identified session', async () => {
+  it('leaves an unowned legacy cached PDF untouched instead of opening it on a new visit', async () => {
     mocks.loadCurrentPDF.mockResolvedValue({ data: buffer(1), fileName: 'cached.pdf' });
     const cachedDocument = pdfDocument();
     mocks.getDocument.mockReturnValue(loadingTask(Promise.resolve(cachedDocument)));
     await mount();
 
-    expect(api.document).toBe(cachedDocument);
-    expect(useHistoryStore.getState().getOriginalDocument()).toMatchObject({
-      data: buffer(1), fileName: 'cached.pdf',
-    });
-    expect(mocks.saveCurrentPDF).toHaveBeenCalledWith(buffer(1), 'cached.pdf', expect.objectContaining({ sessionId: expect.any(String), workspace: createWorkspace() }));
+    expect(api.document).toBeNull();
+    expect(mocks.loadCurrentPDF).not.toHaveBeenCalled(); expect(mocks.saveCurrentPDF).not.toHaveBeenCalled();
   });
 
   it('restores edits, form baselines, history, original bytes, and navigation after a refresh', async () => {
+    navigation('reload', 'persisted-session');
     const { annotation } = seedCurrentDocument();
     useFormStore.getState().setFieldValue('name', 'edited form value');
     const workspace = captureWorkspace();

@@ -1,6 +1,7 @@
 import { useLocale } from "../../i18n";
 import { useEffect, useCallback, forwardRef, useImperativeHandle, useRef } from 'react';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
+import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { FontSize, TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
@@ -93,12 +94,20 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
         }),
       ],
       content: initialContent || '<p></p>',
-      autofocus: autoFocus ? 'end' : false,
+      autofocus: false,
       editorProps: {
         attributes: {
           class: 'tiptap-editor-content',
           style: editorStyle(defaultStyle),
         },
+      },
+      onCreate: ({ editor }) => {
+        // Wait for the mounted view, but preserve a selection the user has
+        // already made. Deferred autofocus('end') would collapse that selection.
+        if (autoFocus && !editor.view.hasFocus()) {
+          editor.view.dispatch(editor.state.tr.setSelection(TextSelection.atEnd(editor.state.doc)));
+          editor.view.focus();
+        }
       },
       onUpdate: ({ editor }) => {
         onContentChange?.(editor.getHTML(), editor.getText());

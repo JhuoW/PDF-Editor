@@ -13,6 +13,7 @@ import { TextEditLayer } from './TextEditLayer';
 import { ImageEditLayer } from './ImageEditLayer';
 import { ObjectEditLayer } from './ObjectEditLayer';
 import { RedactionLayer } from './RedactionLayer';
+import { PageCropLayer } from './PageCropLayer';
 import type { LinkDestination } from './PDFViewer';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import './PageCanvas.css';
@@ -208,6 +209,7 @@ export const PageCanvas = memo(function PageCanvas({
           left={highlightDestination.left}
         />
       )}
+      {dimensions.width > 0 && <PageCropLayer page={page} pageNumber={pageNumber} scale={scale} rotation={rotation} />}
       {isRendering && (
         <div className="page-loading-overlay">
           <div className="page-loading-spinner" />

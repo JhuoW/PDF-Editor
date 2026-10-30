@@ -92,6 +92,8 @@ test('compresses current edits losslessly with real previews, editable forms, na
   await page.setViewportSize({ width: 1280, height: 900 });
   samePixels(expected, (await download(page, page.getByRole('button', { name: 'Export', exact: true }))).bytes);
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({ name: saved.name, mimeType: 'application/pdf', buffer: saved.bytes });
+  await page.getByRole('dialog', { name: 'Save changes?', exact: true }).getByRole('button', { name: 'Don’t save', exact: true }).click();
+  await expect(page.locator('.document-title')).toHaveText(saved.name);
   await expect(page.getByRole('textbox', { name: 'Contact', exact: true })).toHaveValue('Compression 中文 field');
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Still editable');
   expect((await PDFDocument.load((await download(page, page.getByRole('button', { name: 'Export', exact: true }))).bytes)).getForm().getTextField('Contact').getText()).toBe('Still editable');

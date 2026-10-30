@@ -25,6 +25,7 @@ async function open(page: Page, rotation = 0) {
 async function action(page: Page, name: string) {
   await page.locator('#workspace-organize').click();
   await page.locator(`.workspace-ribbon [data-command="${name}-pages"]`).click();
+  if (name === 'crop') await page.locator('.page-crop-controls [data-crop-action="options"]').click();
   const dialog = page.getByRole('dialog'); await expect(dialog).toBeVisible();
   expect(await dialog.evaluate(element => element.matches(':modal'))).toBe(true);
   return dialog;

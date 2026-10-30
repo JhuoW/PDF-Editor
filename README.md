@@ -29,8 +29,8 @@
 1. **Open**: Click **Open** or drag a PDF into the viewer.
 2. **Navigate**: Use thumbnails, page controls, and zoom to browse the document.
 3. **Edit & Annotate**: Use **Edit objects** to move text and resize images, or **Edit text** to change the original wording. Add annotations from the toolbar.
-4. **Organize**: Use the page tools to merge, split, rotate, or reorder pages.
-5. **Export**: Download your edited PDF with **Export**, or use **Convert → PDF to images** for selected pages.
+4. **Organize**: Merge, split, rotate, or reorder pages. To crop, draw a rectangle and press **Enter** or **Confirm crop**.
+5. **Save**: Use **Save** or **File → Save as…**. Use **Convert → PDF to images** to export selected pages as images.
 
 ### Local Build (Optional)
 

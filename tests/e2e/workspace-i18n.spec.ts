@@ -25,6 +25,7 @@ async function language(page: Page, locale: 'en' | 'zh-CN', scope: Locator = pag
 async function command(page: Page, id: string) {
   await page.locator('[data-toolbar-menu-trigger="document"]').click();
   await page.locator(`.workspace-all-tools [data-command="${id}"]`).click();
+  if (id === 'crop-pages') await page.locator('.page-crop-controls [data-crop-action="options"]').click();
 }
 async function exported(page: Page) {
   const pending = page.waitForEvent('download'); await page.locator('.main-toolbar .toolbar-btn-primary').click();
@@ -141,7 +142,7 @@ test('Confirmation dialogs are localized and can switch without resetting the de
   await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Unexported edit');
   await command(page, 'close'); const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible(); await language(page, 'en', dialog);
-  await expect(dialog.getByRole('button', { name: 'Close Without Saving', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Don’t save', exact: true })).toBeVisible();
   await language(page, 'zh-CN', dialog);
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Contact', exact: true })).toHaveValue('Unexported edit');

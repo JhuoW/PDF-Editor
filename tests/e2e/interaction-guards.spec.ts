@@ -84,7 +84,7 @@ test('the wheel scrolls an enlarged page in single and two-page views without ch
 
 test('Escape cancels a pending merge dialog before a delayed PDF read completes', async ({ page }) => {
   await openPDF(page);
-  await expect(page.getByText('Changes saved on this device', { exact: true })).toBeVisible();
+  await expect(page.getByText('Editing draft cached in this tab', { exact: true })).toBeVisible();
   // Delay the real PDF worker request, so this also exercises production builds.
   await page.evaluate(() => {
     const state = window as Window & { mergeReadPaused?: boolean; releaseMergeRead?: () => Promise<void> };

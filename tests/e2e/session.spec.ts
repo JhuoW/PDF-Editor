@@ -94,7 +94,7 @@ test('closing a saved editing session prevents it from returning on refresh', as
   await waitForSaved(page);
   await page.getByRole('button', { name: 'All tools', exact: true }).click();
   await page.getByRole('button', { name: 'Close Document', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close Without Saving', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Don’t save', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Open a PDF' })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Open a PDF' })).toBeVisible();

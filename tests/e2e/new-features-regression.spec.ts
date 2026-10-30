@@ -23,6 +23,7 @@ async function open(page: Page) {
 async function command(page: Page, id: string) {
   await page.locator('[data-toolbar-menu-trigger="document"]').click();
   await page.locator(`.workspace-all-tools [data-command="${id}"]`).click();
+  if (id === 'crop-pages') await page.locator('.page-crop-controls [data-crop-action="options"]').click();
 }
 async function download(page: Page, button?: string) {
   const pending = page.waitForEvent('download');

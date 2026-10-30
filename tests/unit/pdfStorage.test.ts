@@ -53,6 +53,21 @@ async function rawWrite(operation: (store: IDBObjectStore) => void): Promise<voi
 }
 
 describe('PDF storage transaction completion', () => {
+  it('keeps another tab’s cached document when a different owner closes its file', async () => {
+    await saveCurrentPDF(data, 'other-tab.pdf', { sessionId: 'other-tab' });
+    await clearCurrentPDF('this-tab');
+    expect(await loadCurrentPDF()).toMatchObject({ data, fileName: 'other-tab.pdf', sessionId: 'other-tab' });
+    await clearCurrentPDF('other-tab');
+    expect(await loadCurrentPDF()).toBeNull();
+  });
+
+  it('round-trips saved-file baseline hashes and updates them independently of PDF data', async () => {
+    await saveCurrentPDF(data, 'source.pdf', { sessionId: 'save-point', fileSaveState: { nativeHash: 'initial-native', workspaceHash: 'initial-workspace', unsaved: false } });
+    expect((await loadCurrentPDF())!.fileSaveState).toEqual({ nativeHash: 'initial-native', workspaceHash: 'initial-workspace', unsaved: false });
+    await saveCurrentSession('save-point', { fileSaveState: { nativeHash: 'saved-native', workspaceHash: 'saved-workspace', unsaved: false } });
+    expect((await loadCurrentPDF())!.fileSaveState).toEqual({ nativeHash: 'saved-native', workspaceHash: 'saved-workspace', unsaved: false });
+    expect((await loadCurrentPDF())!.data).toEqual(data);
+  });
   it('waits for the transaction commit after a write request succeeds', async () => {
     let finished = false;
     let requestSucceeded = false;

@@ -92,6 +92,8 @@ test('fills the actual rotated cropped UserUnit widget and exports editable Unic
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({
     name: 'filled-form.pdf', mimeType: 'application/pdf', buffer: exported,
   });
+  await page.getByRole('dialog', { name: 'Save changes?', exact: true }).getByRole('button', { name: 'Don’t save', exact: true }).click();
+  await expect(page.locator('.document-title')).toHaveText('filled-form.pdf');
   await expect(input).toHaveValue(value);
   const revised = '重新填写后的中文';
   await input.fill(revised);

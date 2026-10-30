@@ -187,3 +187,13 @@
 .toolbar-file-actions button:hover:not(:disabled) { background: var(--gray-5); }
 .toolbar-file-actions button:disabled { opacity: .4; cursor: default; }
 .toolbar-file-actions button:focus-visible { outline: 2px solid var(--blue-8); outline-offset: -2px; }
+.toolbar-file-save-actions { border-bottom: 1px solid var(--gray-6); padding-bottom: 5px; margin-bottom: 5px; }
+.toolbar-file-save-actions button { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.toolbar-file-actions kbd { color: var(--gray-10); font: inherit; font-size: 11px; white-space: nowrap; }
+.main-toolbar .toolbar-save-button { color: var(--blue-11); background: var(--blue-3); }
+@media (max-width: 600px) {
+  .main-toolbar .toolbar-save-button { padding-inline: 5px; }
+}
+@media (max-width: 360px) {
+  .main-toolbar .toolbar-save-button { display: none; }
+}

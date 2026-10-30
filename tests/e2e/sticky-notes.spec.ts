@@ -28,6 +28,7 @@ async function open(page: Page, bytes: Buffer, first = false) {
   if (first) await page.goto('/');
   const old = first ? null : await page.locator('canvas.page-canvas').elementHandle();
   await page.locator('.main-toolbar input[type="file"]').setInputFiles({ name: 'notes.pdf', mimeType: 'application/pdf', buffer: bytes });
+  if (old) await page.getByRole('dialog', { name: 'Save changes?', exact: true }).getByRole('button', { name: 'Don’t save', exact: true }).click();
   if (old) await old.waitForElementState('hidden');
   await expect(page.locator('canvas.page-canvas')).toBeVisible();
 }

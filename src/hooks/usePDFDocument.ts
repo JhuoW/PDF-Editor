@@ -9,6 +9,8 @@ import { migrateLegacyHistory } from '../store/migrateHistory';
 import { extractFormFields } from '../forms/FormFieldExtractor';
 import { importEditableAnnotations } from '../annotations/AnnotationImporter';
 import { decryptPDF } from '../core/PDFEncryption';
+import { captureDocumentFileSaveState, initializeDocumentSaveState } from '../store/documentSaveStore';
+import { forgetTabDocumentSession, reloadOwnedDocumentSession, rememberTabDocumentSession } from '../utils/documentRecovery';
 
 export interface PDFPasswordRequest {
   id: string;
@@ -214,6 +216,7 @@ export function usePDFDocument() {
           data: originalData, fileName, timestamp: Date.now(), actionName: 'Original',
         },
         history: migrated.history,
+        fileSaveState: options.restore?.fileSaveState ?? (options.preserveState ? captureDocumentFileSaveState() : undefined),
         navigation: {
           ...navigation,
           currentPage: Math.max(1, Math.min(navigation.currentPage, doc.numPages)),
@@ -227,9 +230,11 @@ export function usePDFDocument() {
           restoreWorkspace(workspace);
           useHistoryStore.setState({ ...session.history!, coalescingKey: null });
         }
+        initializeDocumentSaveState(data, workspace, { preserve: options.preserveState, restored: options.restore?.fileSaveState });
         setDocument(doc, options.preserveState);
         useDocumentStore.setState({ navigation: session.navigation! });
         useDocumentSessionStore.setState({ active: { sessionId, fileName } });
+        rememberTabDocumentSession(sessionId);
         setError(formWarning);
         void previousDocument?.destroy().catch(err => console.error('Failed to release PDF:', err));
       };
@@ -280,9 +285,10 @@ export function usePDFDocument() {
   useEffect(() => {
     let cancelled = false;
     const version = loadVersion.current;
-    void loadCurrentPDF().then(stored => {
+    const ownedSession = reloadOwnedDocumentSession();
+    if (ownedSession) void loadCurrentPDF().then(stored => {
       // An explicit open takes precedence over restoring the previous session.
-      if (!cancelled && version === loadVersion.current && stored) {
+      if (!cancelled && version === loadVersion.current && stored?.sessionId === ownedSession) {
         void loadDocument(stored.data, {
           fileName: stored.fileName,
           restore: stored,
@@ -312,7 +318,9 @@ export function usePDFDocument() {
     activeLoad.current?.cancel();
     setLoading(true);
     const closing = persistenceQueue.current.then(async () => {
-      await clearCurrentPDF();
+      const ownedSession = useDocumentSessionStore.getState().active?.sessionId;
+      await clearCurrentPDF(ownedSession);
+      forgetTabDocumentSession(ownedSession);
       const previousDocument = useDocumentStore.getState().document;
       clearDocumentSession();
       setDocument(null);

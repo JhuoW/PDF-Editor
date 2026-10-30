@@ -5,6 +5,11 @@ import '@radix-ui/themes/styles.css';
 import { PDFDocument as PDFLibDocument } from 'pdf-lib';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useSessionPersistence } from './hooks/useSessionPersistence';
+import { useDocumentSaveTracking } from './hooks/useDocumentSaveTracking';
+import { useDocumentSaveStore, captureDocumentSavePoint, markDocumentSaved, markDocumentUnsaved } from './store/documentSaveStore';
+import { useDocumentSessionStore } from './store/documentSession';
+import { openPDFFile, savePDFFile, selectSavePDFHandle, ensurePDFWritePermission, canUseNativeSavePicker, canUseNativeOpenPicker, type PDFFileHandle } from './core/DocumentFile';
+import { usePageCropStore } from './store/pageCropStore';
 import { performDocumentOperation, type DocumentOperationContext, type DocumentOperationResult } from './core/DocumentOperations';
 import { deletionPageMap, insertionPageMap, reorderedPageMap } from './core/pageMapping';
 import { captureWorkspace, createWorkspace, remapWorkspacePages } from './store/workspaceSnapshot';
@@ -73,6 +78,7 @@ const OCRDialog = lazy(() => import('./components/Dialogs/OCRDialog'));
 const CreatePDFDialog = lazy(() => import('./components/Dialogs/CreatePDFDialog'));
 const ExportPagesDialog = lazy(() => import('./components/Dialogs/ExportPagesDialog'));
 const PageManagementDialog = lazy(() => import('./components/Dialogs/PageManagementDialog'));
+const SaveChangesDialog = lazy(() => import('./components/Dialogs/SaveChangesDialog'));
 const FormDesignerDialog = lazy(() => import('./components/Dialogs/FormDesignerDialog'));
 const PageDecorationsDialog = lazy(() => import('./components/Dialogs/PageDecorationsDialog'));
 const CleanDocumentDialog = lazy(() => import('./components/Dialogs/CleanDocumentDialog'));
@@ -117,6 +123,12 @@ function App() {
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [pageManagementAction, setPageManagementAction] = useState<PageManagementAction | null>(null);
+  const [cropMargins, setCropMargins] = useState<PageManagementRequest['margins']>();
+  const fileHandle = useRef<PDFFileHandle | undefined>(undefined);
+  const [outputFileName, setOutputFileName] = useState<string>();
+  const [isSaving, setIsSaving] = useState(false);
+  const saving = useRef(false);
+  const [pendingOpen, setPendingOpen] = useState<{ file: File; handle?: PDFFileHandle; generated?: boolean } | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [encryptDialogOpen, setEncryptDialogOpen] = useState(false);
@@ -165,6 +177,8 @@ function App() {
   } = usePDFDocument();
 
   const persistence = useSessionPersistence();
+  useDocumentSaveTracking();
+  const hasUnsavedChanges = useDocumentSaveStore(state => state.isDirty);
 
   const { sidebarOpen: desktopSidebarOpen, searchOpen, toggleSidebar: toggleDesktopSidebar, toggleSearch } = useUIStore();
   const sidebarOpen = narrowViewport ? mobileSidebarOpen : desktopSidebarOpen;
@@ -175,7 +189,11 @@ function App() {
   const { query: searchQuery, clearSearch, getCurrentResult } = useSearchStore();
   const { annotations: annotationMap, currentTool, setCurrentTool, selectedAnnotationId, selectAnnotation, getAllAnnotations } = useAnnotationStore();
   const { fields: formFields, resetToOriginal: resetFormToOriginal } = useFormStore();
-  const { redactions } = useEditingStore();
+  const { redactions, mode: editingMode } = useEditingStore();
+
+  useEffect(() => {
+    if (currentTool !== 'select' || editingMode !== 'none') usePageCropStore.getState().cancel();
+  }, [currentTool, editingMode]);
   const {
     undo: historyUndo,
     redo: historyRedo,
@@ -209,8 +227,8 @@ function App() {
   // Warn user about losing changes when refreshing or leaving the page
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Only show warning if there's a document loaded (potential unsaved changes)
-      if (document) {
+      commitPendingEditors();
+      if (document && useDocumentSaveStore.getState().isDirty) {
         e.preventDefault();
         // Modern browsers require returnValue to be set
         e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
@@ -222,9 +240,12 @@ function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [document]);
 
-  const handleOpenFile = useCallback(async (file: File) => {
+  const openFileDirect = useCallback(async (file: File, handle?: PDFFileHandle) => {
     pendingMergeOpen.current = null;
     if (await loadFromFile(file)) {
+      fileHandle.current = handle;
+      setOutputFileName(file.name);
+      usePageCropStore.getState().cancel();
       setSelectedPages([]);
       setPageManagementAction(null);
       setPendingImages([]);
@@ -249,6 +270,24 @@ function App() {
     }
     return false;
   }, [loadFromFile]);
+
+  const handleOpenFile = useCallback(async (file: File, handle?: PDFFileHandle, generated = false) => {
+    if (saving.current) return false;
+    commitPendingEditors();
+    if (useDocumentStore.getState().document && useDocumentSaveStore.getState().isDirty) {
+      setPendingOpen({ file, handle, generated }); setCloseDialogOpen(true); return false;
+    }
+    const opened = await openFileDirect(file, handle);
+    if (opened && generated) markDocumentUnsaved();
+    return opened;
+  }, [openFileDirect]);
+
+  const handleOpenFromPicker = useCallback(async () => {
+    if (saving.current) return;
+    if (!canUseNativeOpenPicker()) { window.document.querySelector<HTMLInputElement>('.main-toolbar input[type="file"]')?.click(); return; }
+    try { const selected = await openPDFFile(); if (selected) await handleOpenFile(selected.file, selected.handle); }
+    catch (cause) { useDocumentStore.getState().setError(cause instanceof Error ? cause.message : 'Could not open the PDF.'); }
+  }, [handleOpenFile]);
 
   const linkNavigationRequest = useRef(0);
   const linkNavigationMounted = useRef(false);
@@ -463,8 +502,8 @@ function App() {
     checkCurrent();
     const data = await prepareOptimizationPDF(stored.data, workspace, signal);
     checkCurrent();
-    return { data, fileName: stored.fileName };
-  }, []);
+    return { data, fileName: outputFileName ?? stored.fileName };
+  }, [outputFileName]);
 
   const readTextLayoutPDF = useCallback(async (signal: AbortSignal) => {
     signal.throwIfAborted();
@@ -749,8 +788,8 @@ function App() {
     if (!stored || !isCurrent()) throw new Error('Document changed during export');
     const data = await exportWorkspacePDF(stored.data, workspace);
     if (!isCurrent()) throw new Error('Document changed during export');
-    return { data, fileName: stored.fileName };
-  }, []);
+    return { data, fileName: outputFileName ?? stored.fileName };
+  }, [outputFileName]);
 
   const handleExport = useCallback(async () => {
     try {
@@ -760,6 +799,41 @@ function App() {
       useDocumentStore.getState().setError(`Failed to export PDF: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [prepareExport]);
+
+  const saveCurrentFile = useCallback(async (saveAs = false) => {
+    if (saving.current || useDocumentStore.getState().isLoading) return false;
+    saving.current = true; setIsSaving(true);
+    commitPendingEditors();
+    const sessionId = useDocumentSessionStore.getState().active?.sessionId;
+    let name = outputFileName ?? useDocumentSessionStore.getState().active?.fileName ?? 'document.pdf';
+    try {
+      let destination = saveAs ? undefined : fileHandle.current;
+      if ((saveAs || !destination) && canUseNativeSavePicker()) {
+        destination = await selectSavePDFHandle(name) ?? undefined;
+        if (!destination) return false;
+      } else if (saveAs) {
+        const chosen = window.prompt(t('file.saveAs.name'), name);
+        if (chosen === null) return false;
+        if (!chosen.trim()) throw new Error(t('file.save.name.required'));
+        name = /\.pdf$/i.test(chosen.trim()) ? chosen.trim() : `${chosen.trim()}.pdf`;
+      }
+      if (destination) await ensurePDFWritePermission(destination);
+      if (useDocumentSessionStore.getState().active?.sessionId !== sessionId) return false;
+      const point = captureDocumentSavePoint();
+      const prepared = await prepareExport();
+      const result = await savePDFFile(prepared.data, name, { handle: destination });
+      if (!result.saved || useDocumentSessionStore.getState().active?.sessionId !== sessionId) return false;
+      fileHandle.current = result.handle; setOutputFileName(result.fileName);
+      const savedPoint = await point;
+      if (savedPoint) markDocumentSaved(savedPoint);
+      return true;
+    } catch (cause) {
+      useDocumentStore.getState().setError(cause instanceof Error ? cause.message : 'Could not save the PDF.');
+      throw cause;
+    } finally { saving.current = false; setIsSaving(false); }
+  }, [outputFileName, prepareExport]);
+  const handleSave = useCallback(() => { void saveCurrentFile().catch(() => {}); }, [saveCurrentFile]);
+  const handleSaveAs = useCallback(() => { void saveCurrentFile(true).catch(() => {}); }, [saveCurrentFile]);
 
   const handlePageManagement = useCallback(async (request: PageManagementRequest, signal: AbortSignal, onCommit: () => void) => {
     signal.throwIfAborted();
@@ -783,6 +857,17 @@ function App() {
     });
     setSelectedPages([]);
   }, [prepareExport, runOperation]);
+
+  const openPageTool = useCallback((action: PageManagementAction) => {
+    commitPendingEditors();
+    if (action !== 'crop') { setPageManagementAction(action); return; }
+    const pageNumber = useDocumentStore.getState().navigation.currentPage;
+    useEditingStore.getState().setMode('none'); setCurrentTool('select');
+    usePageCropStore.getState().start({ pageNumber,
+      onApply: (margins, signal, onCommit) => handlePageManagement({ action: 'crop', pages: [pageNumber], margins }, signal, onCommit),
+      onOptions: margins => { setCropMargins(margins); setPageManagementAction('crop'); },
+    });
+  }, [handlePageManagement, setCurrentTool]);
 
   // Handle form data export
   const handleExportFormData = useCallback(async (format: 'json' | 'fdf' | 'xfdf') => {
@@ -930,13 +1015,15 @@ function App() {
     const original = getOriginalDocument();
     if (!original) return;
     const file = new File([original.data], original.fileName, { type: 'application/pdf' });
-    await handleOpenFile(file);
+    const destination = fileHandle.current;
+    if (await openFileDirect(file, destination)) { setOutputFileName(outputFileName); markDocumentUnsaved(); }
     setResetDialogOpen(false);
-  }, [getOriginalDocument, handleOpenFile]);
+  }, [getOriginalDocument, openFileDirect, outputFileName]);
 
   const handleCloseDocument = useCallback(async () => {
     pendingMergeOpen.current = null;
     if (await closeDocument()) {
+      fileHandle.current = undefined; setOutputFileName(undefined); setPendingOpen(null); usePageCropStore.getState().cancel();
       setSelectedPages([]);
       setPageManagementAction(null);
       setPendingImages([]);
@@ -958,6 +1045,17 @@ function App() {
       linksApply.current = null;
     }
   }, [closeDocument]);
+
+  const requestCloseDocument = useCallback(() => {
+    if (saving.current) return;
+    commitPendingEditors(); setPendingOpen(null);
+    if (useDocumentSaveStore.getState().isDirty) setCloseDialogOpen(true);
+    else void handleCloseDocument();
+  }, [handleCloseDocument]);
+  const discardAndContinue = useCallback(async () => {
+    if (pendingOpen) { const next = pendingOpen; setPendingOpen(null); setCloseDialogOpen(false); if (await openFileDirect(next.file, next.handle) && next.generated) markDocumentUnsaved(); }
+    else await handleCloseDocument();
+  }, [pendingOpen, openFileDirect, handleCloseDocument]);
 
   // Check if we can reset to original (has original and has made changes)
   const canResetToOriginal = useCallback(() => {
@@ -1038,16 +1136,16 @@ function App() {
   // Capture it before editor key handlers; modal dialogs keep their own Ctrl+S.
   useEffect(() => {
     const save = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey
+      if (event.defaultPrevented || event.isComposing || event.altKey
         || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's'
         || !document || hasOpenModal()) return;
       event.preventDefault();
       event.stopPropagation();
-      if (!isLoading) void handleExport();
+      if (!isLoading) { if (event.shiftKey) handleSaveAs(); else handleSave(); }
     };
     window.addEventListener('keydown', save, true);
     return () => window.removeEventListener('keydown', save, true);
-  }, [document, isLoading, handleExport]);
+  }, [document, isLoading, handleSave, handleSaveAs]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1072,15 +1170,7 @@ function App() {
       // Global shortcuts
       if (isMod && event.key === 'o') {
         event.preventDefault();
-        // Trigger file open dialog
-        const input = window.document.createElement('input');
-        input.type = 'file';
-        input.accept = '.pdf';
-        input.onchange = async (e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (file) await handleOpenFile(file);
-        };
-        input.click();
+        void handleOpenFromPicker();
         return;
       }
 
@@ -1177,7 +1267,7 @@ function App() {
           // Save/Export with Ctrl+S
           if (isMod) {
             event.preventDefault();
-            handleExport();
+            if (event.shiftKey) handleSaveAs(); else handleSave();
           }
           break;
         case '0':
@@ -1210,7 +1300,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     document,
-    handleOpenFile,
+    handleOpenFromPicker,
     previousPage,
     nextPage,
     zoomIn,
@@ -1225,7 +1315,8 @@ function App() {
     goToPageOpen,
     handleUndo,
     handleRedo,
-    handleExport,
+    handleSave,
+    handleSaveAs,
     setZoom,
     canUndo,
     canRedo,
@@ -1297,6 +1388,8 @@ function App() {
           sidebarOpen={sidebarOpen}
           onOpenFile={handleOpenFile}
           onExport={handleExport}
+          onSave={handleSave} onSaveAs={handleSaveAs} onOpenFileFromPicker={handleOpenFromPicker} isSaving={isSaving}
+          fileNameOverride={outputFileName} hasUnsavedChanges={hasUnsavedChanges}
           onCreatePDF={() => setCreatePDFOpen(true)}
           onExportPages={() => setExportPagesOpen('all')}
           onPreviousPage={previousPage}
@@ -1327,7 +1420,7 @@ function App() {
           onInsertFromFile={handleInsertFromFile}
           onMerge={handleOpenMergeDialog}
           onSplit={() => setSplitDialogOpen(true)}
-          onManagePages={setPageManagementAction}
+          onManagePages={openPageTool}
           hasDocument={!!document}
           onUndo={handleUndo}
           onRedo={handleRedo}
@@ -1336,7 +1429,7 @@ function App() {
           undoActionName={getUndoActionName()}
           redoActionName={getRedoActionName()}
           onResetToOriginal={() => setResetDialogOpen(true)}
-          onCloseDocument={() => setCloseDialogOpen(true)}
+          onCloseDocument={requestCloseDocument}
           canResetToOriginal={canResetToOriginal()}
           onExportFormData={handleExportFormData}
           onImportFormData={handleImportFormData}
@@ -1488,6 +1581,7 @@ function App() {
                   } else {
                     const file = new File([new Uint8Array(data)], fileName || 'merged.pdf', { type: 'application/pdf' });
                     if (!await loadFromFile(file)) throw new Error('Could not open the merged PDF');
+                    fileHandle.current = undefined; setOutputFileName(file.name); markDocumentUnsaved();
                   }
                   setMergeDialogOpen(false);
                   setMergeDocumentData(null);
@@ -1517,17 +1611,11 @@ function App() {
               onCancel={() => setResetDialogOpen(false)}
             />
 
-            {/* Close Document confirmation dialog */}
-            <ConfirmationDialog
-              isOpen={closeDialogOpen}
-              title={t("m.close.document.cb661b")}
-              message={t("m.are.you.sure.you.want.to.close.this.document.any.0d181b")}
-              confirmLabel={t("m.close.without.saving.ff57ab")}
-              cancelLabel={t("m.cancel.77dfd2")}
-              confirmVariant="danger"
-              onConfirm={handleCloseDocument}
-              onCancel={() => setCloseDialogOpen(false)}
-            />
+            {closeDialogOpen && <Suspense fallback={null}><SaveChangesDialog
+              fileName={outputFileName ?? useDocumentSessionStore.getState().active?.fileName ?? 'document.pdf'} purpose={pendingOpen ? 'open' : 'close'}
+              busy={isSaving} onSave={async () => { if (!await saveCurrentFile()) throw new DOMException('Save cancelled', 'AbortError'); await discardAndContinue(); }}
+              onDiscard={() => { void discardAndContinue(); }} onCancel={() => { setPendingOpen(null); setCloseDialogOpen(false); }}
+            /></Suspense>}
 
             {/* Loading state */}
             {isLoading && (
@@ -1604,9 +1692,11 @@ function App() {
           onClose={() => setPropertiesOpen(false)} readPDF={readPropertiesPDF} onApply={applyProperties} /></Suspense>}
         {document && ocrOpen && <Suspense fallback={<div role="status">{t("m.loading.ocr.000da0")}</div>}><OCRDialog documentKey={getOriginalDocument()} totalPages={navigation.totalPages}
           currentPage={navigation.currentPage} onRun={handleOCR} onClose={() => setOCROpen(false)} /></Suspense>}
-        {createPDFOpen && <Suspense fallback={<div role="status">{t("m.loading.pdf.creation.ca53ea")}</div>}><CreatePDFDialog onCreate={handleOpenFile} onClose={() => setCreatePDFOpen(false)} /></Suspense>}
+        {createPDFOpen && <Suspense fallback={<div role="status">{t("m.loading.pdf.creation.ca53ea")}</div>}><CreatePDFDialog onCreate={async file => {
+          await handleOpenFile(file, undefined, true);
+        }} onClose={() => setCreatePDFOpen(false)} /></Suspense>}
         {document && pageManagementAction && <Suspense fallback={<div role="status">{t('pages.loading')}</div>}><PageManagementDialog action={pageManagementAction}
-          totalPages={navigation.totalPages} currentPage={navigation.currentPage} selectedPages={selectedPages} onRun={handlePageManagement} onClose={() => setPageManagementAction(null)} /></Suspense>}
+          initialMargins={cropMargins} totalPages={navigation.totalPages} currentPage={navigation.currentPage} selectedPages={selectedPages} onRun={handlePageManagement} onClose={() => { setPageManagementAction(null); setCropMargins(undefined); }} /></Suspense>}
         {document && exportPagesOpen && <Suspense fallback={<div role="status">{t("m.loading.page.export.5b4fcb")}</div>}><ExportPagesDialog readPDF={prepareExport} imagesOnly={exportPagesOpen === 'images'}
           totalPages={navigation.totalPages} currentPage={navigation.currentPage} selectedPages={selectedPages} onClose={() => setExportPagesOpen(null)} /></Suspense>}
         {document && formDesignerOpen && <Suspense fallback={<div role="status">{t("m.loading.form.designer.de3723")}</div>}><FormDesignerDialog documentKey={getOriginalDocument()} revision={documentVersion} currentPage={navigation.currentPage}

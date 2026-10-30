@@ -107,12 +107,14 @@ test('cancel and Escape preserve the prior editable session without a corruption
   await page.getByRole('textbox', { name: 'Customer name', exact: true }).fill('Keep unsaved edit');
   const dialog = page.getByRole('dialog', { name: 'Unlock PDF', exact: true });
   await openFile(page, 'locked-cancel.pdf', await fixture());
+  await page.getByRole('dialog', { name: 'Save changes?', exact: true }).getByRole('button', { name: 'Don’t save', exact: true }).click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Customer name', exact: true })).toHaveValue('Keep unsaved edit');
   await expect(page.locator('.error-state')).toHaveCount(0);
   await openFile(page, 'locked-escape.pdf', await fixture());
+  await page.getByRole('dialog', { name: 'Save changes?', exact: true }).getByRole('button', { name: 'Don’t save', exact: true }).click();
   await expect(dialog).toBeVisible();
   await page.getByLabel('PDF password', { exact: true }).press('Escape');
   await expect(dialog).toHaveCount(0);

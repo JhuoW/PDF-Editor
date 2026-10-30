@@ -8,6 +8,7 @@ import { useTextBoxStore } from './textBoxStore';
 import { captureWorkspace, restoreWorkspace } from './workspaceSnapshot';
 import { useDocumentStore } from './documentStore';
 import type { StoredSessionState } from '../utils/pdfStorage';
+import { captureDocumentFileSaveState, clearDocumentSaveState } from './documentSaveStore';
 
 interface ActiveDocumentSession {
   sessionId: string;
@@ -24,10 +25,12 @@ export function captureSessionState(): StoredSessionState {
     originalDocument,
     history: { undoStack, redoStack },
     navigation: { ...useDocumentStore.getState().navigation },
+    fileSaveState: captureDocumentFileSaveState(),
   };
 }
 
 export function clearDocumentSession() {
+  clearDocumentSaveState();
   useDocumentSessionStore.setState({ active: null });
   useAnnotationStore.getState().clearAnnotations();
   useAnnotationStore.getState().exitCropMode();
