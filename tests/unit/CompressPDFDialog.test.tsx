@@ -45,11 +45,11 @@ describe('CompressPDFDialog', () => {
   it('translates an optimization failure when switching language without starting another operation', async () => {
     api.optimize.mockRejectedValueOnce(new Error('Could not export pages.'));
     await render(); await click('Compress PDF');
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Could not export pages.');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Could not export pages.');
     await act(async () => useLocaleStore.getState().setLocale('zh-CN'));
     expect(host.querySelector('[role="alert"]')?.textContent).not.toContain('Could not');
     await act(async () => useLocaleStore.getState().setLocale('en'));
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Could not export pages.');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Could not export pages.');
     expect(api.optimize).toHaveBeenCalledTimes(1);
   });
 

@@ -1,5 +1,6 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateError, translateMessage } from "../../i18n";
+import { useLocale, t, translateMessage } from "../../i18n";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   addDocumentAttachment, clearDocumentMetadata, extractDocumentAttachment, inspectDocumentAssets,
@@ -214,7 +215,7 @@ function PropertiesSession({ revision, onClose, readPDF, onApply }: DocumentProp
       <div className="dialog-language"><LanguageSwitcher /></div>
     <button type="button" aria-label={t("m.close.document.properties.5d934c")} disabled={!!busy} onClick={onClose}>×</button></header>
     {loading && <p role="status" className="document-properties-status">{t("m.loading.document.properties.3f510b")}</p>}
-    {loadError && <div role="alert" className="document-properties-error"><p>{translateError(loadError)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.loading.54b15f")}</button></div>}
+    {loadError && <div role="alert" className="document-properties-error"><p><ErrorMessage error={loadError} /></p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.loading.54b15f")}</button></div>}
     <section aria-labelledby="document-metadata-heading" aria-busy={loading || !!busy}>
       <h3 id="document-metadata-heading">{t("m.document.properties.e6de11")}</h3>
       <form onSubmit={saveProperties}>
@@ -245,7 +246,7 @@ function PropertiesSession({ revision, onClose, readPDF, onApply }: DocumentProp
         </fieldset>
       </form>
     </section>
-    {error && <p role="alert" className="document-properties-error">{translateError(error)}</p>}
+    {error && <p role="alert" className="document-properties-error"><ErrorMessage error={error} /></p>}
     <footer><p role="status" className="document-properties-status">{translateMessage(busy ?? status)}</p><button type="button" disabled={!!busy} onClick={onClose}>{t("m.close.bbfa77")}</button></footer>
   </dialog>;
 }

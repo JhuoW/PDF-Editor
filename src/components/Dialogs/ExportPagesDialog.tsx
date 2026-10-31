@@ -1,12 +1,13 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateError } from "../../i18n";
+import { useLocale, t } from "../../i18n";
 import { useEffect, useRef, useState } from 'react';
 import { downloadPageExport, exportPagesInWorker } from '../../core/PageExportClient';
 import { parseExportPageRange, type PageExportProgress, type PageExportSettings } from '../../core/PageExport';
 import './ConversionDialog.css';
 
 interface ExportPagesDialogProps {
-  readPDF: () => Promise<{ data: Uint8Array | ArrayBuffer; fileName: string }>;
+  readPDF: (signal?: AbortSignal) => Promise<{ data: Uint8Array | ArrayBuffer; fileName: string }>;
   onClose: () => void;
   imagesOnly?: boolean;
   totalPages?: number;
@@ -63,7 +64,7 @@ export function ExportPagesDialog({ readPDF, onClose, imagesOnly = false, totalP
     const request = new AbortController(); controller.current = request;
     setBusy(true); setError(null); setProgress(null);
     try {
-      const source = await readPDF();
+      const source = await readPDF(request.signal);
       if (!mounted.current || closed.current || request.signal.aborted) return;
       const result = await exportPagesInWorker(source.data, { format, range: exportRange, dpi, quality, fileName: source.fileName }, {
         signal: request.signal,
@@ -114,7 +115,7 @@ export function ExportPagesDialog({ readPDF, onClose, imagesOnly = false, totalP
             }} aria-invalid={visibleRangeError ? true : undefined} aria-describedby={`export-pages-range-help${visibleRangeError ? ' export-pages-range-error' : ''}`} /></label>
             <p className="conversion-hint" id="export-pages-range-help">{imagesOnly ? t('pdf.images.range.help') : t("m.leave.blank.for.all.pages.pages.follow.the.liste.deab9c")}</p>
           </>}
-          {visibleRangeError && <p className="conversion-error" id="export-pages-range-error" role="alert">{translateError(rangeError)}</p>}
+          {visibleRangeError && <p className="conversion-error" id="export-pages-range-error" role="alert"><ErrorMessage error={rangeError} /></p>}
           {format !== 'text' && <label>{t("m.resolution.516aae")}<select aria-label={t("m.resolution.516aae")} value={dpi} onChange={event => { setDpi(Number(event.target.value) as 150 | 300); setError(null); }}>
             <option value={150}>{t("m.150.dpi.88e3c1")}</option><option value={300}>{t("m.300.dpi.c735d3")}</option>
           </select></label>}
@@ -129,7 +130,7 @@ export function ExportPagesDialog({ readPDF, onClose, imagesOnly = false, totalP
           <progress max={progress?.total || 1} value={progress?.completed} />
           <span>{!progress ? t("m.preparing.current.edits.7a228e") : progress.phase === 'archive' ? t("m.building.zip.c74536") : t("m.processed.of.pages.180e95", { v0: progress.completed, v1: progress.total })}</span>
         </div>}
-        {error && <p className="conversion-error" role="alert">{translateError(error)}</p>}
+        {error && <p className="conversion-error" role="alert"><ErrorMessage error={error} /></p>}
         <footer><button type="button" onClick={close}>{busy ? t("m.cancel.export.aefe72") : t("m.cancel.77dfd2")}</button><button type="submit" className="conversion-primary" disabled={busy}>{busy ? t("m.exporting.583ccc") : imagesOnly ? t('pdf.images.convert') : t("m.export.pages.d4dc1c")}</button></footer>
       </form>
     </dialog>

@@ -141,6 +141,9 @@ export class TextLayoutSession {
   private stroke?: StrokeState;
   private readonly engine: Engine;
   constructor(engine: Engine) { this.engine = engine; }
+  usedFontNames(layout: TextLayoutResult): string[] {
+    return [...new Set(layout.lines.flatMap(line => line.glyphs).map(glyph => this.font(glyph.fontName).getName()))];
+  }
   useSourceFont(key: string, font: Font, fallback: string) {
     if (this.fonts.has(key)) { font.destroy(); return; }
     this.fonts.set(key, font);

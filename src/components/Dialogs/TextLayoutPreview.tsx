@@ -4,6 +4,7 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import type { TextRect } from '../../editing/types';
 import { pdfDocumentOptions, pdfjsLib } from '../../utils/pdfConfig';
 import { mapViewportPoint, mapViewportRect } from '../../utils/viewportMapping';
+import { boundedRaster } from '../../utils/rasterBudget';
 
 interface Props {
   data: Uint8Array; pageNumber: number; sourceRect: TextRect; targetRect: TextRect;
@@ -44,9 +45,10 @@ export function TextLayoutPreview({ data, pageNumber, sourceRect, targetRect, sc
   useEffect(() => {
     if (!page || !viewport || !canvas.current) return;
     const element = canvas.current, context = element.getContext('2d'); if (!context) return;
-    const ratio = Math.min(window.devicePixelRatio || 1, 2); element.width = Math.ceil(viewport.width * ratio - 1e-6); element.height = Math.ceil(viewport.height * ratio - 1e-6);
+    const raster = boundedRaster(viewport.width, viewport.height, Math.min(window.devicePixelRatio || 1, 2));
+    element.width = raster.width; element.height = raster.height;
     let canceled = false;
-    const task = page.render({ canvas: element, canvasContext: context, viewport, transform: [ratio, 0, 0, ratio, 0, 0] });
+    const task = page.render({ canvas: element, canvasContext: context, viewport, transform: [element.width / viewport.width, 0, 0, element.height / viewport.height, 0, 0] });
     void task.promise.then(() => { if (!canceled) { setRendered(viewport); readyCallback.current?.(); } }).catch(cause => { if (!canceled && cause?.name !== 'RenderingCancelledException') errorCallback.current(cause instanceof Error ? cause.message : 'Could not render the text layout preview.'); });
     return () => { canceled = true; task.cancel(); };
   }, [page, viewport]);

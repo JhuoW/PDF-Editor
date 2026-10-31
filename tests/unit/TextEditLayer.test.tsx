@@ -108,7 +108,7 @@ describe('text editing interaction', () => {
     act(() => useEditingStore.getState().updateBlockText(block.id, 'Unsafe replacement'));
     expect(useEditingStore.getState().getBlock(block.id)?.text).toBe('Original');
     expect(useEditingStore.getState().textEdits).toEqual([]);
-    act(() => container.querySelector<HTMLButtonElement>('.text-edit-readonly button')!.click());
+    act(() => container.querySelector<HTMLButtonElement>('.text-edit-readonly > button')!.click());
     expect(useEditingStore.getState().mode).toBe('none');
     expect(container.querySelector('.text-edit-layer')).toBeNull();
   });

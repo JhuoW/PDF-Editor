@@ -1,6 +1,8 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { isAbortError } from '../../utils/cancellation';
 import { useLocaleStore } from '../../i18n';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateError } from "../../i18n";
+import { useLocale, t } from "../../i18n";
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { splitPDF, downloadPDF, type SplitOptions, type PageRange } from '../../core/PDFManipulator';
 import './SplitDialog.css';
@@ -108,6 +110,7 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
 
       onClose();
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(err instanceof Error ? err.message : 'Failed to split PDF');
     } finally {
       setIsSplitting(false);
@@ -239,7 +242,7 @@ export function SplitDialog({ totalPages, onClose, preparePDF }: SplitDialogProp
           </div>
 
           <p className="split-hint">{t("m.internal.links.to.pages.outside.each.output.file.128932")}</p>
-          {error && <div className="split-error">{translateError(error)}</div>}
+          {error && <div className="split-error"><ErrorMessage error={error} /></div>}
         </div>
 
         <div className="split-dialog-actions">

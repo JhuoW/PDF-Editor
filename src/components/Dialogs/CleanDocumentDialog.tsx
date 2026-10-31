@@ -1,3 +1,4 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateError, translateMessage } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -130,7 +131,7 @@ function CleanDocumentSession({ revision, currentPage, readPDF, onApply, onClose
       <button id="clean-visible-tab" type="button" role="tab" tabIndex={tab === 'visible' ? 0 : -1} aria-selected={tab === 'visible'} aria-controls="clean-visible-panel" disabled={busy || copyBusy} onClick={() => setTab('visible')}>{t("m.save.visible.copy.26a354")}</button>
     </div>
     {!current && loadError?.key !== loadKey && <p role="status" className="clean-loading">{t("m.preparing.current.edits.and.scanning.the.pdf.07b9fa")}</p>}
-    {loadError?.key === loadKey && <div className="clean-loading"><p role="alert" className="clean-error">{translateError(loadError.error)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
+    {loadError?.key === loadKey && <div className="clean-loading"><p role="alert" className="clean-error"><ErrorMessage error={loadError.error} /></p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <>
       <section role="tabpanel" id="clean-native-panel" aria-labelledby="clean-native-tab" className="clean-panel" hidden={tab !== 'native'}>
         <div className="clean-body">
@@ -156,10 +157,10 @@ function CleanDocumentSession({ revision, currentPage, readPDF, onApply, onClose
             <div className="clean-preview-toggle"><button type="button" aria-pressed={!showAfter} onClick={() => setShowAfter(false)}>{t("m.current.4fc0e2")}</button><button type="button" aria-pressed={showAfter} onClick={() => setShowAfter(true)}>{t("m.after.cleanup.40ffb8")}</button></div>
             <p role="status">{shown?.data ? showAfter ? t("m.cleanup.preview.ready.d27aff") : t("m.current.document.preview.aa753f") : shown?.error ? t("m.preview.unavailable.36d31d") : t("m.preparing.preview.312e7b")}</p>
           </div>{shown?.data && <DecorationPDFPreview data={shown.data} pageNumber={pageNumber} onError={message => { if (showAfter) setPreview({ key: previewKey, error: message }); else setBefore({ source: current.source, error: message }); }} />}
-            {shown?.error && <p role="alert" className="clean-error">{translateError(shown.error)}</p>}
+            {shown?.error && <p role="alert" className="clean-error"><ErrorMessage error={shown.error} /></p>}
           </div>
         </div>
-        <footer>{error && <p role="alert" className="clean-error">{translateError(error)}</p>}
+        <footer>{error && <p role="alert" className="clean-error"><ErrorMessage error={error} /></p>}
           {busy ? <div className="clean-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{canceling ? t("m.canceling.cleanup.fcb44b") : saving ? t("m.saving.the.cleaned.document.239499") : progress ? translateMessage(`${{ inspect: 'Checking document', clean: 'Removing selected items', verify: 'Verifying cleanup', save: 'Rewriting PDF' }[progress.phase]}: ${progress.completed} / ${progress.total}`) : t("m.applying.cleanup.605a94")}</span></div>
             : <p>{selectedCount}{' '}{t("m.identified.65a9e5")}{' '}{selectedCount === 1 ? t("m.item.3a7d97") : t("m.items.7316c8")}{' '}{t("m.selected.07b3d7")}{remaining !== null && <> {remaining}{' '}{t("m.remain.after.this.cleanup.58f270")}</>}</p>}
           <p className="clean-help">{t("m.the.original.file.and.this.workspace.s.undo.hist.aa8144")}</p>

@@ -58,7 +58,7 @@ describe('SaveChangesDialog', () => {
     const { onDiscard, onCancel } = await render({ onSave: vi.fn().mockRejectedValue(new Error('Could not save the PDF.')) });
     await submit();
     await act(async () => useLocaleStore.getState().setLocale('zh-CN'));
-    expect(host.querySelector('[role="alert"]')!.textContent).toBe('无法保存 PDF。');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')!.textContent).toBe('无法保存 PDF。');
     expect(host.querySelector('dialog')!.open).toBe(true);
     await act(async () => host.querySelectorAll<HTMLButtonElement>('footer button')[1].click());
     await submit();

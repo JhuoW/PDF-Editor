@@ -69,7 +69,7 @@ describe('signature dialog', () => {
   });
   it('reports image creation failure and permits a corrected attempt without closing', async () => {
     await render(); await stroke(); api.create.mockImplementationOnce(() => { throw new Error('Canvas unavailable'); }); await click('Place signature');
-    expect(host.querySelector('[role=alert]')?.textContent).toBe('Canvas unavailable'); expect(props.onClose).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Canvas unavailable'); expect(props.onClose).not.toHaveBeenCalled();
     await click('Place signature'); expect(props.onInsert).toHaveBeenCalledTimes(1); expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 });

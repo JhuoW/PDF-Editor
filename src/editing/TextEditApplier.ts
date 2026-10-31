@@ -5,9 +5,10 @@ import { assertTextEditSource } from './TextEditSource';
 import { standardTextFont, TextLayoutSession, type TextLayoutControl, type TextLayoutInput, type TextLayoutResult } from './TextLayout';
 import { readInlineTextBounds } from './InlineTextBounds';
 import { readTextSourceMetrics, replacementTextStyles } from './TextSourceMetrics';
+import { TextCheckError, type TextCheckIssue, type TextCheckReport, type TextFontInfo } from './TextCheckTypes';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
-export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number }; availableRect?: import('./types').TextRect }
+export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number }; availableRect?: import('./types').TextRect; fonts?: TextFontInfo }
 interface PreparedBlock extends PreparedTextEditLayout { block: TextBlock }
 function cancelled(control: TextLayoutControl) { if (control.signal?.aborted) throw new DOMException('Text editing cancelled.', 'AbortError'); }
 
@@ -85,7 +86,9 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
       layout = session.layout(input, control);
     }
   }
-  return { block, input, layout, page: { width: geometry.width, height: geometry.height }, availableRect };
+  const fonts: TextFontInfo = { original: source?.fontNames ?? [block.style.fontName], used: session.usedFontNames(layout),
+    mode: layout.warnings.length || (!source && !overrides.fontName) ? 'fallback' : overrides.fontName ? 'selected' : 'original' };
+  return { block, input, layout, page: { width: geometry.width, height: geometry.height }, availableRect, fonts };
 }
 
 /** Resolve original PDF style and measure without changing the document. */
@@ -100,8 +103,48 @@ export async function prepareTextEditLayout(data: ArrayBuffer | Uint8Array, bloc
     try {
       assertReplaceableTextRendering(engine, page, block.pageNumber);
       const prepared = prepareBlock(engine, page, block, edit ?? { blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0 }, session, control);
-      return { input: prepared.input, layout: prepared.layout, page: prepared.page, availableRect: prepared.availableRect };
+      return { input: prepared.input, layout: prepared.layout, page: prepared.page, availableRect: prepared.availableRect, fonts: prepared.fonts };
     } finally { page.destroy(); }
+  } finally { session.destroy(); document.destroy(); }
+}
+
+/** Inspect all detected regions in one engine session, without writing PDF content. */
+export async function inspectTextBlocks(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], control: TextLayoutControl & { onPage?: (page: number) => void } = {}): Promise<TextCheckReport> {
+  cancelled(control);
+  const issues: TextCheckIssue[] = [];
+  try { await assertTextEditSource(data, control.signal); }
+  catch (error) {
+    cancelled(control);
+    return { checked: 0, issues: [{ kind: 'source', message: error instanceof Error ? error.message : String(error), blocking: edits.length > 0 }] };
+  }
+  const engine = await loadMuPDF(), document = new engine.PDFDocument(data), session = new TextLayoutSession(engine);
+  const changes = new Map(edits.map(edit => [edit.blockId, edit]));
+  let checked = 0;
+  try {
+    for (const [pageNumber, regions] of blocks) {
+      cancelled(control);
+      const page = document.loadPage(pageNumber - 1);
+      try {
+        try { assertReplaceableTextRendering(engine, page, pageNumber); }
+        catch (error) {
+          issues.push({ pageNumber, kind: 'unsupported', message: error instanceof Error ? error.message : String(error), blocking: regions.some(block => changes.has(block.id)) });
+          continue;
+        }
+        for (const block of regions) {
+          cancelled(control); checked++;
+          const edit = changes.get(block.id);
+          try {
+            const prepared = prepareBlock(engine, page, block, edit ?? { blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0 }, session, control);
+            if (edit && !prepared.layout.fits) issues.push({ blockId: block.id, pageNumber, kind: 'overflow', message: prepared.layout.overflow!, blocking: true });
+            for (const message of prepared.layout.warnings) issues.push({ blockId: block.id, pageNumber, kind: 'font', message, blocking: false });
+          } catch (error) {
+            cancelled(control);
+            issues.push({ blockId: block.id, pageNumber, kind: 'unsupported', message: error instanceof Error ? error.message : String(error), blocking: !!edit });
+          }
+        }
+      } finally { page.destroy(); control.onPage?.(pageNumber); }
+    }
+    return { checked, issues };
   } finally { session.destroy(); document.destroy(); }
 }
 
@@ -217,19 +260,34 @@ async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]
     // an OCR layer alone would leave scanned letters underneath the new text.
     // Check every target page before making the first content modification.
     const preparedPages = new Map<number, PreparedBlock[]>();
+    const issues: TextCheckIssue[] = [];
     for (const [pageNumber, entries] of perPage) {
       cancelled(control);
       const page = document.loadPage(pageNumber - 1);
       try {
         assertReplaceableTextRendering(engine, page, pageNumber);
-        const prepared = entries.map(({ block, edit }) => prepareBlock(engine, page, block, edit, session, control));
+        const prepared: PreparedBlock[] = [];
+        for (const { block, edit } of entries) {
+          try { prepared.push(prepareBlock(engine, page, block, edit, session, control)); }
+          catch (error) {
+            if (preview) throw error;
+            cancelled(control);
+            issues.push({ blockId: block.id, pageNumber, kind: 'unsupported', message: error instanceof Error ? error.message : String(error), blocking: true });
+          }
+        }
         for (const item of prepared) rects?.set(item.block.id, { ...item.input.rect });
         for (const item of prepared) layouts?.set(item.block.id, item);
-        const overflow = prepared.find(item => !item.layout.fits);
-        if (overflow && !preview) throw new Error(`Page ${pageNumber}: ${overflow.layout.overflow}`);
+        if (!preview) for (const item of prepared.filter(item => !item.layout.fits)) {
+          issues.push({ blockId: item.block.id, pageNumber, kind: 'overflow', message: item.layout.overflow!, blocking: true });
+        }
         preparedPages.set(pageNumber, prepared);
+      } catch (error) {
+        if (preview) throw error;
+        cancelled(control);
+        issues.push({ pageNumber, kind: 'unsupported', message: error instanceof Error ? error.message : String(error), blocking: true });
       } finally { page.destroy(); }
     }
+    if (issues.length) throw new TextCheckError(issues);
     for (const [pageNumber, entries] of perPage) {
       const page = document.loadPage(pageNumber - 1);
       try {

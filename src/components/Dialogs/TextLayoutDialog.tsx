@@ -1,4 +1,4 @@
-import { translateError } from '../../i18n';
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateMessage } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -129,7 +129,7 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
   }}>
     <header><div><h2 id="text-layout-title">{t("m.text.layout.2392cb")}</h2><p>{t("m.reflow.original.pdf.text.and.preview.the.exporte.0ffea2")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.text.layout.45632f")} onClick={close}>×</button></header>
     {!current && loadError?.key !== loadKey && <p role="status" className="text-layout-loading">{t("m.preparing.text.layout.dfd862")}</p>}
-    {loadError?.key === loadKey && <div className="text-layout-loading"><p role="alert" className="text-layout-error">{translateError(loadError.message)}</p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
+    {loadError?.key === loadKey && <div className="text-layout-loading"><p role="alert" className="text-layout-error"><ErrorMessage error={loadError.message} /></p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && draft && input && <div className="text-layout-body">
       <section className="text-layout-settings" aria-label={t("m.text.layout.settings.b8b81d")}>
         <fieldset disabled={saving} key={resetSequence}>
@@ -163,7 +163,7 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
       </section>
     </div>}
     <footer><p className="text-layout-help">{t("m.the.original.removal.area.stays.unchanged.moving.fc42d5")}</p>
-      {(layout?.overflow || measured?.error || saveError || (renderError?.key === displayKey && renderError.message)) && <p role="alert" className="text-layout-error">{translateError(saveError || measured?.error || layout?.overflow || renderError?.message)}</p>}
+      {(layout?.overflow || measured?.error || saveError || (renderError?.key === displayKey && renderError.message)) && <p role="alert" className="text-layout-error"><ErrorMessage error={saveError || measured?.error || layout?.overflow || renderError?.message} /></p>}
       {layout?.fits && <p className="text-layout-fit-status">{t("m.text.fits.f97d99")}{' '}{layout.lines.length} {layout.lines.length === 1 ? t("m.line.264f39") : t("m.lines.8525aa")} · {layout.requiredHeight.toFixed(1)}{' '}{t("m.points.high.e92e6d")}</p>}
       <div><button type="button" disabled={!current || saving} onClick={() => { if (current) { setDraft({ blockId, originalText: current.initial.originalText, newText: current.initial.originalText, timestamp: Date.now() }); setResetSequence(value => value + 1); setDirtyNumbers(new Set()); setSaveError(null); } }}>{t("m.reset.to.original.352488")}</button>
         <button type="button" onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="text-layout-primary" disabled={!canSave} onClick={() => void save()}>{saving ? t("m.saving.56a228") : t("m.save.draft.4f2563")}</button></div>

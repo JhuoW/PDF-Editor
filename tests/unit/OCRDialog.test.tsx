@@ -155,7 +155,7 @@ describe('OCRDialog', () => {
   it('shows recognition errors and allows retry without clearing the options', async () => {
     await render({ onRun: vi.fn().mockRejectedValueOnce(new Error('Language data unavailable')).mockResolvedValueOnce([]) });
     await fill('2-3'); await submit();
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Language data unavailable');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Language data unavailable');
     expect(host.querySelector<HTMLInputElement>('#ocr-pages')?.value).toBe('2-3');
     await submit();
     expect(host.querySelector('[role="alert"]')).toBeNull();

@@ -1,3 +1,4 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { translateMessage } from '../../i18n';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateError } from "../../i18n";
@@ -174,7 +175,7 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
     }}>
     <header><div><h2 id="form-designer-title">{t("m.design.form.a66596")}</h2><p>{t("m.create.and.arrange.fillable.pdf.fields.changes.a.8bf2ac")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.form.designer.4ff8fe")} disabled={saving || canceling} onClick={close}>×</button></header>
     {!current && !failure && <p role="status" className="form-designer-loading">{t("m.preparing.the.page.preview.and.form.fields.e4e417")}</p>}
-    {failure && <div className="form-designer-loading"><p role="alert">{translateError(failure)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
+    {failure && <div className="form-designer-loading"><p role="alert"><ErrorMessage error={failure} /></p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <>
       {!current.design.canEdit && <p role="status" className="form-designer-warning">{translateError(current.design.unsupportedReason) || t("m.this.pdf.can.be.inspected.but.not.redesigned.30e366")}</p>}
       <div className="form-designer-tools" role="group" aria-label={t("m.field.tools.9d6b51")}>
@@ -197,7 +198,7 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
         </aside>
       </div>
     </>}
-    <footer>{error && <p role="alert" className="form-designer-error">{translateError(error)}</p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.form.5373a8") : t("m.saving.form.design.63b104")}</p>}
+    <footer>{error && <p role="alert" className="form-designer-error"><ErrorMessage error={error} /></p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.form.5373a8") : t("m.saving.form.design.63b104")}</p>}
       <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? t("m.discard.changes.fa8fc0") : t("m.close.bbfa77")}</button><button type="button" className="form-designer-primary" disabled={disabled || !operations.length} onClick={() => void save()}>{t("m.save.form.design.10acc1")}</button></div></footer>
   </dialog>;
 }

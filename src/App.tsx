@@ -1,10 +1,16 @@
-import { useLocale, translateMessage, t, translateError } from "./i18n";
+import { ErrorMessage } from './components/Feedback/ErrorMessage';
+import { isAbortError } from './utils/cancellation';
+import { useLocale, translateMessage, t } from "./i18n";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Theme } from '@radix-ui/themes';
 import '@radix-ui/themes/styles.css';
 import { PDFDocument as PDFLibDocument } from 'pdf-lib';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useSessionPersistence } from './hooks/useSessionPersistence';
+import { usePDFExportJob } from './hooks/usePDFExportJob';
+import { PDFExportProgressDialog } from './components/Dialogs/PDFExportProgressDialog';
+import type { TextCheckIssue } from './editing/TextCheckTypes';
+import type { TextBlock } from './editing/types';
 import { useDocumentSaveTracking } from './hooks/useDocumentSaveTracking';
 import { useDocumentSaveStore, captureDocumentSavePoint, markDocumentSaved, markDocumentUnsaved } from './store/documentSaveStore';
 import { useDocumentSessionStore } from './store/documentSession';
@@ -84,6 +90,7 @@ const PageDecorationsDialog = lazy(() => import('./components/Dialogs/PageDecora
 const CleanDocumentDialog = lazy(() => import('./components/Dialogs/CleanDocumentDialog'));
 const CompressPDFDialog = lazy(() => import('./components/Dialogs/CompressPDFDialog'));
 const TextLayoutDialog = lazy(() => import('./components/Dialogs/TextLayoutDialog'));
+const TextCheckDialog = lazy(() => import('./components/Dialogs/TextCheckDialog').then(module => ({ default: module.TextCheckDialog })));
 const PDFLinksDialog = lazy(() => import('./components/Dialogs/PDFLinksDialog'));
 const PDFBookmarksDialog = lazy(() => import('./components/Dialogs/PDFBookmarksDialog'));
 const SignatureDialog = lazy(() => import('./components/Dialogs/SignatureDialog'));
@@ -101,6 +108,8 @@ type SidebarTab = 'thumbnails' | 'outline';
 
 function App() {
   useLocale();
+  const { run: runExport, progress: exportProgress, cancel: cancelExport } = usePDFExportJob();
+  const historyLimited = useHistoryStore(state => state.historyLimited);
   const contextToolbarHost = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const host = contextToolbarHost.current;
@@ -141,6 +150,7 @@ function App() {
   const [cleanDocumentOpen, setCleanDocumentOpen] = useState(false);
   const [compressPDFOpen, setCompressPDFOpen] = useState(false);
   const [textLayoutBlockId, setTextLayoutBlockId] = useState<string | null>(null);
+  const [textCheckOpen, setTextCheckOpen] = useState(false);
   const textLayoutCommit = useRef<((edit: TextEditOperation, signal: AbortSignal) => void) | null>(null);
   const [linksOpen, setLinksOpen] = useState(false);
   const linksApply = useRef<((operations: PDFLinkOperation[], signal: AbortSignal, onCommit: () => void) => Promise<void>) | null>(null);
@@ -261,6 +271,7 @@ function App() {
       setPageDecorationsOpen(false);
       setCompressPDFOpen(false);
       setTextLayoutBlockId(null);
+      setTextCheckOpen(false);
       textLayoutCommit.current = null;
       setLinksOpen(false);
       setBookmarksOpen(false); bookmarksApply.current = null; setSignatureSession(null);
@@ -774,9 +785,11 @@ function App() {
     input.click();
   }, [runOperation]);
 
-  const prepareExport = useCallback(async () => {
+  const prepareExport = useCallback(async (signal?: AbortSignal) => {
+    signal?.throwIfAborted();
     const initial = useDocumentStore.getState();
     if (!initial.document || initial.isLoading) throw new Error('Wait until the document finishes loading');
+    initial.setError(null);
     commitPendingEditors();
     const workspace = captureWorkspace();
     const stored = await readActivePDF();
@@ -786,16 +799,18 @@ function App() {
         && current.loadRequestId === initial.loadRequestId;
     };
     if (!stored || !isCurrent()) throw new Error('Document changed during export');
-    const data = await exportWorkspacePDF(stored.data, workspace);
+    // Dialogs with their own progress/cancel controls own the entire operation.
+    const data = await runExport(stored.data, workspace, { signal, showProgress: !signal });
     if (!isCurrent()) throw new Error('Document changed during export');
     return { data, fileName: outputFileName ?? stored.fileName };
-  }, [outputFileName]);
+  }, [outputFileName, runExport]);
 
   const handleExport = useCallback(async () => {
     try {
       const { data, fileName } = await prepareExport();
       await downloadPDF(data, fileName);
     } catch (err) {
+      if (isAbortError(err)) return;
       useDocumentStore.getState().setError(`Failed to export PDF: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [prepareExport]);
@@ -828,6 +843,7 @@ function App() {
       if (savedPoint) markDocumentSaved(savedPoint);
       return true;
     } catch (cause) {
+      if (isAbortError(cause)) return false;
       useDocumentStore.getState().setError(cause instanceof Error ? cause.message : 'Could not save the PDF.');
       throw cause;
     } finally { saving.current = false; setIsSaving(false); }
@@ -838,7 +854,7 @@ function App() {
   const handlePageManagement = useCallback(async (request: PageManagementRequest, signal: AbortSignal, onCommit: () => void) => {
     signal.throwIfAborted();
     if (request.action === 'extract') {
-      const { data, fileName } = await prepareExport();
+      const { data, fileName } = await prepareExport(signal);
       signal.throwIfAborted();
       const [extracted] = await splitPDF(new Uint8Array(data).buffer, { mode: 'extract-pages', pages: request.pages });
       signal.throwIfAborted();
@@ -1038,6 +1054,7 @@ function App() {
       setCleanDocumentOpen(false);
       setCompressPDFOpen(false);
       setTextLayoutBlockId(null);
+      setTextCheckOpen(false);
       textLayoutCommit.current = null;
       setHighlightDest(null);
       setLinksOpen(false);
@@ -1374,6 +1391,22 @@ function App() {
     }
   }, [document, isLoading, zoomIn, zoomOut, navigation.viewMode, nextPage, previousPage]);
 
+  const locateTextIssue = (issue: TextCheckIssue, blocks: TextBlock[]) => {
+    setTextCheckOpen(false);
+    if (!issue.pageNumber) return;
+    const editing = useEditingStore.getState();
+    if (!editing.textBlocks.has(issue.pageNumber)) editing.setTextBlocks(issue.pageNumber, blocks);
+    goToPage(issue.pageNumber);
+    useUIStore.getState().setWorkspace('edit');
+    editing.setMode('text');
+    if (issue.blockId) {
+      editing.selectBlock(issue.blockId);
+      useUIStore.getState().setInspectorOpen(true);
+      if (issue.kind === 'overflow') setTextLayoutBlockId(issue.blockId);
+      else if (issue.blocking) editing.requestTextEdit(issue.blockId);
+    }
+  };
+
   return (
     <Theme appearance="light" accentColor="blue" radius="medium">
       <div className="app-container" data-has-document={!!document} data-sidebar-open={!!document && sidebarOpen && !narrowViewport}>
@@ -1446,6 +1479,7 @@ function App() {
           onCompressPDF={() => setCompressPDFOpen(true)}
           onManageLinks={() => setLinksOpen(true)}
           onManageBookmarks={() => setBookmarksOpen(true)}
+          onCheckText={() => { commitPendingEditors(); setTextCheckOpen(true); }}
           onCreatePDF={() => setCreatePDFOpen(true)}
           onExportPages={() => setExportPagesOpen('all')}
           onPDFToImages={() => setExportPagesOpen('images')}
@@ -1629,7 +1663,8 @@ function App() {
             {error && (
               <div className="error-state" role="alert">
                 <span className="error-icon">⚠</span>
-                <span>{t("m.error.787aa1")}{' '}{translateError(error)}</span>
+                <span>{t("m.error.787aa1")}{' '}<ErrorMessage error={error} /></span>
+                {document && <button type="button" onClick={() => { commitPendingEditors(); setTextCheckOpen(true); }}>{t('text.check.title')}</button>}
                 <button className="toolbar-btn" onClick={() => useDocumentStore.getState().setError(null)}>{t("m.dismiss.70afe9")}</button>
               </div>
             )}
@@ -1675,6 +1710,7 @@ function App() {
           {document && <WorkspaceInspector onTextLayout={setTextLayoutBlockId} onProperties={() => setPropertiesOpen(true)} isBusy={isLoading} />}
         </div>
         <footer className="document-statusbar">
+          {document && historyLimited && <span className="history-budget-note" title={t('history.budget.help')}>{t('history.budget.limited')}</span>}
         {document && (
           <div className={`session-save-status status-${persistence.status}`} role="status" aria-live="polite">
             {persistence.status === 'error'
@@ -1718,9 +1754,11 @@ function App() {
           readPDF={readLinksPDF} onApply={applyLinks} onClose={closeLinks} /></Suspense>}
         {document && textLayoutBlockId && <Suspense fallback={<div role="status">{t("m.loading.text.layout.f422e8")}</div>}><TextLayoutDialog documentKey={getOriginalDocument()} revision={documentVersion} blockId={textLayoutBlockId}
           readPDF={readTextLayoutPDF} onSave={saveTextLayout} onClose={closeTextLayout} /></Suspense>}
+        {document && textCheckOpen && <Suspense fallback={<div role="status">{t('text.check.running')}</div>}><TextCheckDialog key={documentVersion} pdf={document} revision={documentVersion} onClose={() => setTextCheckOpen(false)} onLocate={locateTextIssue} /></Suspense>}
         {document && encryptDialogOpen && (
           <EncryptDialog preparePDF={prepareExport} onClose={() => setEncryptDialogOpen(false)} />
         )}
+        {exportProgress && <PDFExportProgressDialog progress={exportProgress} onCancel={cancelExport} />}
       </div>
     </Theme>
   );

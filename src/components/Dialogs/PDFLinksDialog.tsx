@@ -1,3 +1,4 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -102,7 +103,7 @@ function PDFLinksSession({ currentPage, readPDF, onApply, onClose, onCommitState
   }}>
     <header><div><h2 id="pdf-links-title">{t("m.links.014bcd")}</h2><p>{t("m.create.and.edit.native.pdf.links.apply.all.chang.0185ca")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.links.b1bec1")} disabled={committed} onClick={close}>×</button></header>
     {!current && !failure && <p className="pdf-links-loading" role="status">{t("m.inspecting.pdf.links.ffe301")}</p>}
-    {failure && <div className="pdf-links-loading"><p className="pdf-links-error" role="alert">{translateError(failure)}</p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
+    {failure && <div className="pdf-links-loading"><p className="pdf-links-error" role="alert"><ErrorMessage error={failure} /></p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <div className="pdf-links-body"><section className="pdf-links-preview-column" aria-label={t("m.pdf.link.preview.fef8ec")}>
       <div className="pdf-links-preview-toolbar">
         <label>{t("m.preview.page.d24958")}<select ref={pageInput} value={pageNumber} disabled={saving || dragging} onChange={event => { setPageNumber(Number(event.target.value)); setPlacing(false); }}>{current.report.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label>
@@ -126,7 +127,7 @@ function PDFLinksSession({ currentPage, readPDF, onApply, onClose, onCommitState
     </aside></div>}
     <footer>
       {current && <p className="pdf-links-help" role="status">{saving ? committed ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.links.000a6b") : dirtyNumbers.size ? t("m.finish.numeric.input.to.update.the.preview.4415fd") : dragging ? t("m.release.the.area.to.update.the.pdf.preview.ae0d84") : ready ? t("m.preview.ready.fa3fd8", { v0: operations.length ? ` · ${operations.length} pending change${operations.length === 1 ? '' : 's'}` : '' }) : t("m.updating.pdf.preview.262ba0")}</p>}
-      {previewError?.key === requestKey && <p className="pdf-links-error" role="alert">{translateError(previewError.message)}</p>}{renderError?.key === displayKey && <p className="pdf-links-error" role="alert">{translateError(renderError.message)}</p>}{saveError && <p className="pdf-links-error" role="alert">{translateError(saveError)}</p>}
+      {previewError?.key === requestKey && <p className="pdf-links-error" role="alert"><ErrorMessage error={previewError.message} /></p>}{renderError?.key === displayKey && <p className="pdf-links-error" role="alert"><ErrorMessage error={renderError.message} /></p>}{saveError && <p className="pdf-links-error" role="alert"><ErrorMessage error={saveError} /></p>}
       <div><button type="button" disabled={committed} onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="pdf-links-primary" disabled={!canApply} onClick={() => void apply()}>{t("m.apply.links.eec2cf")}</button></div>
     </footer>
   </dialog>;

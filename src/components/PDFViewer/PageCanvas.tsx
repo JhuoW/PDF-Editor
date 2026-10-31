@@ -1,4 +1,5 @@
-import { useLocale, translateError } from "../../i18n";
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useLocale } from "../../i18n";
 import { useEffect, useRef, useState, useMemo, memo } from 'react';
 import { AnnotationMode, type PDFPageProxy } from 'pdfjs-dist';
 import { useFormStore } from '../../store/formStore';
@@ -17,6 +18,7 @@ import { PageCropLayer } from './PageCropLayer';
 import type { LinkDestination } from './PDFViewer';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import './PageCanvas.css';
+import { boundedRaster } from '../../utils/rasterBudget';
 
 interface PageCanvasProps {
   page: PDFPageProxy;
@@ -78,8 +80,9 @@ export const PageCanvas = memo(function PageCanvas({
 
     // Set canvas size
     const pixelRatio = window.devicePixelRatio || 1;
-    canvas.width = Math.ceil(dimensions.width * pixelRatio);
-    canvas.height = Math.ceil(dimensions.height * pixelRatio);
+    const raster = boundedRaster(dimensions.width, dimensions.height, pixelRatio);
+    canvas.width = raster.width;
+    canvas.height = raster.height;
     // Keep the raster's CSS geometry identical to text/form/selection layers.
     // Intrinsic canvas dimensions round to integers and otherwise drift at fit zoom.
     canvas.style.width = `${dimensions.width}px`;
@@ -132,7 +135,7 @@ export const PageCanvas = memo(function PageCanvas({
       style={{ width: dimensions.width, height: dimensions.height }}
     >
       <canvas ref={canvasRef} className="page-canvas" />
-      {result?.key === renderKey && result.error && <div role="alert" className="page-loading-overlay">{translateError(result.error)}</div>}
+      {result?.key === renderKey && result.error && <div role="alert" className="page-loading-overlay"><ErrorMessage error={result.error} /></div>}
       {showTextLayer && dimensions.width > 0 && (
         <TextLayer
           page={page}

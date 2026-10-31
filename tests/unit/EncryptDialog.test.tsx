@@ -53,12 +53,21 @@ describe('EncryptDialog', () => {
     await act(async () => { root.render(<EncryptDialog preparePDF={preparePDF} onClose={vi.fn()} />); });
     await passwords();
     await submit();
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Document changed during export');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Document changed during export');
     expect(encryptPDF).not.toHaveBeenCalled();
     expect(downloadPDF).not.toHaveBeenCalled();
     expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     await submit();
     expect(downloadPDF).toHaveBeenCalledTimes(1);
+  });
+  it('returns to encryption settings after cancelling PDF preparation without showing an error', async () => {
+    const preparePDF = vi.fn().mockRejectedValueOnce(new DOMException('Cancelled', 'AbortError')).mockResolvedValue({ data: new Uint8Array([1]), fileName: 'retry.pdf' });
+    await act(async () => { root.render(<EncryptDialog preparePDF={preparePDF} onClose={vi.fn()} />); });
+    await passwords(); await submit();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(encryptPDF).not.toHaveBeenCalled(); expect(downloadPDF).not.toHaveBeenCalled();
+    expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+    await submit(); expect(downloadPDF).toHaveBeenCalledOnce();
   });
   it('blocks duplicate submits and Escape while busy, and abandons an externally unmounted export', async () => {
     let resolve!: (value: { data: Uint8Array; fileName: string }) => void;

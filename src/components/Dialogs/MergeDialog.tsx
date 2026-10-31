@@ -1,6 +1,7 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { translateMessage } from '../../i18n';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateError } from "../../i18n";
+import { useLocale, t } from "../../i18n";
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { mergePDFs, downloadPDF, insertPagesFromPDF } from '../../core/PDFManipulator';
 import './MergeDialog.css';
@@ -317,7 +318,7 @@ export function MergeDialog({ onClose, onMergeComplete, currentDocument }: Merge
             />
           </div>}
 
-          {error && <div className="merge-error">{translateError(error)}</div>}
+          {error && <div className="merge-error"><ErrorMessage error={error} /></div>}
         </div>
 
         <div className="merge-dialog-actions">

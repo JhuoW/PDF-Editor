@@ -1,5 +1,6 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateMessage, translateError } from "../../i18n";
+import { useLocale, t, translateMessage } from "../../i18n";
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { OCRLanguage, OCRPageResult, OCRProgress } from '../../ocr/recognizePDF';
 import './OCRDialog.css';
@@ -154,7 +155,7 @@ function OCRSession({ totalPages, currentPage, onClose, onRun }: OCRDialogProps)
       {results && <div className="ocr-results"><table><caption>{t("m.recognition.results.174b57")}</caption><thead><tr><th>{t("m.page.fb0627")}</th><th>{t("m.result.5faa59")}</th><th>{t("m.words.d26d55")}</th></tr></thead><tbody>
         {results.map(result => <tr key={result.pageNumber}><th scope="row">{result.pageNumber}</th><td>{result.status === 'recognized' ? t("m.text.added.f668a2") : result.status === 'skipped-existing-text' ? t("m.skipped.existing.text.c09e0c") : t("m.no.text.detected.a4c994")}</td><td>{result.wordCount}</td></tr>)}
       </tbody></table></div>}
-      {error && <p role="alert" className="ocr-error">{translateError(error)}</p>}
+      {error && <p role="alert" className="ocr-error"><ErrorMessage error={error} /></p>}
       <footer>{busy ? <button type="button" disabled={saving || canceling} onClick={() => cancel()}>{t("m.cancel.ocr.7ab338")}</button> : <button type="button" onClick={() => cancel(true)}>{t("m.close.bbfa77")}</button>}
         <button type="submit" className="ocr-primary" disabled={busy}>{t("m.start.ocr.b616fd")}</button></footer>
     </form>

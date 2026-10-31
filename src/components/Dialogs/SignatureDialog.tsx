@@ -1,5 +1,6 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateError } from "../../i18n";
+import { useLocale, t } from "../../i18n";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import { createDrawnSignature, paintSignature, readSignatureImage, SIGNATURE_LIMITS, SIGNATURE_PAD, type SignaturePoint, type SignatureStroke } from './signatureImage';
@@ -86,7 +87,7 @@ function SignatureSession({ onInsert, onClose }: Pick<SignatureDialogProps, 'onI
         <p className="signature-help">{t("m.png.or.jpeg.up.to.5.mb.and.12.megapixels.the.pre.b30210")}</p>
         <div className="signature-image-preview" aria-busy={busy}>{busy ? <p role="status">{t("m.preparing.signature.970c8f")}</p> : image ? <img src={image.imageData} alt={t("m.signature.preview.48fe3c")} /> : <p>{t("m.choose.a.signature.image.to.preview.it.here.a96038")}</p>}</div>
       </>}
-      {error && <p className="signature-error" role="alert">{translateError(error)}</p>}
+      {error && <p className="signature-error" role="alert"><ErrorMessage error={error} /></p>}
       <p className="signature-help">{t("m.this.adds.a.visible.signature.image.it.does.not..6070df")}</p>
     </div>
     <footer><button type="button" onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="signature-primary" disabled={busy || !!current || (mode === 'draw' ? !strokes.length : !image)} onClick={insert}>{t("m.place.signature.681560")}</button></footer>

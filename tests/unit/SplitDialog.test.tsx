@@ -16,6 +16,19 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
+it('keeps split settings and permits retry after PDF preparation is cancelled', async () => {
+  const preparePDF = vi.fn().mockRejectedValueOnce(new DOMException('Cancelled', 'AbortError')).mockResolvedValue(new Uint8Array([1]));
+  const onClose = vi.fn();
+  await act(async () => root.render(<SplitDialog totalPages={3} preparePDF={preparePDF} onClose={onClose} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('.split-submit')!.click());
+  expect(host.querySelector('.split-error')).toBeNull();
+  expect(splitPDF).not.toHaveBeenCalled(); expect(downloadPDF).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled();
+  expect(host.querySelector<HTMLButtonElement>('.split-submit')!.disabled).toBe(false);
+  vi.mocked(splitPDF).mockResolvedValue([new Uint8Array([2])]);
+  await act(async () => host.querySelector<HTMLButtonElement>('.split-submit')!.click());
+  expect(downloadPDF).toHaveBeenCalledOnce(); expect(onClose).toHaveBeenCalledOnce();
+});
+
 it('bounds huge extraction ranges to real pages and rejects fractional or unsafe page numbers before exporting', async () => {
   const onClose = vi.fn();
   await act(async () => root.render(<SplitDialog totalPages={3} preparePDF={async () => new Uint8Array([1])} onClose={onClose} />));

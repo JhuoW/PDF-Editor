@@ -1,6 +1,7 @@
 import { prepareTextEditLayout, previewInlineTextEdits } from './TextEditApplier';
 import { applyImageEdits } from './ImageEditApplier';
 import { loadMuPDF } from '../utils/mupdf';
+import { boundedRaster } from '../utils/rasterBudget';
 import type { InlineTextPreviewRequest } from './InlineTextPreviewClient';
 import type { Device, Matrix, PDFPage, PDFWidget, Rect } from 'mupdf';
 
@@ -56,7 +57,9 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
     try {
       const page = document.loadPage(request.pageNumber - 1);
       try {
-        const matrix = engine.Matrix.concat(engine.Matrix.scale(request.scale, request.scale), engine.Matrix.rotate(request.rotation));
+        const bounds = page.getBounds();
+        const { scale } = boundedRaster(bounds[2] - bounds[0], bounds[3] - bounds[1], request.scale);
+        const matrix = engine.Matrix.concat(engine.Matrix.scale(scale, scale), engine.Matrix.rotate(request.rotation));
         // Keep non-widget annotations and passive widgets (including signature
         // artwork). Editable form values are owned by the live HTML controls.
         const pixmap = (() => {

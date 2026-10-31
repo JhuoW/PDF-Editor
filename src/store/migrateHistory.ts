@@ -29,6 +29,6 @@ export function migrateLegacyHistory(workspace: WorkspaceSnapshot, timeline: His
   }
   return {
     workspace: { ...workspace, annotationHistory: { past: [], future: [] } },
-    history: { undoStack: [...timeline.undoStack, ...undone.reverse()].slice(-limit), redoStack: [...timeline.redoStack, ...redone.reverse()].slice(-limit) },
+    history: { ...timeline, undoStack: [...timeline.undoStack, ...undone.reverse()].slice(-limit), redoStack: [...timeline.redoStack, ...redone.reverse()].slice(-limit) },
   };
 }

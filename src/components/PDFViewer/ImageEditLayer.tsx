@@ -1,4 +1,5 @@
-import { useLocale, t, translateMessage, translateError } from "../../i18n";
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useLocale, t, translateMessage } from "../../i18n";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useEditingStore } from '../../store/editingStore';
@@ -66,7 +67,7 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
   return (
     <div className="image-edit-layer" onClick={() => selectImage(null)}>
       {!hasImages && error?.page !== page && <div className="image-edit-loading">{t("m.detecting.images.1965f5")}</div>}
-      {error?.page === page && <div className="image-edit-loading" role="alert">{translateError(error.message)}</div>}
+      {error?.page === page && <div className="image-edit-loading" role="alert"><ErrorMessage error={error.message} /></div>}
       {hasImages && pageImages.length === 0 && <div className="image-edit-loading">{t("m.no.supported.image.xobjects.found.on.this.page.5abfa8")}</div>}
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg" aria-label={t("m.replacement.image.c25591")} hidden onChange={handleFileChange} />
       {pageImages.map(image => {

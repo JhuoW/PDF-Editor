@@ -9,6 +9,8 @@ export default defineConfig({
   use: {
     browserName: 'chromium',
     baseURL: 'http://127.0.0.1:4175',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH },
   },
   webServer: {

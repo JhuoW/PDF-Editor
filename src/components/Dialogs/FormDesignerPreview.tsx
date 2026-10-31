@@ -1,4 +1,6 @@
-import { useLocale, translateError, t } from "../../i18n";
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { boundedRaster } from '../../utils/rasterBudget';
+import { useLocale, t } from "../../i18n";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { AnnotationMode, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist';
 import type { DesignableFieldType, FormDesignField, FormDesignWidget } from '../../forms/FormDesignerTypes';
@@ -53,10 +55,10 @@ export function FormDesignerPreview({ document: pdfDocument, pageNumber, fields,
     if (!current || !viewport || !canvas.current) return;
     const element = canvas.current, context = element.getContext('2d');
     if (!context) return;
-    const ratio = window.devicePixelRatio || 1;
-    element.width = Math.ceil(viewport.width * ratio); element.height = Math.ceil(viewport.height * ratio);
+    const raster = boundedRaster(viewport.width, viewport.height, window.devicePixelRatio || 1);
+    element.width = raster.width; element.height = raster.height;
     let canceled = false;
-    const task = current.render({ canvas: element, canvasContext: context, viewport, transform: [ratio, 0, 0, ratio, 0, 0], annotationMode: AnnotationMode.DISABLE });
+    const task = current.render({ canvas: element, canvasContext: context, viewport, transform: [element.width / viewport.width, 0, 0, element.height / viewport.height, 0, 0], annotationMode: AnnotationMode.DISABLE });
     task.promise.catch(cause => { if (!canceled && cause?.name !== 'RenderingCancelledException') setError(cause instanceof Error ? cause.message : 'Could not render the page.'); });
     return () => { canceled = true; task.cancel(); };
   }, [current, viewport]);
@@ -104,7 +106,7 @@ export function FormDesignerPreview({ document: pdfDocument, pageNumber, fields,
   };
 
   return <div ref={container} className="form-designer-preview">
-    {error && <p role="alert" className="form-designer-error">{translateError(error)}</p>}
+    {error && <p role="alert" className="form-designer-error"><ErrorMessage error={error} /></p>}
     {!viewport && !error && <p role="status">{t("m.loading.page.preview.a26e3d")}</p>}
     {viewport && source && <div className="form-designer-page" style={{ width: viewport.width, height: viewport.height }}>
       <canvas key={`${pageNumber}-${viewport.width}-${viewport.height}`} ref={canvas} style={{ width: viewport.width, height: viewport.height }} aria-label={t("m.page.preview.3cb45f", { v0: pageNumber })} />

@@ -93,7 +93,7 @@ describe('ExportPagesDialog', () => {
     expect(host.querySelector('dialog')!.open).toBe(true);
     expect(document.activeElement).toBe(host.querySelector('[aria-label="Export format"]'));
     await submit();
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Document changed');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Document changed');
     expect(exportPagesInWorker).not.toHaveBeenCalled(); expect(downloadPageExport).not.toHaveBeenCalled();
     expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     await submit();
@@ -103,16 +103,18 @@ describe('ExportPagesDialog', () => {
 
   it.each(['cancel', 'unmount'] as const)('abandons pending PDF preparation on %s and blocks duplicate submits', async action => {
     let resolve!: (value: typeof source) => void;
-    const readPDF = vi.fn(() => new Promise<typeof source>(done => { resolve = done; })), onClose = vi.fn();
+    const readPDF = vi.fn<(signal?: AbortSignal) => Promise<typeof source>>().mockImplementation(() => new Promise(done => { resolve = done; })), onClose = vi.fn();
     await act(async () => { root.render(<ExportPagesDialog readPDF={readPDF} onClose={onClose} />); });
     await submit(); await submit();
     expect(readPDF).toHaveBeenCalledTimes(1);
+    expect(readPDF.mock.calls[0][0]?.aborted).toBe(false);
     expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
     await act(async () => {
       if (action === 'unmount') root.render(null);
       else host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }));
     });
     await act(async () => { resolve(source); });
+    expect(readPDF.mock.calls[0][0]?.aborted).toBe(true);
     expect(exportPagesInWorker).not.toHaveBeenCalled(); expect(downloadPageExport).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(action === 'cancel' ? 1 : 0);
   });

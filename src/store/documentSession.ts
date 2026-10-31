@@ -53,7 +53,7 @@ export function startDocumentSession(data: ArrayBuffer, fileName: string, restor
     useHistoryStore.getState().setOriginalDocument(data, fileName);
   }
   if (restored?.history) {
-    useHistoryStore.setState({ ...structuredClone(restored.history), isUndoRedoInProgress: false });
+    useHistoryStore.getState().restoreTimeline(structuredClone(restored.history));
   }
   if (restored?.workspace) restoreWorkspace(restored.workspace);
 }

@@ -1,5 +1,7 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { isAbortError } from '../../utils/cancellation';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateMessage, translateError } from "../../i18n";
+import { useLocale, t, translateMessage } from "../../i18n";
 import { useEffect, useRef, useState } from 'react';
 import { ALL_PDF_PERMISSIONS, encryptPDF, type PDFPermissions } from '../../core/PDFEncryption';
 import { downloadPDF } from '../../core/PDFManipulator';
@@ -66,6 +68,7 @@ export function EncryptDialog({ preparePDF, onClose }: EncryptDialogProps) {
       await downloadPDF(new Uint8Array(encrypted), `${fileName.replace(/\.pdf$/i, '')}-encrypted.pdf`);
       if (active.current) onClose();
     } catch (cause) {
+      if (isAbortError(cause)) return;
       if (active.current) setError(cause instanceof Error ? cause.message : 'Could not encrypt the PDF.');
     } finally {
       submitting.current = false;
@@ -101,7 +104,7 @@ export function EncryptDialog({ preparePDF, onClose }: EncryptDialogProps) {
           </label>)}</div>
           <p>{t("m.permissions.depend.on.the.pdf.reader.and.cannot..0b277a")}</p>
         </fieldset>
-        {error && <p className="encrypt-error" role="alert">{translateError(error)}</p>}
+        {error && <p className="encrypt-error" role="alert"><ErrorMessage error={error} /></p>}
         <footer><button type="button" disabled={busy} onClick={onClose}>{t("m.cancel.77dfd2")}</button><button className="encrypt-submit" type="submit" disabled={busy}>{busy ? t("m.encrypting.788f55") : t("m.encrypt.and.download.b3ba75")}</button></footer>
       </form>
     </dialog>

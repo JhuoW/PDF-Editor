@@ -6,6 +6,7 @@ import { startDocumentSession, clearDocumentSession, useDocumentSessionStore } f
 import { captureWorkspace, createWorkspace, restoreWorkspace, type WorkspaceSnapshot } from '../store/workspaceSnapshot';
 import { useHistoryStore, type HistoryTimeline } from '../store/historyStore';
 import { migrateLegacyHistory } from '../store/migrateHistory';
+import { boundHistory } from '../store/historyBudget';
 import { extractFormFields } from '../forms/FormFieldExtractor';
 import { importEditableAnnotations } from '../annotations/AnnotationImporter';
 import { decryptPDF } from '../core/PDFEncryption';
@@ -202,6 +203,8 @@ export function usePDFDocument() {
       const migrated = migrateLegacyHistory(workspace, options.history ?? options.restore?.history ?? (options.preserveState
         ? { undoStack: history.undoStack, redoStack: history.redoStack } : { undoStack: [], redoStack: [] }), history.maxHistory);
       workspace = migrated.workspace;
+      const bounded = boundHistory(migrated.history, history.maxHistory, history.maxHistoryBytes);
+      if (bounded.trimmed) bounded.state.historyLimited = true;
       const navigation = options.restore?.navigation ?? {
         ...useDocumentStore.getState().navigation,
         currentPage: options.preserveState ? useDocumentStore.getState().navigation.currentPage : 1,
@@ -215,7 +218,7 @@ export function usePDFDocument() {
         originalDocument: options.restore?.originalDocument ?? (options.preserveState ? history.originalDocument : null) ?? {
           data: originalData, fileName, timestamp: Date.now(), actionName: 'Original',
         },
-        history: migrated.history,
+        history: bounded.state,
         fileSaveState: options.restore?.fileSaveState ?? (options.preserveState ? captureDocumentFileSaveState() : undefined),
         navigation: {
           ...navigation,
@@ -228,7 +231,7 @@ export function usePDFDocument() {
         if (!options.preserveState) startDocumentSession(data, fileName, session);
         else {
           restoreWorkspace(workspace);
-          useHistoryStore.setState({ ...session.history!, coalescingKey: null });
+          useHistoryStore.getState().restoreTimeline(session.history!);
         }
         initializeDocumentSaveState(data, workspace, { preserve: options.preserveState, restored: options.restore?.fileSaveState });
         setDocument(doc, options.preserveState);
@@ -285,7 +288,8 @@ export function usePDFDocument() {
   useEffect(() => {
     let cancelled = false;
     const version = loadVersion.current;
-    const ownedSession = reloadOwnedDocumentSession();
+    // Retrying a failed React view must not replace a live document with an older cached draft.
+    const ownedSession = useDocumentStore.getState().document ? null : reloadOwnedDocumentSession();
     if (ownedSession) void loadCurrentPDF().then(stored => {
       // An explicit open takes precedence over restoring the previous session.
       if (!cancelled && version === loadVersion.current && stored?.sessionId === ownedSession) {

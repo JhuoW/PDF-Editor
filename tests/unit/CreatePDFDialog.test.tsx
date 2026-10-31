@@ -71,7 +71,7 @@ describe('CreatePDFDialog', () => {
     await selectFiles([file('valid.png'), file('broken.png')]);
     expect(host.querySelectorAll('li')).toHaveLength(1);
     expect(host.querySelector('li')?.textContent).toContain('keep.png');
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Invalid PNG');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Invalid PNG');
   });
 
   it('creates pages in the chosen order with millimeters converted to PDF points and a PDF filename', async () => {

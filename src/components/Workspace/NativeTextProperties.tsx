@@ -1,5 +1,6 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { t, translateError, useLocale } from '../../i18n';
+import { t, useLocale } from '../../i18n';
 import { useEditingStore } from '../../store/editingStore';
 import { useDocumentStore } from '../../store/documentStore';
 import { useHistoryStore } from '../../store/historyStore';
@@ -10,6 +11,7 @@ import { objectRect } from '../../editing/objectOperations';
 import type { PreparedTextEditLayout } from '../../editing/TextEditApplier';
 import type { TextBlock, TextLayoutOptions } from '../../editing/types';
 import { DecorationNumberInput } from '../Dialogs/DecorationNumberInput';
+import { TextFontSummary } from './TextFontSummary';
 
 export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock; onTextLayout: (id: string) => void }) {
   useLocale();
@@ -29,6 +31,20 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const prepared = current?.prepared, disabled = !block.editable || !prepared || !!current?.error;
+  const edit = edits.find(item => item.blockId === block.id);
+  const fontKey = useMemo(() => ({ document, blockId: block.id, edit }), [document, block.id, edit]);
+  const [fontResult, setFontResult] = useState<{ key: object; prepared?: PreparedTextEditLayout; error?: string } | null>(null);
+  useEffect(() => {
+    if (!document || !edit || !block.editable) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void document.getData().then(data => prepareTextEditLayoutInWorker(data, block, edit, { signal: controller.signal }))
+        .then(value => { if (!controller.signal.aborted) setFontResult({ key: fontKey, prepared: value }); })
+        .catch(error => { if (!controller.signal.aborted) setFontResult({ key: fontKey, error: error instanceof Error ? error.message : String(error) }); });
+    }, 200);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [document, block, edit, fontKey]);
+  const currentFont = fontResult?.key === fontKey ? fontResult : null;
   const font = layout?.fontName ?? prepared?.input.fontName ?? standardTextFont(block.style.fontName);
   const commitTextEditor = () => {
     const selected = useEditingStore.getState().selectedBlockId === block.id;
@@ -58,7 +74,9 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
   return <section className="inspector-card native-text-properties" aria-label={t('text.format')}>
     <h3>{t('m.original.pdf.text.9acab0')}</h3>
     {!prepared && !current?.error && block.editable && <p role="status">{t('text.format.loading')}</p>}
-    {(current?.error || !block.editable) && <p role="alert">{translateError(current?.error ?? block.unsupportedReason)}</p>}
+    {(current?.error || !block.editable) && <p role="alert"><ErrorMessage error={current?.error ?? block.unsupportedReason} /></p>}
+    {block.editable && !currentFont?.error && !current?.error && <TextFontSummary fonts={edit ? currentFont?.prepared?.fonts : prepared?.fonts} />}
+    {currentFont?.error && <p role="alert"><ErrorMessage error={currentFont.error} operation="Check text font" /></p>}
     <fieldset disabled={disabled}>
       <label>{t('m.font.b97c4d')}<select aria-label={t('text.format.font')} value={layout?.fontName ?? 'original'} onChange={event => change({ fontName: event.target.value === 'original' ? undefined : event.target.value })}>
         <option value="original">{t('m.original.pdf.font.0d4133')}</option>{TEXT_LAYOUT_FONTS.map(name => <option key={name} value={name}>{name}</option>)}

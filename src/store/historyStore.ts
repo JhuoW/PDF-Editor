@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { WorkspaceSnapshot } from './workspaceSnapshot';
+import { boundHistory, HISTORY_BYTE_BUDGET } from './historyBudget';
 
 /**
  * Document snapshot for undo/redo
@@ -22,11 +23,12 @@ export interface WorkspaceHistoryEntry {
   patch: WorkspacePatch;
 }
 export type HistorySnapshot = DocumentSnapshot | WorkspaceHistoryEntry;
-export interface HistoryTimeline { undoStack: HistorySnapshot[]; redoStack: HistorySnapshot[] }
+export interface HistoryTimeline { undoStack: HistorySnapshot[]; redoStack: HistorySnapshot[]; historyLimited?: boolean }
 export const isWorkspaceEntry = (entry: HistorySnapshot): entry is WorkspaceHistoryEntry => 'kind' in entry && entry.kind === 'workspace';
 
-export function appendDocumentCheckpoint(timeline: HistoryTimeline, snapshot: DocumentSnapshot, maxHistory: number): HistoryTimeline {
-  return { undoStack: [...timeline.undoStack, snapshot].slice(-maxHistory), redoStack: [] };
+export function appendDocumentCheckpoint(timeline: HistoryTimeline, snapshot: DocumentSnapshot, maxHistory: number, maxBytes = HISTORY_BYTE_BUDGET): HistoryTimeline {
+  const result = boundHistory({ undoStack: [...timeline.undoStack, snapshot], redoStack: [] }, maxHistory, maxBytes);
+  return { ...result.state, ...(result.trimmed || timeline.historyLimited ? { historyLimited: true } : {}) };
 }
 
 function inversePatch(current: WorkspacePatch, target: WorkspacePatch): WorkspacePatch {
@@ -45,6 +47,9 @@ interface HistoryState {
 
   // Maximum number of states to keep in history
   maxHistory: number;
+  maxHistoryBytes: number;
+  historyLimited: boolean;
+  restoreTimeline: (timeline: HistoryTimeline) => void;
 
   // Flag to prevent re-entry during undo/redo operations
   isUndoRedoInProgress: boolean;
@@ -71,11 +76,20 @@ interface HistoryState {
   setUndoRedoInProgress: (inProgress: boolean) => void;
 }
 
-export const useHistoryStore = create<HistoryState>((set, get) => ({
+export const useHistoryStore = create<HistoryState>((rawSet, get) => {
+  const set = (patch: Partial<HistoryState>, preferred: 'undo' | 'redo' = 'undo') => {
+    const next = { ...get(), ...patch };
+    const bounded = boundHistory(next, next.maxHistory, next.maxHistoryBytes, preferred);
+    rawSet({ ...bounded.state, historyLimited: next.historyLimited || bounded.trimmed });
+  };
+  return ({
   originalDocument: null,
   undoStack: [],
   redoStack: [],
   maxHistory: 20,
+  maxHistoryBytes: HISTORY_BYTE_BUDGET,
+  historyLimited: false,
+  restoreTimeline: timeline => set({ ...timeline, historyLimited: get().historyLimited || !!timeline.historyLimited, coalescingKey: null, groupRedo: null, groupUndo: null }),
   isUndoRedoInProgress: false,
   coalescingKey: null,
   groupRedo: null, groupUndo: null,
@@ -142,7 +156,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const inverse = { ...target, patch: inversePatch(current, target.patch), timestamp: Date.now() };
     set(direction === 'undo'
       ? { undoStack: source.slice(0, -1), redoStack: [...state.redoStack, inverse].slice(-state.maxHistory), coalescingKey: null, groupRedo: null, groupUndo: null }
-      : { undoStack: [...state.undoStack, inverse].slice(-state.maxHistory), redoStack: source.slice(0, -1), coalescingKey: null, groupRedo: null, groupUndo: null });
+      : { undoStack: [...state.undoStack, inverse].slice(-state.maxHistory), redoStack: source.slice(0, -1), coalescingKey: null, groupRedo: null, groupUndo: null }, direction === 'undo' ? 'redo' : 'undo');
     return structuredClone(target.patch);
   },
 
@@ -182,7 +196,8 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       undoStack: undoStack.slice(0, -1),
       redoStack: [...redoStack, currentSnapshot].slice(-maxHistory),
       coalescingKey: null,
-    });
+      groupRedo: null, groupUndo: null,
+    }, 'redo');
 
     return structuredClone(stateToRestore);
   },
@@ -213,6 +228,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       undoStack: [...undoStack, currentSnapshot].slice(-maxHistory),
       redoStack: redoStack.slice(0, -1),
       coalescingKey: null,
+      groupRedo: null, groupUndo: null,
     });
 
     return structuredClone(stateToRestore);
@@ -229,6 +245,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   clearHistory: () => {
     set({
       originalDocument: null,
+      historyLimited: false,
       undoStack: [],
       redoStack: [],
       isUndoRedoInProgress: false,
@@ -256,4 +273,4 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   setUndoRedoInProgress: (inProgress: boolean) => {
     set({ isUndoRedoInProgress: inProgress });
   },
-}));
+}); });

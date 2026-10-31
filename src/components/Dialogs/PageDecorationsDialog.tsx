@@ -1,3 +1,4 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -129,7 +130,7 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
     }}>
     <header><div><h2 id="page-decorations-title">{t("m.watermarks.headers.backgrounds.3697c3")}</h2><p>{t("m.preview.the.pdf.before.applying.all.changes.toge.e054f6")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.page.decorations.21b509")} disabled={saving || canceling} onClick={close}>×</button></header>
     {!current && loadError?.key !== loadKey && <p role="status" className="decoration-loading">{t("m.loading.page.decorations.53b350")}</p>}
-    {loadError?.key === loadKey && <div className="decoration-loading"><p role="alert" className="decoration-error">{translateError(loadError.message)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
+    {loadError?.key === loadKey && <div className="decoration-loading"><p role="alert" className="decoration-error"><ErrorMessage error={loadError.message} /></p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <div className="decoration-body">
       <section className="decoration-settings" aria-label={t("m.page.decoration.settings.c64eaf")}>
         {!current.inspection.canEdit && <p role="status" className="decoration-error">{translateError(current.inspection.unsupportedReason) || t("m.this.pdf.cannot.be.modified.safely.82cd9f")}</p>}
@@ -150,10 +151,10 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
         <div className="decoration-preview-toolbar"><label>{t("m.preview.page.d24958")}<select value={pageNumber} disabled={busy} onChange={event => setPageNumber(Number(event.target.value))}>{current.inspection.pages.map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label>
           <p role="status">{validation ? t("m.check.the.page.range.69221f") : currentPreview?.error ? t("m.preview.unavailable.36d31d") : currentPreview?.data ? t("m.preview.ready.8a0295") : t("m.updating.preview.3b1b2b")}</p></div>
         {currentPreview?.data && !validation && <DecorationPDFPreview data={currentPreview.data} pageNumber={pageNumber} onError={message => setPreview({ key: previewKey, error: message })} />}
-        {currentPreview?.error && <p role="alert" className="decoration-error">{translateError(currentPreview.error)}</p>}
+        {currentPreview?.error && <p role="alert" className="decoration-error"><ErrorMessage error={currentPreview.error} /></p>}
       </section>
     </div>}
-    <footer>{(validation || error) && <p role="alert" className="decoration-error">{translateError(validation || error)}</p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.page.decorations.10bc34")}</p>}{imageBusy && <p role="status">{t("m.reading.image.8ae8b8")}</p>}
+    <footer>{(validation || error) && <p role="alert" className="decoration-error"><ErrorMessage error={validation || error} /></p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.page.decorations.10bc34")}</p>}{imageBusy && <p role="status">{t("m.reading.image.8ae8b8")}</p>}
       <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? t("m.discard.changes.fa8fc0") : t("m.close.bbfa77")}</button><button type="button" className="decoration-primary" disabled={disabled || !operations.length || !!validation || !!currentPreview?.error} onClick={() => void save()}>{t("m.apply.decorations.7a178f")}</button></div>
     </footer>
   </dialog>;

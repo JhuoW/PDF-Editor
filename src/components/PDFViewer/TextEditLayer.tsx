@@ -1,3 +1,4 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useLocale, t, translateError } from "../../i18n";
 /** Direct PDF text editing: the PDF paints the letters, an input handles typing. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -225,7 +226,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     {preview?.png && preview.bytes && <InlinePDFPreview png={preview.png} bytes={preview.bytes} pageNumber={pageNumber} scale={scale} rotation={rotation} editing={mode === 'text' || mode === 'object'} />}
     {mode === 'text' && <>
       {!hasBlocks && analysisError?.page !== page && <div className="text-edit-loading" role="status">{t("m.analyzing.text.297d65")}</div>}
-      {analysisError?.page === page && <div className="text-edit-loading" role="alert">{translateError(analysisError.message)}</div>}
+      {analysisError?.page === page && <div className="text-edit-loading" role="alert"><ErrorMessage error={analysisError.message} /></div>}
       {pageBlocks.map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''}`} aria-disabled={!block.editable || undefined} title={translateError(block.unsupportedReason)} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
         <span className="text-block-content">{block.text}</span>
       </div>)}
@@ -235,10 +236,10 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
         <textarea ref={input} className="pdf-text-input" aria-label={t("m.edit.text.on.page.1a4d7e", { v0: pageNumber })} aria-describedby="pdf-text-edit-help" value={editText} spellCheck={false} autoCapitalize="off" autoComplete="off" style={{ left: caret?.left ?? 0, top: caret?.top ?? 0 }} onChange={event => change(event.target.value)} onSelect={event => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} onKeyDown={keyDown} onBlur={event => finish(!!actions.current?.contains(event.relatedTarget) || event.relatedTarget instanceof Element && !!event.relatedTarget.closest('.workspace-inspector'))} />
       </>}
       {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
-      {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status">{translateError(readOnlyReason)} <button type="button" onClick={() => setMode('none')}>{t("m.exit.text.editing.6c1160")}</button></div>}
+      {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status"><ErrorMessage error={readOnlyReason} /> <button type="button" onClick={() => setMode('none')}>{t("m.exit.text.editing.6c1160")}</button></div>}
     </>}
     {(preview?.error || layoutIssue || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">
-      {translateError(preview?.error) || t("text.edit.overflow.help")}
+      {preview?.error ? <ErrorMessage error={preview.error} operation="Preview text edit" /> : t("text.edit.overflow.help")}
       {onTextLayout && (layoutIssue || activeId) && <button type="button" onClick={() => { finish(); onTextLayout(layoutIssue?.blockId ?? activeId!); }}>{t('m.text.layout.661a8e')}</button>}
     </div>}
     {!!prepared?.layout.warnings.length && !layoutIssue && <div className="text-edit-font-notice" role="status">{prepared.layout.warnings.map(translateError).join(' ')}</div>}

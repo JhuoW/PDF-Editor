@@ -52,6 +52,7 @@ interface CombinedToolbarProps {
   onCompressPDF?: () => void;
   onManageLinks?: () => void;
   onManageBookmarks?: () => void;
+  onCheckText?: () => void;
   onSignature?: () => void;
   canResetToOriginal: boolean;
   // Form actions
@@ -102,6 +103,7 @@ export function CombinedToolbar({
   onCompressPDF,
   onManageLinks,
   onManageBookmarks,
+  onCheckText,
   onSignature,
   canResetToOriginal,
   onExportFormData,
@@ -376,6 +378,7 @@ export function CombinedToolbar({
     command('insert-image', t("m.insert.images.f4a261"), t("m.insert.image.c8141e"), 'Edit', ImagePlus, handleInsertImageClick, hasDocument && !!onInsertImage),
     command('links', t("m.links.9f8853"), t("m.links.014bcd"), 'Edit', Link, () => onManageLinks?.(), hasDocument && !!onManageLinks),
     command('bookmarks', t("m.bookmarks.ffd34e"), t("m.bookmarks.ca3cdd"), 'Edit', BookMarked, () => onManageBookmarks?.(), hasDocument && !!onManageBookmarks),
+    command('check-text', t('text.check.title'), t('text.check.title'), 'Edit', ScanText, () => onCheckText?.(), hasDocument && !!onCheckText),
     command('appearance', t("m.watermarks.headers.backgrounds.bb98b0"), t("m.page.appearance.ed9e8a"), 'Edit', Paintbrush, () => onPageDecorations?.(), hasDocument && !!onPageDecorations),
     command('merge', t("m.merge.pdfs.6471ae"), t("m.merge.ea8f0d"), 'Organize', Files, () => onMerge(), true),
     command('split', t("m.split.pdf.9c654c"), t("m.split.fc8230"), 'Organize', Scissors, () => onSplit()),
@@ -445,7 +448,7 @@ export function CombinedToolbar({
     </div>
     <div className="workspace-ribbon" id="workspace-ribbon" role="tabpanel" aria-labelledby={`workspace-${workspace}`}>
       {workspace === 'home' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image'])}{group(t("m.review.sign.acf4a5"), ['highlight', 'freetext', 'signature'])}{group(t("m.document.tools.044791"), ['merge', 'split', 'ocr', 'compress'])}</>}
-      {workspace === 'edit' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image', 'freetext'])}{group(t("m.document.tools.044791"), ['links', 'bookmarks', 'appearance'])}</>}
+      {workspace === 'edit' && <>{group(t("m.text.images.25bcef"), ['edit-objects', 'edit-text', 'edit-images', 'insert-image', 'freetext'])}{group(t("m.document.tools.044791"), ['check-text', 'links', 'bookmarks', 'appearance'])}</>}
       {workspace === 'annotate' && <>{group(t("m.markup.3d221e"), ['highlight', 'underline', 'strikeout'])}{group(t("m.draw.bfa50c"), ['ink', 'line', 'arrow', 'rectangle', 'ellipse'])}{group(t("m.notes.stamps.a8aea3"), ['sticky-note', 'freetext'])}<div className="ribbon-group"><button type="button" className="workspace-tool" disabled={!hasDocument || isBusy} title={t("m.stamp.973fc7")} onClick={() => toggleMenu('stamp')} data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"><Stamp size={21} /><span>{t("m.stamp.973fc7")}</span></button></div></>}
       {workspace === 'organize' && <>{group(t('pages.manage'), ['extract-pages', 'duplicate-pages', 'replace-pages', 'crop-pages'])}{group(t("m.pages.600584"), ['merge', 'split', 'rotate-left', 'rotate-right', 'rotate-180', 'delete-pages'])}{group(t("m.insert.pages.5cca93"), ['blank-before', 'blank-after', 'blank-end', 'pdf-before', 'pdf-after'])}</>}
       {workspace === 'convert' && <>{group(t("m.create.export.ced19b"), ['create-pdf', 'pdf-to-images'])}{group(t("m.recognize.optimize.c5cdd5"), ['ocr', 'compress'])}</>}

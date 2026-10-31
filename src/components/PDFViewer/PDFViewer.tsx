@@ -1,4 +1,5 @@
-import { useLocale, t, translateError } from "../../i18n";
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useLocale, t } from "../../i18n";
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { ZoomMode } from '../../store/documentStore';
@@ -413,7 +414,7 @@ export function PDFViewer({
           <span>{t("m.loading.document.951b0d")}</span>
         </div>
       )}
-      {loadError && <div className="pdf-viewer-loading" role="alert">{translateError(loadError)}</div>}
+      {loadError && <div className="pdf-viewer-loading" role="alert"><ErrorMessage error={loadError} /></div>}
       <div className="pdf-pages-wrapper">
         {pages.map((page) => (
           <div

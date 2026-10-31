@@ -1,5 +1,6 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateError } from "../../i18n";
+import { useLocale, t } from "../../i18n";
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createPDFFromImages, validateImageCollection, IMAGE_LIMITS, type PDFImageInput, type ImageInfo, type ImagePDFOptions } from '../../core/ImagePDF';
 import './ConversionDialog.css';
@@ -145,7 +146,7 @@ export function CreatePDFDialog({ onCreate, onClose }: CreatePDFDialogProps) {
         <label>{t("m.pdf.file.name.917f85")}<input value={fileName} onChange={event => setFileName(event.target.value)} /></label>
       </fieldset>
       {busy && <div className="conversion-progress"><progress max={progress.total} value={progress.completed} aria-label={t("m.pdf.creation.progress.7a5ac7")} /><p role="status">{canceling ? t("m.canceling.9dd59f") : stage === 'reading' ? t("m.reading.images.8cec4e", { v0: progress.completed, v1: progress.total }) : stage === 'opening' ? t("m.opening.the.created.pdf.9f1a97") : t("m.creating.pdf.fb2d73", { v0: progress.completed, v1: progress.total })}</p></div>}
-      {error && <p role="alert" className="conversion-error">{translateError(error)}</p>}
+      {error && <p role="alert" className="conversion-error"><ErrorMessage error={error} /></p>}
       <footer><button type="button" disabled={stage === 'opening' || canceling} onClick={close}>{t("m.cancel.77dfd2")}</button><button type="submit" className="conversion-primary" disabled={busy || !images.length}>{t("m.create.pdf.a18c88")}</button></footer>
     </form>
   </dialog>;

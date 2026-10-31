@@ -1,3 +1,4 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { currentLocale, useLocale, t, translateMessage , translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -116,7 +117,7 @@ function CompressPDFSession({ currentPage, readPDF, onClose }: CompressPDFDialog
   return <dialog ref={dialog} className="compress-pdf-dialog" aria-labelledby="compress-pdf-title" aria-describedby="compress-pdf-description"
     onCancel={event => { event.preventDefault(); close(); }} onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); downloadLatest.current(); } }}>
     <header><div><h2 id="compress-pdf-title">{t("m.compress.pdf.c81566")}</h2><p id="compress-pdf-description">{t("m.save.a.smaller.copy.with.your.current.edits.text.96c760")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.pdf.compression.a00867")} onClick={close}>×</button></header>
-    {loadError?.key === loadKey ? <div className="compress-loading"><p role="alert" className="compress-error">{translateError(loadError.message)}</p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.analysis.b6d531")}</button></div>
+    {loadError?.key === loadKey ? <div className="compress-loading"><p role="alert" className="compress-error"><ErrorMessage error={loadError.message} /></p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.analysis.b6d531")}</button></div>
       : <div className="compress-body">
         <section className="compress-settings" aria-label={t("m.compression.settings.6784ba")}>
           <fieldset disabled={busy || !current?.inspection.canOptimize}>
@@ -151,7 +152,7 @@ function CompressPDFSession({ currentPage, readPDF, onClose }: CompressPDFDialog
       </div>}
     <footer>{busy && <div className="compress-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{translateMessage(progressLabel(progress, compressing))}</span></div>}
       {result && !busy && <p role="status">{t("m.compression.ready.c2b036")}</p>}
-      {(error || currentPreviewError) && <p role="alert" className="compress-error">{translateError(error || currentPreviewError)}</p>}
+      {(error || currentPreviewError) && <p role="alert" className="compress-error"><ErrorMessage error={error || currentPreviewError} /></p>}
       {notice?.key === settings && <p role="status">{translateMessage(notice.text)}</p>}
       <div><button type="button" onClick={() => { if (compressing) operation.current?.abort(); else close(); }}>{compressing ? t("m.cancel.compression.55312d") : reading ? t("m.cancel.analysis.df18d1") : t("m.close.bbfa77")}</button>
         <button type="button" disabled={!canCompress} onClick={() => void compress()}>{compressing ? t("m.compressing.84c5e4") : t("m.compress.pdf.c81566")}</button><button type="button" className="compress-primary" disabled={!canDownload} onClick={download}>{t("m.download.pdf.98e5ef")}</button></div>

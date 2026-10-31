@@ -1,4 +1,5 @@
 import { useDocumentStore } from '../store/documentStore';
+import { isAbortError } from '../utils/cancellation';
 import { appendDocumentCheckpoint, useHistoryStore, type HistoryTimeline } from '../store/historyStore';
 import { commitPendingEditors } from '../store/workspaceHistory';
 import { captureWorkspace, remapWorkspacePages, type WorkspaceSnapshot } from '../store/workspaceSnapshot';
@@ -72,7 +73,7 @@ export async function performDocumentOperation(
     const history = useHistoryStore.getState();
     const nextHistory = appendDocumentCheckpoint(history, {
       data: stored.data.slice(0), fileName: stored.fileName, actionName, timestamp: Date.now(), workspace: beforeWorkspace,
-    }, history.maxHistory);
+    }, history.maxHistory, history.maxHistoryBytes);
     const file = new File([new Uint8Array(result.data)], stored.fileName, { type: 'application/pdf' });
     if (!await load(file, { preserveState: true, workspace: afterWorkspace, history: nextHistory })) {
       throw new Error('Could not load the modified PDF');
@@ -84,7 +85,7 @@ export async function performDocumentOperation(
       useDocumentStore.getState().setCurrentPage(currentPage);
     }
   } catch (error) {
-    if (!(error instanceof Error && error.name === 'AbortError') && isSameSession()
+    if (!isAbortError(error) && isSameSession()
       && useDocumentStore.getState().loadRequestId === initial.loadRequestId) {
       useDocumentStore.getState().setError(error instanceof Error ? error.message : 'Document operation failed');
     }

@@ -1,7 +1,8 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import { t, translateError, useLocale } from '../../i18n';
+import { t, useLocale } from '../../i18n';
 import { useEditingStore } from '../../store/editingStore';
 import { useDocumentStore } from '../../store/documentStore';
 import { useUIStore } from '../../store/uiStore';
@@ -228,7 +229,7 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
     gesture.current = { pointer: event.pointerId, element: event.currentTarget, entries: [], start, rect, next: rect, marquee: true, initialSelection, owner: useDocumentStore.getState() };
   }} onPointerMove={move} onPointerUp={event => { if (gesture.current?.pointer === event.pointerId) { move(event); finish(); } }} onPointerCancel={() => finish(true)} onLostPointerCapture={() => finish(true)}>
     {(!blocks || !pageImages) && error?.page !== page && <div className="object-edit-loading" role="status">{t('objects.loading')}</div>}
-    {error?.page === page && <div className="object-edit-notice" role="alert">{translateError(error.message)}</div>}
+    {error?.page === page && <div className="object-edit-notice" role="alert"><ErrorMessage error={error.message} /></div>}
     {[...targets].sort((a, b) => { const first = objectRect(a), second = objectRect(b); return second.width * second.height - first.width * first.height; }).map(target => {
       const rect = displayRect(target), isSelected = ids.includes(target.item.id);
       return <div key={target.item.id} data-object-id={target.item.id} data-object-kind={target.kind} role="button" tabIndex={0}
@@ -245,6 +246,6 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
     {marquee && <div className="object-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
     {guides.map(guide => <div key={guide.axis} className={`object-snap-guide ${guide.axis}`} style={guide.axis === 'x' ? { left: guide.position } : { top: guide.position }} />)}
     {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
-    {unsupported && <div className="object-edit-notice" role="status">{translateError(unsupported)}</div>}
+    {unsupported && <div className="object-edit-notice" role="status"><ErrorMessage error={unsupported} /></div>}
   </div>;
 }

@@ -1,4 +1,5 @@
-import { useLocale, t, translateMessage, translateError } from "../../i18n";
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useLocale, t, translateMessage } from "../../i18n";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createVisibleCopyInWorker, inspectVisibleCopyInWorker } from '../../core/VisibleCopyClient';
 import { DEFAULT_VISIBLE_COPY_SETTINGS, type VisibleCopyInspection, type VisibleCopyProgress, type VisibleCopyResult, type VisibleCopySettings } from '../../core/VisibleCopyTypes';
@@ -108,17 +109,17 @@ export function CleanVisibleCopyPanel({ source, currentPage, active, onClose, on
         {sample && <p className="clean-size">{t("m.preview.page.pdf.6ab1a8")}{' '}{size(sample.data.byteLength)}.{estimate !== null && <> {' '}{t("m.rough.total.estimate.d1f0b4")}{' '}{size(estimate)}.</>}</p>}
         {estimate !== null && <p className="clean-help">{t("m.the.estimate.uses.this.preview.page.s.image.size.33726a")}</p>}
         {!!inspected?.warnings.length && <details className="clean-font-warnings"><summary>{t("m.font.substitutions.1e0e7d")}{inspected.warnings.length}{inspected.warningsTruncated ? '+' : ''})</summary><p className="clean-help">{t("m.review.the.affected.pages.substitute.fonts.can.c.ef9f86")}</p><ul>{inspected.warnings.map((warning, index) => <li key={index}>{t("m.page.fb0627")}{' '}{warning.pageNumber} · {warning.fontName}: {translateMessage(warning.message)}</li>)}</ul>{inspected.warningsTruncated && <p>{t("m.additional.substitutions.are.not.listed.30441e")}</p>}</details>}
-        {read?.source === source && read.error && <><p role="alert" className="clean-error">{translateError(read.error)}</p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></>}
+        {read?.source === source && read.error && <><p role="alert" className="clean-error"><ErrorMessage error={read.error} /></p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></>}
       </div>
       <div className="clean-preview" aria-label={t("m.visible.copy.preview.05484f")}>
         <div className="clean-preview-toolbar"><label>{t("m.copy.preview.page.7c0ab1")}<select value={pageNumber} disabled={busy || !inspected} onChange={event => setPageNumber(Number(event.target.value))}>{(inspected?.pages ?? [{ pageNumber }]).map(page => <option key={page.pageNumber} value={page.pageNumber}>{t("m.page.fb0627")}{' '}{page.pageNumber}</option>)}</select></label>
           {!source.pendingRedactions && !read?.error && <p role="status">{sample ? t("m.visible.copy.preview.ready.e158ae") : t("m.preparing.image.only.preview.e4903b")}</p>}</div>
         {sample && <DecorationPDFPreview data={sample.data} pageNumber={1} onError={message => setPreview({ key: previewKey, error: message })} />}
-        {current?.error && <p role="alert" className="clean-error">{translateError(current.error)}</p>}
+        {current?.error && <p role="alert" className="clean-error"><ErrorMessage error={current.error} /></p>}
       </div>
     </div>
     <footer>{busy && <div className="clean-progress" role="status"><progress max={progress?.total || 1} value={progress?.completed} /><span>{translateMessage(progressLabel(progress))}</span></div>}
-      {error && <p role="alert" className="clean-error">{translateError(error)}</p>}{success && <p role="status">{translateMessage(success)}</p>}
+      {error && <p role="alert" className="clean-error"><ErrorMessage error={error} /></p>}{success && <p role="status">{translateMessage(success)}</p>}
       <div><button type="button" onClick={() => { if (busy) generation.current?.abort(); else onClose(); }}>{busy ? t("m.cancel.generation.282748") : t("m.close.bbfa77")}</button><button type="button" className="clean-primary" disabled={!canGenerate} onClick={() => void generate()}>{t("m.download.image.only.pdf.873eed")}</button></div>
     </footer>
   </section>;

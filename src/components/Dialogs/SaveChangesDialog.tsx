@@ -1,5 +1,7 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { isAbortError } from '../../utils/cancellation';
 import { useEffect, useId, useRef, useState } from 'react';
-import { t, translateError, useLocale } from '../../i18n';
+import { t, useLocale } from '../../i18n';
 import { LanguageSwitcher } from '../Workspace/LanguageSwitcher';
 import './ConversionDialog.css';
 import './SaveChangesDialog.css';
@@ -42,7 +44,7 @@ export function SaveChangesDialog({ fileName, busy = false, purpose = 'close', o
       await onSave();
       if (mounted.current) { closed.current = true; dialog.current?.close(); }
     } catch (cause) {
-      const cancelled = typeof cause === 'object' && cause !== null && 'name' in cause && cause.name === 'AbortError';
+      const cancelled = isAbortError(cause);
       if (mounted.current && !cancelled) setError(cause instanceof Error ? cause.message : 'Could not save the PDF.');
     } finally {
       submitting.current = false;
@@ -61,7 +63,7 @@ export function SaveChangesDialog({ fileName, busy = false, purpose = 'close', o
       <header><h2 id={titleId}>{t('file.unsaved.title')}</h2><div className="dialog-language"><LanguageSwitcher /></div></header>
       <p id={descriptionId} data-document-content>{t(purpose === 'open' ? 'file.unsaved.beforeOpen' : 'file.unsaved.beforeClose', { fileName })}</p>
       <p className="conversion-hint">{t('file.unsaved.description')}</p>
-      {error && <p className="conversion-error" role="alert">{translateError(error)}</p>}
+      {error && <p className="conversion-error" role="alert"><ErrorMessage error={error} /></p>}
       {locked && <p role="status" aria-live="polite">{t('file.saving')}</p>}
       <footer>
         <button type="button" disabled={locked} onClick={() => decide(onCancel)}>{t('m.cancel.77dfd2')}</button>

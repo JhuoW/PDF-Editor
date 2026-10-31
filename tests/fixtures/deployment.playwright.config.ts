@@ -4,11 +4,13 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: fileURLToPath(new URL('../e2e', import.meta.url)),
-  testMatch: ['save-crop-lifecycle.spec.ts', 'new-features-regression.spec.ts', 'page-management.spec.ts', 'pdf-to-images.spec.ts', 'conversion.spec.ts', 'advanced-editing.spec.ts', 'object-editing.spec.ts', 'review-*.spec.ts', 'workspace-i18n.spec.ts', 'deployment.spec.ts', 'inline-text-edit.spec.ts', 'text-fidelity.spec.ts', 'paragraph-reflow.spec.ts', 'bookmarks.spec.ts', 'signature.spec.ts', 'drawing-coordinates.spec.ts', 'image-insertion.spec.ts', 'custom-stamps.spec.ts', 'search-navigation.spec.ts', 'ui-final-review.spec.ts', 'interaction-guards.spec.ts'],
+  testMatch: ['reliability.spec.ts', 'save-crop-lifecycle.spec.ts', 'new-features-regression.spec.ts', 'page-management.spec.ts', 'pdf-to-images.spec.ts', 'conversion.spec.ts', 'advanced-editing.spec.ts', 'object-editing.spec.ts', 'review-*.spec.ts', 'workspace-i18n.spec.ts', 'deployment.spec.ts', 'inline-text-edit.spec.ts', 'text-fidelity.spec.ts', 'paragraph-reflow.spec.ts', 'bookmarks.spec.ts', 'signature.spec.ts', 'drawing-coordinates.spec.ts', 'image-insertion.spec.ts', 'custom-stamps.spec.ts', 'search-navigation.spec.ts', 'ui-final-review.spec.ts', 'interaction-guards.spec.ts'],
   workers: 1,
   use: {
     browserName: 'chromium',
     baseURL: 'http://127.0.0.1:4176/PDF-Editor/',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH },
   },
   webServer: {

@@ -1,7 +1,8 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useEffect, useRef, useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import { parseExportPageRange } from '../../core/PageExport';
-import { t, translateError, useLocale } from '../../i18n';
+import { t, useLocale } from '../../i18n';
 import { LanguageSwitcher } from '../Workspace/LanguageSwitcher';
 import './ConversionDialog.css';
 import './PageManagementDialog.css';
@@ -182,7 +183,7 @@ export default function PageManagementDialog({ action, totalPages, currentPage, 
       </fieldset>
       {reading && <p role="status">{t('pages.reading')}</p>}
       {busy && <p role="status">{t('pages.working')}</p>}
-      {((attempted && validation) || error) && <p className="conversion-error" role="alert">{translateError(error || validation)}</p>}
+      {((attempted && validation) || error) && <p className="conversion-error" role="alert"><ErrorMessage error={error || validation} /></p>}
       <footer><button type="button" disabled={commitStarted} onClick={close}>{t('m.cancel.77dfd2')}</button><button type="submit" className="conversion-primary" disabled={busy || reading}>{busy ? t('pages.working') : t(`pages.${action}`)}</button></footer>
     </form>
   </dialog>;

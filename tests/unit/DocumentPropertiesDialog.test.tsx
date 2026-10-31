@@ -104,7 +104,7 @@ describe('DocumentPropertiesDialog', () => {
     await fill('Document title', '中文 title');
     api.updateDocumentMetadata.mockRejectedValueOnce(new Error('Could not update metadata'));
     await click('Save properties');
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Could not update metadata');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Could not update metadata');
     expect(host.querySelector<HTMLInputElement>('[aria-label="Document title"]')?.value).toBe('中文 title');
     expect(button('Save properties').disabled).toBe(false);
     api.inspectDocumentAssets.mockResolvedValue({ metadata: { ...original, title: '中文 title' }, hasXmp: false, attachments });

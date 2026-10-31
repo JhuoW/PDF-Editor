@@ -8,6 +8,7 @@ import { hasOpenModal, isTextInput, isInteractiveControl } from '../../utils/key
 import { useUIStore } from '../../store/uiStore';
 import { useDocumentStore } from '../../store/documentStore';
 import { readInsertImage } from '../../utils/readInsertImage';
+import { boundedRaster } from '../../utils/rasterBudget';
 import { useHistoryStore } from '../../store/historyStore';
 import { registerPendingEditor } from '../../store/workspaceHistory';
 import {
@@ -1310,10 +1311,14 @@ export function DrawingAnnotationLayer({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = dimensions.width;
-    canvas.height = dimensions.height;
+    const raster = boundedRaster(dimensions.width, dimensions.height);
+    canvas.width = raster.width;
+    canvas.height = raster.height;
+    canvas.style.width = `${dimensions.width}px`;
+    canvas.style.height = `${dimensions.height}px`;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(canvas.width / dimensions.width, 0, 0, canvas.height / dimensions.height, 0, 0);
 
     // Sort annotations by z-index (lower z-index renders first, so higher z-index appears on top)
     const sortedAnnotations = [...annotations].sort((a, b) => {

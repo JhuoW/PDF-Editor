@@ -474,6 +474,8 @@ describe('PDF document sessions', () => {
     useFormStore.getState().clearForm();
     useHistoryStore.getState().clearHistory();
     useEditingStore.getState().clearAll();
+    // A browser refresh creates a fresh store before restoring persisted state.
+    useDocumentStore.setState(useDocumentStore.getInitialState(), true);
     mocks.loadCurrentPDF.mockResolvedValue(snapshot);
     mocks.getDocument.mockReturnValue(loadingTask(Promise.resolve(pdfDocument())));
     await mount();
@@ -490,6 +492,28 @@ describe('PDF document sessions', () => {
     expect(mocks.extractFormFields).not.toHaveBeenCalled();
     expect(mocks.saveCurrentPDF).not.toHaveBeenCalled();
     expect(useDocumentSessionStore.getState().active?.sessionId).toBe('persisted-session');
+  });
+
+  it('keeps live edits when the editor remounts after a view failure on a reloaded page', async () => {
+    navigation('reload', 'persisted-session');
+    const { oldDocument, annotation } = seedCurrentDocument();
+    useFormStore.getState().setFieldValue('name', 'new unsaved value');
+    mocks.loadCurrentPDF.mockResolvedValue({ data: buffer(9), fileName: 'stale.pdf', sessionId: 'persisted-session' });
+    const liveWorkspace = captureWorkspace();
+    const liveHistory = useHistoryStore.getState().undoStack;
+
+    await mount();
+    await act(async () => root!.unmount());
+    container.remove();
+    await mount();
+
+    expect(api.document).toBe(oldDocument);
+    expect(captureWorkspace()).toEqual(liveWorkspace);
+    expect(useAnnotationStore.getState().getAllAnnotations()[0].id).toBe(annotation.id);
+    expect(useHistoryStore.getState().undoStack).toEqual(liveHistory);
+    expect(mocks.loadCurrentPDF).not.toHaveBeenCalled();
+    expect(mocks.getDocument).not.toHaveBeenCalled();
+    expect(oldDocument.destroy).not.toHaveBeenCalled();
   });
 
   it('persists and publishes the supplied remapped workspace during internal reloads', async () => {

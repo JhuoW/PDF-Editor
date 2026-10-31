@@ -18,12 +18,13 @@ export function readTextSourceMetrics(engine: Engine, page: PDFPage, block: Text
   const transform = page.getTransform(), inverse = engine.Matrix.invert(transform);
   const crop = engine.Rect.transform(page.getBounds(), inverse), unit = Math.hypot(transform[0], transform[1]);
   const viewport: Matrix = [unit, 0, 0, -unit, -crop[0] * unit, crop[3] * unit];
-  const fonts = new Map<number, string>(), glyphs: SourceGlyph[] = [];
+  const fonts = new Map<number, string>(), glyphs: SourceGlyph[] = [], fontNames = new Set<string>();
   const seen = new Set<string>();
   const register = (font: Font) => {
     let key = fonts.get(font.pointer);
     const name = standardTextFont(`${font.isMono() ? 'Courier' : font.isSerif() ? 'Times' : 'Helvetica'}${font.isBold() ? ' Bold' : ''}${font.isItalic() ? ' Italic' : ''}`);
     if (!key) {
+      fontNames.add(font.getName());
       key = `source:${block.id}:${fonts.size}`; fonts.set(font.pointer, key);
       // Text.walk shares its Font wrapper across glyph callbacks. Keep our own
       // reference; destroying the borrowed wrapper invalidates earlier glyphs.
@@ -172,7 +173,7 @@ export function readTextSourceMetrics(engine: Engine, page: PDFPage, block: Text
   // The detector represents a mixed-size line by its largest em. Use the same
   // basis so an explicit size change scales runs consistently with the UI.
   const fontSize = Math.max(...glyphs.map(glyph => glyph.style.fontSize));
-  return { fontSize, fontName: first.style.fontName, fontColor: first.style.fontColor, fontKey: first.style.fontKey, source };
+  return { fontSize, fontName: first.style.fontName, fontNames: [...fontNames], fontColor: first.style.fontColor, fontKey: first.style.fontKey, source };
 }
 
 /** Map unchanged runs through local replacements; inserted text inherits the replaced run's style. */

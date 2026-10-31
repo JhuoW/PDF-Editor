@@ -1,5 +1,6 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
-import { useLocale, t, translateError } from "../../i18n";
+import { useLocale, t } from "../../i18n";
 import { useState, useEffect, useRef } from 'react';
 import './GoToPageDialog.css';
 
@@ -101,7 +102,7 @@ export function GoToPageDialog({
               onChange={handleInputChange}
               className={error ? 'error' : ''}
             />
-            {error && <div className="goto-page-error" id="goto-page-error" role="alert">{translateError(error)}</div>}
+            {error && <div className="goto-page-error" id="goto-page-error" role="alert"><ErrorMessage error={error} /></div>}
           </div>
 
           <div className="goto-page-actions">

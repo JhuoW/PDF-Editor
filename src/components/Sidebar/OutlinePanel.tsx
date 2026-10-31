@@ -1,3 +1,4 @@
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useLocale, translateMessage, t, translateError } from "../../i18n";
 import { useEffect, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -32,7 +33,7 @@ export function OutlinePanel({ document, onNavigate, onManage, manageDisabled }:
     <div className="outline-panel-header"><span>{t("m.bookmarks.ca3cdd")}</span>{onManage && <button type="button" disabled={manageDisabled} onClick={onManage}>{t("m.manage.791e88")}</button>}</div>
     <div className="outline-content">
       {!current && <div className="outline-loading" role="status">{t("m.loading.bookmarks.aa55ad")}</div>}
-      {current?.error && <div className="outline-error" role="alert">{translateError(current.error)}</div>}
+      {current?.error && <div className="outline-error" role="alert"><ErrorMessage error={current.error} /></div>}
       {current && !current.error && (current.items.length ? <ul className="outline-tree" aria-label={t("m.bookmarks.ca3cdd")}>{current.items.map(item => <OutlineItem key={item.id} item={item} level={0} onNavigate={onNavigate} />)}</ul> : <div className="outline-empty">{t("m.no.bookmarks.available.510daa")}</div>)}
     </div>
   </div>;

@@ -137,7 +137,7 @@ describe('FormDesignerDialog', () => {
     expect(host.textContent).toContain('Read failed'); await click('Retry'); await click('Draw text field');
     vi.mocked(props.onSave).mockRejectedValueOnce(new Error('Duplicate field name'));
     await click('Save form design');
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Duplicate field name');
+    expect(host.querySelector('[role="alert"] .diagnostic-summary')?.textContent).toBe('Duplicate field name');
     expect(button('Save form design').disabled).toBe(false);
     expect(host.textContent).toContain('Field properties');
     expect(props.onClose).not.toHaveBeenCalled();
