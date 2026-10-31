@@ -105,8 +105,8 @@ body { background: #f3f5f8; }
 .update-history-trigger { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .update-history-trigger:hover { color: var(--accent-11, #2559a7); background: var(--accent-3, #eff6ff); }
 .update-history-trigger:focus-visible { outline: 2px solid var(--accent-9, #2563eb); outline-offset: 2px; }
-.app-feedback a { color: inherit; text-underline-offset: 2px; }
-.app-feedback a:hover { color: var(--accent-11, #2559a7); }
+.app-feedback a { color: var(--accent-11, #2559a7); text-decoration: underline; text-underline-offset: 2px; }
+.app-feedback a:hover { color: var(--accent-12, #184075); }
 .app-feedback a:focus-visible { outline: 2px solid var(--accent-9, #2563eb); outline-offset: 2px; border-radius: 2px; }
 .welcome-workspace { flex: 1; width: min(740px, calc(100% - 48px)); margin: auto; padding: 32px 0; display: flex; flex-direction: column; align-items: stretch; text-align: center; }
 .welcome-heading { margin-bottom: 24px; }.welcome-eyebrow { display: inline-flex; align-items: center; gap: 5px; color: #6f849a; font-size: 11px; }
