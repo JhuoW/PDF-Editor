@@ -47,7 +47,9 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
     return () => { clearTimeout(timer); controller.abort(); };
   }, [document, block, edit, fontKey]);
   const currentFont = fontResult?.key === fontKey ? fontResult : null;
-  const font = layout?.fontName ?? prepared?.input.fontName ?? standardTextFont(block.style.fontName);
+  const selectedFont = layout && 'fontName' in layout ? layout.fontName : block.fontPreference?.fontName;
+  const font = selectedFont ?? prepared?.input.fontName ?? standardTextFont(block.style.fontName);
+  const asset = edit?.font ?? block.fontPreference?.font;
   const commitTextEditor = () => {
     const selected = useEditingStore.getState().selectedBlockId === block.id;
     commitPendingEditors();
@@ -63,12 +65,14 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
     const state = useEditingStore.getState(), latest = state.getBlock(block.id), previous = state.textEdits.find(edit => edit.blockId === block.id);
     if (!latest?.editable || useDocumentStore.getState().document !== key.document) return;
     const previousLayout = previous?.layout;
-    const next: TextLayoutOptions = { keepBaseline: true, ...previousLayout, targetRect: objectRect({ kind: 'text', item: latest }),
+    const next: TextLayoutOptions = { keepBaseline: true, flow: state.mode === 'text' ? 'paragraph' : 'object',
+      ...(latest.fontPreference ? { fontName: latest.fontPreference.fontName } : {}), ...previousLayout,
+      targetRect: state.mode === 'text' ? previousLayout?.targetRect ?? latest.rect : objectRect({ kind: 'text', item: latest }),
       autoGrow: false, fitToContent: true, ...patch };
-    state.updateBlockLayout({ blockId: block.id, originalText: previous?.originalText ?? latest.text, newText: latest.text, layout: next, font: asset ?? previous?.font, timestamp: Date.now() }, groupKey);
+    state.updateBlockLayout({ blockId: block.id, originalText: previous?.originalText ?? latest.text, newText: latest.text, layout: next, font: asset ?? previous?.font ?? latest.fontPreference?.font, timestamp: Date.now() }, groupKey);
   };
   const custom = font === 'zh-Hans' || font.startsWith('custom:');
-  const bold = custom ? !!edit?.font?.bold : /Bold/.test(font), italic = custom ? !!edit?.font?.italic : /Italic|Oblique/.test(font);
+  const bold = custom ? !!asset?.bold : /Bold/.test(font), italic = custom ? !!asset?.italic : /Italic|Oblique/.test(font);
   const variant = (isBold: boolean, isItalic: boolean) => {
     if (font.startsWith('Times')) return isBold ? isItalic ? 'Times-BoldItalic' : 'Times-Bold' : isItalic ? 'Times-Italic' : 'Times-Roman';
     const family = font.startsWith('Courier') ? 'Courier' : 'Helvetica';
@@ -81,7 +85,7 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
     {block.editable && !currentFont?.error && !current?.error && <TextFontSummary fonts={edit ? currentFont?.prepared?.fonts : prepared?.fonts} />}
     {currentFont?.error && <p role="alert"><ErrorMessage error={currentFont.error} operation="Check text font" /></p>}
     <fieldset disabled={disabled}>
-      <TextFontPicker value={layout?.fontName} asset={edit?.font} onChange={(fontName, asset) => change({ fontName }, undefined, asset)} />
+      <TextFontPicker value={selectedFont} asset={asset} onChange={(fontName, asset) => change({ fontName }, undefined, asset)} />
       <div className="native-field-grid"><DecorationNumberInput label={t('m.font.size.83ca9e')} value={layout?.fontSize ?? prepared?.input.fontSize ?? block.style.fontSize} min={1} max={500} onChange={fontSize => change({ fontSize })} />
         <DecorationNumberInput label={t('m.line.spacing.18f550')} value={layout?.lineHeight ?? prepared?.input.lineHeight ?? block.style.lineHeight} min={layout?.keepBaseline === false ? 1 : .25} max={5} step={.1} onChange={lineHeight => change({ lineHeight })} /></div>
       <div className="native-button-grid"><button type="button" disabled={custom} aria-pressed={bold} onClick={() => change({ fontName: variant(!bold, italic) })}>{t('text.format.bold')}</button><button type="button" disabled={custom} aria-pressed={italic} onClick={() => change({ fontName: variant(bold, !italic) })}>{t('text.format.italic')}</button></div>

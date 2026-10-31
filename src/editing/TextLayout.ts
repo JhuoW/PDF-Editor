@@ -31,7 +31,8 @@ export interface TextLayoutInput {
   /** Session-owned source font; absent when an explicit replacement font is chosen. */
   sourceFontKey?: string;
   /** Physical source rows retain their PDF word spacing when unchanged. */
-  sourceRows?: Array<{ text: string; width: number }>;
+  sourceRows?: Array<{ text: string; width: number; x?: number; baseline?: number }>;
+  firstLineIndent?: number;
   reflow?: boolean;
   /** Per-character source styles, already mapped through the current replacement. */
   sourceStyles?: TextGlyphStyle[];
@@ -101,18 +102,19 @@ function canBreak(left: MeasuredGlyph, right: MeasuredGlyph) {
   // not. Breaking only *after* that space needlessly moved the whole word down.
   return space(left.character) || space(right.character) || cjk(left.character) || cjk(right.character);
 }
-function wrap(glyphs: MeasuredGlyph[], width: number): WrappedLine[] {
+function wrap(glyphs: MeasuredGlyph[], width: number, firstWidth = width): WrappedLine[] {
   if (!glyphs.length) return [{ glyphs: [], paragraphEnd: true }];
   const lines: WrappedLine[] = [];
   let start = 0;
   while (start < glyphs.length) {
+    const limit = lines.length ? width : firstWidth;
     let end = start, lastBreak = -1, advance = 0, left = 0, right = 0;
     while (end < glyphs.length) {
       const glyph = glyphs[end], nextLeft = Math.min(left, advance + glyph.left), nextRight = Math.max(right, advance + glyph.right, advance + glyph.advance);
-      if (end > start && nextRight - nextLeft > width + 0.0001) break;
+      if (end > start && nextRight - nextLeft > limit + 0.0001) break;
       advance += glyph.advance; left = nextLeft; right = nextRight; end++;
       if (end < glyphs.length && canBreak(glyphs[end - 1], glyphs[end])) lastBreak = end;
-      if (right - left > width + 0.0001) break; // Keep an oversized glyph, then report overflow; never truncate it.
+      if (right - left > limit + 0.0001) break; // Keep an oversized glyph, then report overflow; never truncate it.
     }
     if (end < glyphs.length && lastBreak > start) end = lastBreak;
     // Avoid placing closing punctuation at a line start or opening punctuation at
@@ -242,28 +244,32 @@ export class TextLayoutSession {
     for (const paragraph of paragraphs) for (const glyph of paragraph) { ascent = Math.max(ascent, glyph.ascent); descent = Math.max(descent, glyph.descent); emHeight = Math.max(emHeight, glyph.sizeRatio ?? 1); }
     const assemble = (size: number, useLegacy = legacy): TextLayoutResult => {
       check(control);
-      const wrapped = paragraphs.flatMap(paragraph => wrap(useLegacy ? paragraph.map(glyph => ({ ...glyph, left: 0, right: glyph.advance })) : paragraph, input.rect.width / size));
+      const indent = Math.max(0, input.firstLineIndent ?? 0);
+      const wrapped = paragraphs.flatMap(paragraph => wrap(useLegacy ? paragraph.map(glyph => ({ ...glyph, left: 0, right: glyph.advance })) : paragraph, input.rect.width / size, Math.max(.001, input.rect.width - indent) / size));
       const lineAdvance = (useLegacy ? input.lineHeight : Math.max(input.lineHeight, ascent + descent)) * size;
       const requiredHeight = (useLegacy ? emHeight : ascent + descent) * size + Math.max(0, wrapped.length - 1) * lineAdvance;
       let widest = 0, ink: [number, number, number, number] | undefined;
       const lines = wrapped.map((row, index): TextLayoutLine => {
+        const inset = index === 0 || wrapped[index - 1].paragraphEnd ? indent : 0;
+        const rowWidth = input.rect.width - inset;
         if (row.paragraphEnd && row.glyphs.some(glyph => glyph.naturalSpaceAdvance !== undefined)) {
           // TeX justification permits word spaces to tighten as well as stretch.
           // Break using the source's measured minimum, then use normal spacing
           // on the final row whenever it fits. Font sizes never change.
           const natural = row.glyphs.map(glyph => glyph.naturalSpaceAdvance === undefined ? glyph : { ...glyph, advance: glyph.naturalSpaceAdvance, ...(useLegacy ? { right: glyph.naturalSpaceAdvance } : {}) });
-          if (lineMetrics(natural).width * size <= input.rect.width + .001) row.glyphs = natural;
+          if (lineMetrics(natural).width * size <= rowWidth + .001) row.glyphs = natural;
         }
         const metric = lineMetrics(row.glyphs), gaps = new Set<number>();
         if (input.alignment === 'justify' && !row.paragraphEnd) {
           row.glyphs.forEach((glyph, position) => { if (position > 0 && position < row.glyphs.length - 1 && space(glyph.character)) gaps.add(position); });
           if (!gaps.size) row.glyphs.forEach((glyph, position) => { const next = row.glyphs[position + 1]; if (next && (cjk(glyph.character) || cjk(next.character)) && canBreak(glyph, next)) gaps.add(position); });
         }
-        const extra = gaps.size ? Math.max(0, input.rect.width - metric.width * size) / gaps.size : 0;
-        const width = metric.width * size + extra * gaps.size; widest = Math.max(widest, width);
-        const offset = input.alignment === 'right' ? input.rect.width - width : input.alignment === 'center' ? (input.rect.width - width) / 2 : 0;
-        let x = input.rect.x + offset - metric.left * size;
-        const baseline = (useLegacy ? input.legacyBaseline! : input.rect.y + ascent * size) + index * lineAdvance, start = x;
+        const extra = gaps.size ? Math.max(0, rowWidth - metric.width * size) / gaps.size : 0;
+        const width = metric.width * size + extra * gaps.size; widest = Math.max(widest, width + inset);
+        const offset = input.alignment === 'right' ? rowWidth - width : input.alignment === 'center' ? (rowWidth - width) / 2 : 0;
+        const sourceRow = !input.reflow && input.sourceRows?.[index]?.text === row.glyphs.map(glyph => glyph.character).join('') ? input.sourceRows[index] : undefined;
+        let x = (sourceRow?.x ?? input.rect.x + inset + offset) - metric.left * size;
+        const baseline = sourceRow?.baseline ?? (useLegacy ? input.legacyBaseline! : input.rect.y + ascent * size) + index * lineAdvance, start = x;
         const glyphs = row.glyphs.map((glyph, position) => {
           const advance = glyph.advance * size + (gaps.has(position) ? extra : 0);
           const placed = { character: glyph.character, fontName: glyph.fontName, glyphId: glyph.glyphId, x, baseline, advance,

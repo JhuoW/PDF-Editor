@@ -48,8 +48,11 @@ test('mixed object multi-selection moves as one undoable edit and survives expor
   await page.keyboard.down('Alt'); await page.mouse.move(box.x + 20, box.y + 20); await page.mouse.down(); await page.mouse.move(box.x + 56, box.y + 40, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Alt');
   const after = inspect(await exported(page));
   after.images[0].forEach((value, coordinate) => expect(value - before.images[0][coordinate]).toBeCloseTo(coordinate % 2 ? 20 : 36, 2));
-  expect(after.chars[0].x - before.chars[0].x).toBeCloseTo(36, 2); expect(after.chars[0].y - before.chars[0].y).toBeCloseTo(20, 2);
-  expect(after.images.slice(1)).toEqual(before.images.slice(1)); expect(after.text).toBe(before.text);
+  const firstBefore = before.chars.find(char => char.char === 'F')!, firstAfter = after.chars.find(char => char.char === 'F')!;
+  expect(firstAfter.x - firstBefore.x).toBeCloseTo(36, 2); expect(firstAfter.y - firstBefore.y).toBeCloseTo(20, 2);
+  expect(after.images.slice(1)).toEqual(before.images.slice(1));
+  expect(after.text).toContain('Format this text'); expect(after.text).toContain('Second line');
+  expect(after.chars.find(char => char.char === 'S')).toEqual(before.chars.find(char => char.char === 'S'));
   await page.locator('.workspace-history > button').nth(0).click(); expect(inspect(await exported(page)).images).toEqual(before.images);
   await page.locator('.workspace-history > button').nth(1).click(); expect(inspect(await exported(page)).images).toEqual(after.images);
 });
@@ -112,12 +115,18 @@ test('quick text properties preserve original content while writing font, size, 
   await panel.getByRole('spinbutton', { name: 'Font size', exact: true }).fill('24'); await panel.getByRole('spinbutton', { name: 'Font size', exact: true }).press('Enter');
   await panel.getByRole('spinbutton', { name: 'Line spacing', exact: true }).fill('2'); await panel.getByRole('spinbutton', { name: 'Line spacing', exact: true }).press('Enter');
   await panel.getByLabel('Text color', { exact: true }).fill('#cc2200');
-  const after = inspect(await exported(page)); expect(after.text.replace(/\s+/g, ' ')).toContain('Format this text Second line'); expect(after.images).toEqual(before.images);
+  await page.getByRole('button', { name: 'Select text object 1', exact: true }).dblclick();
+  await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill('Format this\ntext');
+  await panel.getByLabel('Text color', { exact: true }).focus();
+  const after = inspect(await exported(page)); expect(after.text.replace(/\s+/g, ' ')).toContain('Format this text'); expect(after.text).toContain('Second line'); expect(after.images).toEqual(before.images);
   const glyph = after.chars.find(char => char.char === 'F')!; expect(glyph.font).toMatch(/Bold/i); expect(glyph.font).toMatch(/Courier|Mono/i); expect(glyph.size).toBeCloseTo(24, 3); expect(glyph.color[0]).toBeCloseTo(.8, 3); expect(glyph.color[1]).toBeCloseTo(34 / 255, 3);
-  const baselines = [...new Set(after.chars.map(char => Math.round(char.y * 1000) / 1000))].sort((a, b) => a - b);
-  expect(baselines.length).toBeGreaterThan(1); for (let index = 1; index < baselines.length; index++) expect(baselines[index] - baselines[index - 1]).toBeCloseTo(48, 2);
+  expect(after.chars.find(char => char.char === 'S')).toEqual(before.chars.find(char => char.char === 'S'));
+  const baselines = [...new Set(after.chars.filter(char => Math.abs(char.size - 24) < .01).map(char => Math.round(char.y * 1000) / 1000))].sort((a, b) => a - b);
+  expect(baselines).toHaveLength(2);
+  for (let index = 1; index < baselines.length; index++) expect(baselines[index] - baselines[index - 1]).toBeCloseTo(48, 2);
   await panel.getByRole('combobox', { name: 'Text alignment', exact: true }).selectOption('center');
-  expect(inspect(await exported(page)).text.replace(/\s+/g, ' ')).toContain('Format this text Second line');
+  const centered = inspect(await exported(page)); expect(centered.text.replace(/\s+/g, ' ')).toContain('Format this text');
+  expect(centered.chars.find(char => char.char === 'S')).toEqual(before.chars.find(char => char.char === 'S'));
   await page.screenshot({ path: test.info().outputPath('text-properties.png') });
 });
 test('a cropped image remains movable and can be restored after applying content changes', async ({ page }) => {

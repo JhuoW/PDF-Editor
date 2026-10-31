@@ -56,13 +56,16 @@ afterEach(async () => {
 
 describe('text editing interaction', () => {
   it('opens the requested object block for direct typing without a second click', async () => {
-    useEditingStore.getState().setTextBlocks(1, [block]);
+    useEditingStore.getState().setTextBlocks(1, [{ ...block, kind: 'line' }]);
     useEditingStore.getState().requestTextEdit(block.id);
     await render(page());
     expect(container.querySelector('textarea')?.value).toBe('Original');
     expect(document.activeElement).toBe(container.querySelector('textarea'));
-    expect(useEditingStore.getState().pendingTextEditId).toBeNull();
+    expect(useEditingStore.getState().mode).toBe('object');
+    expect(useEditingStore.getState().pendingTextEditId).toBe(block.id);
     expect(useEditingStore.getState().textEdits).toEqual([]);
+    act(() => commitPendingEditors());
+    expect(useEditingStore.getState().pendingTextEditId).toBeNull();
   });
 
   it('keeps a moved text object at its translated position when direct typing starts', async () => {

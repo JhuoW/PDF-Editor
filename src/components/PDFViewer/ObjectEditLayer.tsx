@@ -46,7 +46,7 @@ function validOwner(gesture: Gesture) {
 export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayout }: Props) {
   useLocale();
   useObjectTransformStore(state => state.textGeometry);
-  const { mode, textBlocks, images, selectedObjectIds, selectedBlockId, selectedImageId, imageEdits } = useEditingStore();
+  const { mode, textBlocks, images, selectedObjectIds, selectedBlockId, selectedImageId, imageEdits, pendingTextEditId } = useEditingStore();
   const root = useRef<HTMLDivElement>(null), actions = useRef<HTMLDivElement>(null), gesture = useRef<Gesture | null>(null), suppressFocus = useRef(false);
   const [localRects, setLocalRects] = useState<Map<string, TextRect>>(() => new Map());
   const [marquee, setMarquee] = useState<TextRect | null>(null);
@@ -84,7 +84,7 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
   useEffect(() => {
     if (mode !== 'object' || blocks) return;
     let canceled = false;
-    void detectTextBlocks(page).then(found => { if (!canceled) useEditingStore.getState().setTextBlocks(pageNumber, found); })
+    void detectTextBlocks(page, 'line').then(found => { if (!canceled) useEditingStore.getState().setTextBlocks(pageNumber, found); })
       .catch(cause => { if (!canceled) setError({ page, message: cause instanceof Error ? cause.message : t('objects.detect.error') }); });
     return () => { canceled = true; };
   }, [mode, blocks, page, pageNumber]);
@@ -210,7 +210,7 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
     });
     observer.observe(actions.current); return () => observer.disconnect();
   }, [selected.length, toolbarHost, mode]);
-  if (mode !== 'object') return null;
+  if (mode !== 'object' || pendingTextEditId) return null;
   const one = selected.length === 1 ? selected[0] : undefined;
   const unsupported = one?.item.unsupportedReason ?? (one?.kind === 'image' && one.item.source?.insideForm ? t('objects.unsupported.move') : undefined);
   const editActions = selected.length > 0 && <div ref={actions} className={`object-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { ...(placement ?? { left: 8, top: -toolbarSize.height - 12 }), maxWidth: Math.max(0, visibleArea.right - visibleArea.left - 16) }} onPointerDown={event => event.stopPropagation()}>

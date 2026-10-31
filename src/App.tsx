@@ -60,9 +60,9 @@ import { serializeAnnotationsToPDF } from './annotations/AnnotationSerializer';
 import { useFormStore } from './store/formStore';
 import { extractFormFields } from './forms/FormFieldExtractor';
 import { applyCurrentWorkspaceFormValues } from './forms/WorkspaceFormValues';
-import { applyWorkspaceContent, exportWorkspacePDF, flattenWorkspaceForm } from './core/PDFExport';
+import { applyWorkspaceContent, bakeWorkspaceContent, exportWorkspacePDF, flattenWorkspaceForm } from './core/PDFExport';
 import { exportToJSON, exportToFDF, exportToXFDF, importFromJSON, importFromFDF, importFromXFDF, normalizeImportedFormValues, downloadFormData, readFileAsText } from './forms/FormDataIO';
-import { useEditingStore } from './store/editingStore';
+import { registerTextModePreparation, useEditingStore } from './store/editingStore';
 import { applyRedactions } from './editing/RedactionApplier';
 import { applySecureRedactions } from './editing/SecureRedaction';
 import './App.css';
@@ -1009,17 +1009,13 @@ function App() {
     const editing = useEditingStore.getState();
     if (!editing.textEdits.length && !editing.imageEdits.length) return;
     try {
-      await runOperation('Apply text and image changes', async ({ data, workspace }) => {
-        const updated = await applyWorkspaceContent(data, workspace);
-        workspace.editing.textBlocks.clear();
-        workspace.editing.images.clear();
-        workspace.editing.textEdits = [];
-        workspace.editing.imageEdits = [];
-        workspace.editing.isDirty = workspace.editing.redactions.some(area => !area.applied);
-        return { data: updated, workspace };
-      });
+      await runOperation('Apply text and image changes', ({ data, workspace }) => bakeWorkspaceContent(data, workspace));
     } catch (err) { console.error('Failed to apply content changes:', err); }
   }, [runOperation]);
+
+  useEffect(() => registerTextModePreparation(async () => {
+    await runOperation('Apply text and image changes', ({ data, workspace }) => bakeWorkspaceContent(data, workspace));
+  }), [runOperation]);
 
   // Handle image insertion - set pending images and switch to image tool
   const handleInsertImage = useCallback((images: PendingImageData[]) => {

@@ -32,6 +32,26 @@ export async function applyWorkspaceContent(data: ArrayBuffer, workspace: Worksp
   });
 }
 
+/** Rebase drafts while retaining selected full fonts for newly detected rows.
+ * A selected face may have no glyphs in the old wording yet (e.g. a Chinese
+ * subset applied to English). It must still be available for the next edit. */
+export async function bakeWorkspaceContent(data: ArrayBuffer, workspace: WorkspaceSnapshot) {
+  const updated = await applyWorkspaceContent(data, workspace);
+  const preferences = new Map(workspace.editing.textFontPreferences);
+  for (const block of [...workspace.editing.textBlocks.values()].flat()) {
+    const edit = workspace.editing.textEdits.find(item => item.blockId === block.id);
+    const fontName = edit?.layout && 'fontName' in edit.layout ? edit.layout.fontName : block.fontPreference?.fontName;
+    if (!fontName) continue;
+    const font = (edit?.font ?? block.fontPreference?.font)?.id === fontName ? edit?.font ?? block.fontPreference?.font : undefined;
+    preferences.set(block.id, { fontName, ...(font ? { font } : {}) });
+  }
+  if (preferences.size) workspace.editing.textFontPreferences = preferences;
+  workspace.editing.textBlocks.clear(); workspace.editing.images.clear();
+  workspace.editing.textEdits = []; workspace.editing.imageEdits = [];
+  workspace.editing.isDirty = workspace.editing.redactions.some(area => !area.applied);
+  return { data: updated, workspace };
+}
+
 /** One export path for downloads and page extraction, including unsaved edits. */
 export async function exportWorkspacePDF(data: ArrayBuffer, workspace: WorkspaceSnapshot, control: PDFExportControl = {}): Promise<Uint8Array> {
   exportProgress(control, 'validate', .05);

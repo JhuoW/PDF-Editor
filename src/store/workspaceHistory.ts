@@ -16,6 +16,7 @@ export function applyWorkspacePatch(patch: WorkspacePatch) {
     const current = useEditingStore.getState();
     useEditingStore.setState({
       ...copy.editing,
+      textFontPreferences: copy.editing.textFontPreferences ?? new Map(),
       textBlocks: new Map([...current.textBlocks, ...copy.editing.textBlocks]),
       images: new Map([...current.images, ...copy.editing.images]),
       selectedBlockId: null, selectedImageId: null, selectedRedactionId: null, pendingTextEditId: null, selectedObjectIds: [],

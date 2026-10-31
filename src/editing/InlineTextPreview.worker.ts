@@ -4,6 +4,7 @@ import { loadMuPDF } from '../utils/mupdf';
 import { boundedRaster } from '../utils/rasterBudget';
 import type { InlineTextPreviewRequest } from './InlineTextPreviewClient';
 import type { Device, Matrix, PDFPage, PDFWidget, Rect } from 'mupdf';
+import type { PreparedTextEditLayout } from './TextEditApplier';
 
 // MuPDF skips unsigned signature widgets even when they have an existing /AP.
 // Replay that vector appearance in the disposable preview document only.
@@ -40,17 +41,26 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
     if (!source) throw new Error('No PDF is available for text editing.');
     const blocks = new Map([[request.pageNumber, request.blocks]]);
     const active = request.blocks.find(block => block.id === request.activeId);
-    // Match the export pipeline: image occurrences refer to the original page
-    // stream and must be rewritten before text removal rebuilds that stream.
-    const imageBytes = request.imageEdits?.length
-      ? await applyImageEdits(source.slice(0), new Map([[request.pageNumber, request.images ?? []]]), request.imageEdits) : null;
-    const data = imageBytes ? new Uint8Array(imageBytes).buffer : source.slice(0);
     const rects = new Map<string, import('./types').TextRect>();
-    const layouts = new Map<string, import('./TextEditApplier').PreparedTextEditLayout>();
-    const bytes = await previewInlineTextEdits(data, blocks, request.edits, rects, layouts);
-    const prepared = active ? layouts.get(active.id) ?? await prepareTextEditLayout(data, active) : undefined;
+    const layouts = new Map<string, PreparedTextEditLayout>();
+    let prepared: PreparedTextEditLayout | undefined;
+    // Match export exactly: managed marks are passive page artwork, not flow
+    // obstacles. Adjust original image occurrences while those marks are out,
+    // then restore their unchanged appearances over the edited body.
+    const { preservePageDecorations, imagesWithoutDetachedDecorations } = await import('../core/PreservePageDecorations');
+    const bytes = await preservePageDecorations(source.slice(0), new Set([request.pageNumber]), async (body, detached) => {
+      const imageBytes = request.imageEdits?.length
+        ? await applyImageEdits(body, imagesWithoutDetachedDecorations(new Map([[request.pageNumber, request.images ?? []]]), detached), request.imageEdits) : null;
+      const data = imageBytes ? new Uint8Array(imageBytes).buffer : body;
+      const edited = await previewInlineTextEdits(data, blocks, request.edits, rects, layouts);
+      prepared = active ? layouts.get(active.id) ?? await prepareTextEditLayout(data, active) : undefined;
+      return edited;
+    });
     const issues = [...layouts].filter(([, prepared]) => !prepared.layout.fits).map(([blockId, prepared]) => ({ blockId, message: prepared.layout.overflow! }));
-    const textGeometry = request.edits.flatMap(edit => { const rect = rects.get(edit.blockId); return rect ? [{ id: edit.blockId, signature: JSON.stringify([edit.newText, edit.layout]), rect }] : []; });
+    const textGeometry = [...layouts].map(([id, layout]) => {
+      const edit = request.edits.find(edit => edit.blockId === id);
+      return { id, signature: JSON.stringify([edit?.newText ?? request.blocks.find(block => block.id === id)?.text, edit?.layout]), rect: layout.input.rect };
+    });
     const engine = await loadMuPDF();
     const availableRect = prepared?.availableRect;
     const document = new engine.PDFDocument(bytes);

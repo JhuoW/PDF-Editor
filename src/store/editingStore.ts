@@ -11,13 +11,24 @@ import type {
   RedactionArea,
   TextEditOperation,
   TextLayoutOptions,
+  TextFontPreference,
   ImageEditOperation,
 } from '../editing/types';
+
+let prepareTextMode: (() => Promise<void>) | undefined;
+let modeRequest = 0;
+/** Bake drafts into the working PDF before changing text detection granularity.
+ * The document operation owns error reporting and retains an undo checkpoint. */
+export function registerTextModePreparation(prepare: () => Promise<void>) {
+  prepareTextMode = prepare;
+  return () => { if (prepareTextMode === prepare) { prepareTextMode = undefined; modeRequest++; } };
+}
 
 interface EditingStore {
   // State
   mode: EditingMode;
   textBlocks: Map<number, TextBlock[]>;
+  textFontPreferences: Map<string, TextFontPreference>;
   images: Map<number, PDFImage[]>;
   redactions: RedactionArea[];
   selectedBlockId: string | null;
@@ -64,14 +75,15 @@ interface EditingStore {
 }
 
 function recordEditingState(state: EditingStore, actionName: string, groupKey?: string) {
-  const { textBlocks, images, redactions, textEdits, imageEdits, isDirty } = state;
-  useHistoryStore.getState().pushWorkspaceState({ editing: { textBlocks, images, redactions, textEdits, imageEdits, isDirty } }, actionName, groupKey);
+  const { textBlocks, textFontPreferences, images, redactions, textEdits, imageEdits, isDirty } = state;
+  useHistoryStore.getState().pushWorkspaceState({ editing: { textBlocks, ...(textFontPreferences.size ? { textFontPreferences } : {}), images, redactions, textEdits, imageEdits, isDirty } }, actionName, groupKey);
 }
 
 export const useEditingStore = create<EditingStore>((set, get) => ({
   // Initial state
   mode: 'none',
   textBlocks: new Map(),
+  textFontPreferences: new Map(),
   images: new Map(),
   redactions: [],
   selectedBlockId: null,
@@ -84,8 +96,27 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   isDirty: false,
 
   setMode: (mode) => {
+    const request = ++modeRequest, state = get();
+    let textBlocks = state.textBlocks;
+    if (mode === 'text' || mode === 'object') {
+      const kind = mode === 'text' ? 'paragraph' : 'line';
+      const incompatible = [...textBlocks].filter(([, blocks]) => blocks.some(block => (block.kind ?? 'paragraph') !== kind));
+      const ids = new Set(incompatible.flatMap(([, blocks]) => blocks.map(block => block.id)));
+      if (state.textEdits.some(edit => ids.has(edit.blockId)) && prepareTextMode) {
+        const prepare = prepareTextMode, session = useHistoryStore.getState().originalDocument;
+        void prepare().then(() => {
+          if (request === modeRequest && prepareTextMode === prepare && useHistoryStore.getState().originalDocument === session) get().setMode(mode);
+        }).catch(() => { /* The document operation reports the error; drafts remain intact. */ });
+        return;
+      }
+      if (!state.textEdits.some(edit => ids.has(edit.blockId)) && incompatible.length) {
+        textBlocks = new Map(textBlocks);
+        for (const [page] of incompatible) textBlocks.delete(page);
+      }
+    }
     set({
       mode,
+      textBlocks,
       selectedBlockId: null,
       pendingTextEditId: null,
       selectedImageId: null,
@@ -97,14 +128,18 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   requestTextEdit: blockId => {
     const block = get().getBlock(blockId);
     if (!block?.editable) return;
-    set({ mode: 'text', selectedBlockId: blockId, pendingTextEditId: blockId, selectedImageId: null, selectedRedactionId: null, selectedObjectIds: [blockId] });
+    modeRequest++;
+    set({ mode: block.kind === 'line' ? 'object' : 'text', selectedBlockId: blockId, pendingTextEditId: blockId, selectedImageId: null, selectedRedactionId: null, selectedObjectIds: [blockId] });
   },
   clearTextEditRequest: () => set({ pendingTextEditId: null }),
 
   setTextBlocks: (pageNumber, blocks) => {
     set((state) => {
       const newBlocks = new Map(state.textBlocks);
-      newBlocks.set(pageNumber, blocks);
+      newBlocks.set(pageNumber, blocks.map(block => {
+        const fontPreference = block.region ? state.textFontPreferences.get(block.region) : undefined;
+        return fontPreference ? { ...block, fontPreference } : block;
+      }));
       return { textBlocks: newBlocks };
     });
   },
@@ -251,10 +286,12 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
   },
 
   clearAll: () => {
+    modeRequest++;
     set({
       mode: 'none',
       pendingTextEditId: null,
       textBlocks: new Map(),
+      textFontPreferences: new Map(),
       images: new Map(),
       redactions: [],
       selectedBlockId: null,

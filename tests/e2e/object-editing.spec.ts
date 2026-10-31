@@ -157,7 +157,7 @@ test('original text can be moved with content, neighboring drawings, undo and re
   const edited = inspect(await exported(page));
   expect(edited.text.replace(/\s+/g, ' ')).toContain('Moved paragraph remains editable'); expect(edited.text).not.toContain(paragraph);
   expect(edited.images).toEqual(original.images);
-  await page.locator('.text-block').filter({ hasText: 'Moved paragraph remains editable' }).click();
+  await texts(page).first().dblclick();
   await page.locator('.pdf-text-input').fill(paragraph);
   const restored = inspect(await exported(page));
   expect(restored.paragraph).toEqual(output.paragraph);

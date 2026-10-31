@@ -1,6 +1,6 @@
 import type { Annotation } from '../annotations/types';
 import type {
-  ImageEditOperation, PDFImage, RedactionArea, TextBlock, TextEditOperation,
+  ImageEditOperation, PDFImage, RedactionArea, TextBlock, TextEditOperation, TextFontPreference,
 } from '../editing/types';
 import type { FormField } from '../forms/types';
 import { useAnnotationStore } from './annotationStore';
@@ -23,6 +23,7 @@ export interface WorkspaceSnapshot {
   };
   editing: {
     textBlocks: Map<number, TextBlock[]>;
+    textFontPreferences?: Map<string, TextFontPreference>;
     images: Map<number, PDFImage[]>;
     redactions: RedactionArea[];
     textEdits: TextEditOperation[];
@@ -56,13 +57,13 @@ export function readWorkspace(): WorkspaceSnapshot {
   const { annotations } = useAnnotationStore.getState();
   const { past, future } = useAnnotationHistoryStore.getState();
   const { fields, originalValues, isDirty: formDirty } = useFormStore.getState();
-  const { textBlocks, images, redactions, textEdits, imageEdits, isDirty } = useEditingStore.getState();
+  const { textBlocks, textFontPreferences, images, redactions, textEdits, imageEdits, isDirty } = useEditingStore.getState();
 
   return {
     annotations,
     annotationHistory: { past, future },
     form: { fields, originalValues, isDirty: formDirty },
-    editing: { textBlocks, images, redactions, textEdits, imageEdits, isDirty },
+    editing: { textBlocks, ...(textFontPreferences.size ? { textFontPreferences } : {}), images, redactions, textEdits, imageEdits, isDirty },
   };
 }
 
@@ -85,6 +86,7 @@ export function restoreWorkspace(snapshot: WorkspaceSnapshot): void {
   });
   useEditingStore.setState({
     ...copy.editing,
+    textFontPreferences: copy.editing.textFontPreferences ?? new Map(),
     mode: 'none',
     pendingTextEditId: null,
     selectedBlockId: null,

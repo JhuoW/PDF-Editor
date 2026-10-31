@@ -44,6 +44,17 @@ it('identifies actual original fonts, user-selected fonts, and added CJK fallbac
   expect(mixed.fonts?.mode).toBe('fallback'); expect(mixed.fonts?.used.length).toBeGreaterThan(0);
 });
 
+it('keeps unsupported-edit errors attached to their block so text checks can locate them', async () => {
+  const { data, workspace } = await fixture();
+  workspace.editing.textEdits = [...workspace.editing.textBlocks.values()].flat().map(block => ({ blockId: block.id, originalText: block.text, newText: 'مرحبا', timestamp: 1 }));
+  const report = await inspectWorkspaceText(data, workspace);
+  expect(report.checked).toBe(2);
+  expect(report.issues.filter(issue => issue.blocking).map(issue => issue.blockId)).toEqual(['text-1', 'text-2']);
+  await expect(exportWorkspacePDF(data, workspace)).rejects.toMatchObject({ issues: expect.arrayContaining([
+    expect.objectContaining({ blockId: 'text-1', kind: 'unsupported' }), expect.objectContaining({ blockId: 'text-2', kind: 'unsupported' }),
+  ]) });
+});
+
 it('lists untouched read-only regions for review without blocking export', async () => {
   const { data, workspace } = await fixture();
   workspace.editing.textBlocks.get(2)![0].editable = false;

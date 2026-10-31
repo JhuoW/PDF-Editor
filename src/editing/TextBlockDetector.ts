@@ -8,19 +8,21 @@ import { AnnotationMode, OPS } from 'pdfjs-dist';
 import type { TextItem, TextLine, TextBlock } from './types';
 import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON } from './types';
 import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
+import { textRegionFromTag, textRegionSource } from './TextRegionMarkers';
 
 const WORD_SPACING_THRESHOLD = 0.3;
 const COMPLEX_REGION_REASON = 'Some text regions contain superscripts, overlapping glyphs, or rotated text that cannot be safely reflowed. Ordinary text blocks can still be edited.';
 
 // Keep the original PDF font identity for grouping. Different embedded fonts can
 // all report the same generic CSS family (for example Computer Modern in papers).
-interface DetectedItem extends TextItem { fontKey: string; rotated: boolean }
+interface DetectedItem extends TextItem { fontKey: string; rotated: boolean; region?: string }
 interface DetectedLine extends TextLine {
   items: DetectedItem[];
   fontKey: string;
   fontSize: number;
   complex: boolean;
   mixedFonts: boolean;
+  region?: string;
 }
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
@@ -54,26 +56,29 @@ export async function getTextEditingRestriction(page: PDFPageProxy): Promise<str
 /**
  * Extract and group text from a PDF page into logical blocks
  */
-export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]> {
+export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | 'line' = 'paragraph'): Promise<TextBlock[]> {
   const [textContent, restriction] = await Promise.all([page.getTextContent({ includeMarkedContent: true }), getTextEditingRestriction(page)]);
   const viewport = page.getViewport({ scale: 1, rotation: 0 });
   const unit = page.userUnit || 1;
 
   // Convert text content items to our TextItem format
   // PDF.js returns TextItem | TextMarkedContent, we only want TextItem (which has 'str')
-  const markedContent: boolean[] = [];
+  const markedContent: { decoration: boolean; region?: string }[] = [], regions = new Map<object, string>();
   const items: DetectedItem[] = textContent.items
     .filter((item): item is import('pdfjs-dist/types/src/display/api').TextItem => {
       if ('type' in item) {
         if (item.type === 'endMarkedContent') markedContent.pop();
         else if (item.type === 'beginMarkedContent' || item.type === 'beginMarkedContentProps') {
-          markedContent.push(decorationInstanceFromTag('tag' in item ? item.tag : undefined) !== undefined);
+          const tag = 'tag' in item ? item.tag : undefined;
+          markedContent.push({ decoration: decorationInstanceFromTag(tag) !== undefined, region: textRegionFromTag(tag) });
         }
         return false;
       }
       // Keep batch-created page marks separate from original-body text. Their
       // templates and numbering must be changed in the decorations dialog.
-      return !markedContent.some(Boolean) && typeof item.str === 'string' && item.str.trim() !== '';
+      const region = [...markedContent].reverse().find(entry => entry.region)?.region;
+      if (region) regions.set(item, region);
+      return !markedContent.some(entry => entry.decoration) && typeof item.str === 'string' && item.str.trim() !== '';
     })
     .map((item) => {
       const tx = item.transform;
@@ -85,6 +90,8 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
       const fontSize = Math.hypot(tx[2], tx[3]) * unit;
       const width = (item.width ?? 0) * unit;
       const height = item.height ? item.height * unit : fontSize;
+      const resolvedFont = page.commonObjs?.has(item.fontName) ? page.commonObjs.get(item.fontName) as { name?: string } : undefined;
+      const fontName = typeof resolvedFont?.name === 'string' ? resolvedFont.name : undefined;
 
       return {
         str: item.str,
@@ -92,8 +99,11 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
         y: y - height, // Adjust y to be top of text
         width,
         height,
-        fontName: textContent.styles[item.fontName]?.fontFamily ?? item.fontName ?? 'unknown',
-        fontKey: item.fontName ?? 'unknown',
+        fontName: fontName ?? textContent.styles[item.fontName]?.fontFamily ?? item.fontName ?? 'unknown',
+        // PDF producers may allocate a new subset/resource for each row.
+        // Compare real face names when available, including weight and style.
+        fontKey: fontName?.replace(/^[A-Z]{6}\+/, '') ?? item.fontName ?? 'unknown',
+        region: regions.get(item),
         rotated: !!textContent.styles[item.fontName]?.vertical || Math.abs(tx[1]) > 0.01 || Math.abs(tx[2]) > 0.01 || tx[0] < 0,
         fontSize,
         transform: tx,
@@ -112,7 +122,14 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
   const lines = groupIntoLines(items);
 
   // Group lines into blocks
-  const blocks = groupIntoBlocks(lines, page.pageNumber);
+  const paragraphs = groupIntoBlocks(lines, page.pageNumber);
+  const leading = new Map(paragraphs.flatMap(paragraph => paragraph.lines.map(line => [line, paragraph.style.lineHeight] as const)));
+  const blocks = kind === 'line' ? lines.map(line => {
+    const block = createBlock([line], page.pageNumber);
+    block.style.lineHeight = leading.get(line) ?? block.style.lineHeight;
+    return block;
+  }) : paragraphs;
+  for (const block of blocks) block.kind = kind;
 
   // Mixed visible/invisible items can be grouped into one block. Conservatively
   // lock the page: changing OCR glyphs would leave the scanned image underneath.
@@ -149,7 +166,7 @@ function groupIntoLines(items: DetectedItem[]): DetectedLine[] {
     let segment: DetectedItem[] = [], right = -Infinity;
     for (const item of row.items) {
       const gap = item.x - right;
-      if (segment.length && gap > Math.max(12, row.size * 1.8)) {
+      if (segment.length && (gap > Math.max(12, row.size * 1.8) || segment[0].region !== item.region)) {
         lines.push(createLine(segment)); segment = [];
       }
       segment.push(item); right = Math.max(segment.length === 1 ? -Infinity : right, item.x + item.width);
@@ -182,7 +199,7 @@ function createLine(items: DetectedItem[]): DetectedLine {
   const fonts = [...new Set(items.map(item => item.fontKey))].sort();
   return {
     items, text: text.trim(), x: minX, y: minY, width: maxX - minX, height: maxY - minY,
-    baseline, fontKey: fonts.join('|'), fontSize: size, mixedFonts: fonts.length > 1,
+    baseline, fontKey: fonts.join('|'), fontSize: size, mixedFonts: fonts.length > 1, region: items[0].region,
     complex: overlapping || items.some(item => item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
   };
 }
@@ -191,6 +208,17 @@ function createLine(items: DetectedItem[]): DetectedLine {
 function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[] {
   const groups: DetectedLine[][] = [];
   const active: DetectedLine[][] = [];
+  const leading: number[] = [];
+  for (const [index, line] of lines.entries()) {
+    for (let next = index + 1; next < lines.length && lines[next].baseline <= line.baseline + line.fontSize * 1.7; next++) {
+      const candidate = lines[next];
+      if (candidate.baseline > line.baseline + line.fontSize * .5 && Math.abs(candidate.x - line.x) < line.fontSize * .65
+        && Math.abs(candidate.fontSize - line.fontSize) < .1 && candidate.items.some(item => line.items.some(prior => prior.fontKey === item.fontKey))) {
+        leading.push((candidate.baseline - line.baseline) / line.fontSize); break;
+      }
+    }
+  }
+  const usualLeading = leading.length ? median(leading) : undefined;
   for (const line of lines) {
     let best: DetectedLine[] | undefined;
     let nearest = Infinity;
@@ -198,12 +226,21 @@ function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[]
       const group = active[index];
       const previous = group[group.length - 1];
       const gap = line.baseline - previous.baseline;
+      if (line.region && line.region === previous.region && !line.complex && !previous.complex && gap > 0 && gap < nearest) {
+        best = group; nearest = gap; continue;
+      }
       // A distant paragraph can never match a later line. Avoid rescanning all
       // prior blocks on pages with many columns, labels, or style changes.
       if (gap > previous.fontSize * 1.8) { active.splice(index, 1); continue; }
+      if (line.region !== previous.region) continue;
       if (gap >= nearest || gap <= line.fontSize * 0.5 || gap > line.fontSize * 1.7) continue;
-      if (line.complex || previous.complex || line.mixedFonts || previous.mixedFonts) continue;
-      if (line.fontKey !== previous.fontKey || Math.abs(line.fontSize - previous.fontSize) > Math.max(0.1, line.fontSize * 0.03)) continue;
+      if (group.length === 1 && usualLeading && gap > usualLeading * line.fontSize * 1.2) continue;
+      if (line.complex || previous.complex) continue;
+      // Inline emphasis and Chinese/Latin fallback runs belong to the same
+      // paragraph. Font changes within a row must not turn it into an isolated
+      // editing area. A distinct heading font still starts a separate block.
+      if (!line.items.some(item => previous.items.some(prior => prior.fontKey === item.fontKey))
+        || Math.abs(line.fontSize - previous.fontSize) > Math.max(0.1, line.fontSize * 0.03)) continue;
       const overlap = Math.min(line.x + line.width, previous.x + previous.width) - Math.max(line.x, previous.x);
       if (overlap <= Math.min(line.width, previous.width) * 0.3) continue;
       const left = Math.min(...group.map(part => part.x));
@@ -237,6 +274,7 @@ function createBlock(lines: DetectedLine[], pageNumber: number): TextBlock {
   return {
     // Never reuse a block ID across fresh detection after page organization.
     id: `block-${crypto.randomUUID()}`, pageNumber, lines,
+    ...(lines[0].region ? { region: textRegionSource(lines[0].region) } : {}),
     text: lines.map(line => line.text).join('\n'),
     rect: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
     style: { fontName, fontSize, alignment: estimateAlignment(lines), lineHeight },

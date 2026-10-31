@@ -36,7 +36,7 @@ function sourceGeometry(block: TextBlock, text: string, layout?: TextLayoutOptio
 }
 export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout }: TextEditLayerProps) {
   useLocale();
-  const { mode, setMode, setTextBlocks, textBlocks, selectedBlockId, selectBlock, updateBlockText, textEdits, pendingTextEditId, clearTextEditRequest } = useEditingStore();
+  const { mode, setMode, setTextBlocks, textBlocks, selectedBlockId, selectBlock, updateBlockText, textEdits, pendingTextEditId } = useEditingStore();
   const [analysisError, setAnalysisError] = useState<{ page: PDFPageProxy; message: string } | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null), [editText, setEditText] = useState('');
   const [selection, setSelection] = useState({ start: 0, end: 0 });
@@ -48,7 +48,8 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const pageBlocks = textBlocks.get(pageNumber) ?? EMPTY, hasBlocks = textBlocks.has(pageNumber);
   const pageEdits = useMemo(() => textEdits.filter(edit => pageBlocks.some(block => block.id === edit.blockId)), [textEdits, pageBlocks]);
   const layouts = useMemo(() => new Map(pageEdits.map(edit => [edit.blockId, edit.layout])), [pageEdits]);
-  const activeId = mode === 'text' ? editingBlockId : null;
+  const textInteraction = mode === 'text' || (mode === 'object' && !!pendingTextEditId);
+  const activeId = textInteraction ? editingBlockId : null;
   const preview = useInlineTextPreview(page, pageNumber, pageBlocks, pageEdits, activeId, scale, rotation);
   const activeBlock = pageBlocks.find(block => block.id === activeId);
   const fallback = useMemo(() => activeBlock ? sourceGeometry(activeBlock, editText, layouts.get(activeBlock.id)) : undefined, [activeBlock, editText, layouts]);
@@ -80,6 +81,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     focusedBlock.current = null;
     group.current = null; pointer.current = null; pendingPoint.current = null; preferredColumn.current = null;
     useHistoryStore.getState().endGroup(); setEditingBlockId(null);
+    if (useEditingStore.getState().pendingTextEditId === finishedBlock) useEditingStore.getState().clearTextEditRequest();
     if (!keepSelection && useEditingStore.getState().selectedBlockId === finishedBlock) selectBlock(null);
   }, [selectBlock]);
   useEffect(() => registerPendingEditor(() => finish()), [finish]);
@@ -138,7 +140,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     }
   };
   useEffect(() => {
-    if (mode !== 'text' || !pendingTextEditId) return;
+    if ((mode !== 'text' && mode !== 'object') || !pendingTextEditId || focusedBlock.current === pendingTextEditId) return;
     const block = pageBlocks.find(block => block.id === pendingTextEditId && block.editable);
     if (!block) return;
     finish(); useHistoryStore.getState().endGroup();
@@ -147,15 +149,14 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     const text = previous?.reflow || (previous && !previous.keepBaseline) ? block.text : originalParagraphText(block.text);
     selectBlock(block.id); setEditText(text); setEditingBlockId(block.id);
     setSelection({ start: 0, end: 0 });
-    clearTextEditRequest();
-  }, [mode, pendingTextEditId, pageBlocks, layouts, finish, selectBlock, clearTextEditRequest]);
+  }, [mode, pendingTextEditId, pageBlocks, layouts, finish, selectBlock]);
   const change = (value: string) => {
     pendingPoint.current = null;
     preferredColumn.current = null;
     setEditText(value);
     const previous = activeId ? layouts.get(activeId) : undefined;
-    const automatic = !previous || previous.keepBaseline
-      ? { ...previous, keepBaseline: true, reflow: true, autoGrow: true } : undefined;
+    const automatic: TextLayoutOptions = { keepBaseline: true, ...previous, reflow: true, autoGrow: true,
+      flow: mode === 'object' ? 'object' : 'paragraph' };
     if (activeId && group.current) updateBlockText(activeId, value, group.current, automatic);
     if (input.current) setSelection({ start: input.current.selectionStart, end: input.current.selectionEnd });
   };
@@ -202,8 +203,8 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     {onTextLayout && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); onTextLayout(selectedBlock.id); }}>{t("m.text.layout.661a8e")}</button>}
     <span id="pdf-text-edit-help">{t("m.enter.new.line.ctrl.enter.done.bbf4cd")}</span>
   </div>;
-  if (mode !== 'text' && !preview) return null;
-  return <div ref={layer} data-preview-text={preview?.prepared?.input.text} className={`text-edit-layer ${mode === 'text' ? 'active' : 'preview-only'}`} onPointerDown={event => {
+  if (!textInteraction && !preview) return null;
+  return <div ref={layer} data-preview-text={preview?.prepared?.input.text} className={`text-edit-layer ${textInteraction ? 'active' : 'preview-only'}`} onPointerDown={event => {
     if (event.target === event.currentTarget) { event.preventDefault(); finish(); }
   }} onDoubleClick={event => {
     if (!activeId || !prepared || (event.target as Element).closest('.text-edit-actions')) return;
@@ -224,10 +225,10 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     pointer.current = null;
   }} onPointerCancel={() => { pointer.current = null; }}>
     {preview?.png && preview.bytes && <InlinePDFPreview png={preview.png} bytes={preview.bytes} pageNumber={pageNumber} scale={scale} rotation={rotation} editing={mode === 'text' || mode === 'object'} />}
-    {mode === 'text' && <>
+    {textInteraction && <>
       {!hasBlocks && analysisError?.page !== page && <div className="text-edit-loading" role="status">{t("m.analyzing.text.297d65")}</div>}
       {analysisError?.page === page && <div className="text-edit-loading" role="alert"><ErrorMessage error={analysisError.message} /></div>}
-      {pageBlocks.map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''}`} aria-disabled={!block.editable || undefined} title={translateError(block.unsupportedReason)} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
+      {pageBlocks.filter(block => mode === 'text' || block.id === activeId).map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''}`} aria-disabled={!block.editable || undefined} title={translateError(block.unsupportedReason)} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
         <span className="text-block-content">{block.text}</span>
       </div>)}
       {activeId && <>
@@ -239,7 +240,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status"><ErrorMessage error={readOnlyReason} /> <button type="button" onClick={() => setMode('none')}>{t("m.exit.text.editing.6c1160")}</button></div>}
     </>}
     {(preview?.error || layoutIssue || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">
-      {preview?.error ? <ErrorMessage error={preview.error} operation="Preview text edit" /> : t("text.edit.overflow.help")}
+      {preview?.error ? <ErrorMessage error={preview.error} operation="Preview text edit" /> : layoutIssue ? <ErrorMessage error={layoutIssue.message} /> : prepared?.layout.overflow ? <ErrorMessage error={prepared.layout.overflow} /> : t("text.edit.overflow.help")}
       {onTextLayout && (layoutIssue || activeId) && <button type="button" onClick={() => { finish(); onTextLayout(layoutIssue?.blockId ?? activeId!); }}>{t('m.text.layout.661a8e')}</button>}
     </div>}
     {!!prepared?.layout.warnings.length && !layoutIssue && <div className="text-edit-font-notice" role="status">{prepared.layout.warnings.map(translateError).join(' ')}</div>}

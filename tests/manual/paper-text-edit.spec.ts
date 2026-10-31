@@ -76,7 +76,7 @@ async function exported(page: Page, name: string) {
 }
 async function noErrors(page: Page) { await expect(page.getByRole('alert')).toHaveCount(0); }
 
-test('moves the real abstract as a text object while preserving its wording, neighboring artwork and other pages', async ({ page }) => {
+test('moves one physical row of the real abstract while preserving all other rows, artwork and pages', async ({ page }) => {
   await openPaper(page);
   const block = page.locator('.text-block').filter({ hasText: 'Deep neural nets' });
   const rect = await sourceRect(block), original = await block.textContent();
@@ -85,17 +85,21 @@ test('moves the real abstract as a text object while preserving its wording, nei
   await expect(objects.first()).toBeVisible();
   const id = await objects.evaluateAll((elements, source) => elements.find(element => {
     const style = (element as HTMLElement).style;
-    return Math.abs(parseFloat(style.left) - source.x) < .1 && Math.abs(parseFloat(style.top) - source.y) < .1;
+    return parseFloat(style.left) >= source.x - .1 && parseFloat(style.left) < source.x + source.width && Math.abs(parseFloat(style.top) - source.y) < .1;
   })?.getAttribute('data-object-id'), rect);
   expect(id).toBeTruthy();
   const object = page.locator(`[data-object-id="${id}"]`), box = (await object.boundingBox())!;
-  await page.mouse.move(box.x + 10, box.y + 10); await page.mouse.down();
-  await page.mouse.move(box.x, box.y + 18, { steps: 4 }); await page.mouse.up();
+  const rowRect = await sourceRect(object);
+  const start = { x: box.x + Math.min(10, box.width / 2), y: box.y + box.height / 2 };
+  await page.keyboard.down('Alt');
+  await page.mouse.move(start.x, start.y); await page.mouse.down();
+  await page.mouse.move(start.x - 10, start.y + 8, { steps: 4 }); await page.mouse.up();
+  await page.keyboard.up('Alt');
   const output = await exported(page, 'abstract-object-moved.pdf');
   await noErrors(page);
-  expect(normalized(documentText(output)[0])).toContain(normalized(original!));
+  for (const row of original!.split('\n')) expect(normalized(documentText(output)[0])).toContain(normalized(row));
   expect(documentText(output)[0].match(/Deep neural nets/g)).toHaveLength(1);
-  unchangedOutside(output, 1, { x: rect.x - 10, y: rect.y, width: rect.width + 10, height: rect.height + 8 });
+  unchangedOutside(output, 1, { x: rowRect.x - 10, y: rowRect.y, width: rowRect.width + 10, height: rowRect.height + 8 });
   await page.locator('.workspace-history > button').nth(0).click();
   const restored = await exported(page, 'abstract-object-undone.pdf');
   expect(documentText(restored)).toEqual(originalText);

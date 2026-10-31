@@ -18,7 +18,7 @@ export type { TextLayoutDialogProps, TextLayoutSource } from './TextLayoutDialog
 interface Loaded { key: object; source: TextLayoutSource; initial: TextEditOperation }
 function signature(edit: TextEditOperation) {
   const layout = edit.layout, rect = layout?.targetRect;
-  return JSON.stringify([edit.newText, rect ? [rect.x, rect.y, rect.width, rect.height] : null, layout?.fontName, layout?.fontSize, layout?.fontColor, layout?.alignment, layout?.lineHeight, layout?.keepBaseline]);
+  return JSON.stringify([edit.newText, rect ? [rect.x, rect.y, rect.width, rect.height] : null, layout?.fontName, layout?.fontSize, layout?.fontColor, layout?.alignment, layout?.lineHeight, layout?.keepBaseline, layout?.flow, layout?.autoGrow, layout?.fitToContent]);
 }
 export function TextLayoutDialog(props: TextLayoutDialogProps) {
   useLocale();
@@ -74,7 +74,9 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
     void readPDF(request.signal).then(source => {
       if (request.signal.aborted) return;
       if (source.block.id !== blockId || !source.block.editable) throw new Error(source.block.unsupportedReason || 'This text block is no longer editable.');
-      const initial = structuredClone(source.edit ?? { blockId, originalText: source.block.text, newText: source.block.text, timestamp: Date.now() });
+      const preference = source.block.fontPreference;
+      const initial = structuredClone(source.edit ?? { blockId, originalText: source.block.text, newText: source.block.text,
+        ...(preference ? { layout: { fontName: preference.fontName, keepBaseline: true }, font: preference.font } : {}), timestamp: Date.now() });
       setLoaded({ key: loadKey, source, initial }); setDraft(structuredClone(initial)); setLoadError(null); setSaveError(null);
       requestAnimationFrame(() => { if (!request.signal.aborted) textarea.current?.focus(); });
     }).catch(cause => { if (!request.signal.aborted) setLoadError({ key: loadKey, message: cause instanceof Error ? cause.message : 'Could not prepare this text block.' }); });
@@ -98,7 +100,8 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
   }, [current, draft, requestKey, dragging]);
 
   const change = (patch: TextLayoutOptions, asset?: FontAsset) => {
-    setDraft(previous => previous ? { ...previous, font: 'fontName' in patch ? asset : previous.font, layout: { ...previous.layout, ...patch, keepBaseline: false }, timestamp: Date.now() } : previous); setSaveError(null);
+    setDraft(previous => previous ? { ...previous, font: 'fontName' in patch ? asset : previous.font,
+      layout: { ...previous.layout, ...patch, keepBaseline: false, flow: 'object', autoGrow: false, fitToContent: false }, timestamp: Date.now() } : previous); setSaveError(null);
   };
   const changeRect = (rect: TextRect) => change({ targetRect: rect });
   const numberDraft = (label: string, dirty: boolean) => setDirtyNumbers(previous => {

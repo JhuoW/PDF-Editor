@@ -28,9 +28,12 @@ export interface TextLine {
 }
 
 export interface TextRect { x: number; y: number; width: number; height: number }
+export interface TextFontPreference { fontName: string; font?: import('../fonts/fontAsset').FontAsset }
 
 /** Replacement layout in unrotated, CropBox-relative page coordinates. */
 export interface TextLayoutOptions {
+  /** Paragraph typing moves following text; object typing changes one row only. */
+  flow?: 'paragraph' | 'object';
   targetRect?: TextRect;
   fontName?: string;
   fontSize?: number;
@@ -51,6 +54,11 @@ export interface TextLayoutOptions {
 
 export interface TextBlock {
   id: string;
+  /** Detection granularity, retained in drafts and undo snapshots. */
+  kind?: 'paragraph' | 'line';
+  /** Editor-authored source region and its selected full font program. */
+  region?: string;
+  fontPreference?: TextFontPreference;
   pageNumber: number;
   lines: TextLine[];
   text: string;

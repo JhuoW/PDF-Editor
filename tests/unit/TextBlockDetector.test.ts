@@ -207,13 +207,40 @@ describe('paper text reading order and paragraph boundaries', () => {
     expect(blocks.map(block => block.text)).toEqual(['First paragraph\nContinued', 'Second paragraph\nContinued again', '1933']);
   });
 
-  it('isolates a mixed-font line so it cannot change the style of surrounding plain paragraphs', async () => {
+  it('includes inline emphasis in its complete paragraph instead of making each surrounding row an independent area', async () => {
     const blocks = await detectTextBlocks(paperPage([
       textItem('Before', 30, 500, 200),
       textItem('Mixed ', 30, 488, 40), textItem('emphasis', 70, 488, 60, 10, 'italic'),
       textItem('After', 30, 476, 200),
     ]));
-    expect(blocks.map(block => block.text)).toEqual(['Before', 'Mixed emphasis', 'After']);
+    expect(blocks.map(block => block.text)).toEqual(['Before\nMixed emphasis\nAfter']);
+    expect(blocks[0].lines[1].items.map(item => item.fontName)).toEqual(['sans-serif', 'sans-serif']);
+    expect(blocks[0].kind).toBe('paragraph');
+  });
+
+  it('detects each physical row as a separate object when object editing is requested', async () => {
+    const page = paperPage([textItem('First row', 30, 500, 200), textItem('Second row', 30, 485, 200)]);
+    expect((await detectTextBlocks(page)).map(block => block.text)).toEqual(['First row\nSecond row']);
+    const objects = await detectTextBlocks(page, 'line');
+    expect(objects.map(block => block.text)).toEqual(['First row', 'Second row']);
+    expect(objects.every(block => block.kind === 'line' && block.lines.length === 1)).toBe(true);
+    expect(objects.every(block => block.style.lineHeight === 1.5)).toBe(true);
+  });
+
+  it('joins rows using different subset resources of the same real face, while keeping bold headings separate', async () => {
+    const page = paperPage([textItem('Heading', 30, 524, 200, 10, 'heading'),
+      textItem('First body row', 30, 500, 200, 10, 'subset-a'), textItem('Second body row', 30, 488, 200, 10, 'subset-b')]);
+    Object.assign(page, { commonObjs: new Map([['heading', { name: 'ABCDEF+Body-Bold' }], ['subset-a', { name: 'ABCDEF+Body-Regular' }], ['subset-b', { name: 'UVWXYZ+Body-Regular' }]]) });
+    expect((await detectTextBlocks(page)).map(block => block.text)).toEqual(['Heading', 'First body row\nSecond body row']);
+  });
+
+  it('retains saved paragraph boundaries even when adjacent paragraphs use the same font and leading', async () => {
+    const page = paperPage([]);
+    page.getTextContent = async () => ({ items: [
+      { type: 'beginMarkedContent', tag: 'PDFEditorParagraph_first' }, textItem('Short paragraph', 30, 500, 100), { type: 'endMarkedContent' },
+      { type: 'beginMarkedContent', tag: 'PDFEditorParagraph_next' }, textItem('Next paragraph first row', 30, 488, 200), textItem('Next paragraph second row', 30, 476, 200), { type: 'endMarkedContent' },
+    ], styles: { body: { fontFamily: 'sans-serif', ascent: .8, descent: -.2, vertical: false } }, lang: null });
+    expect((await detectTextBlocks(page)).map(block => block.text)).toEqual(['Short paragraph', 'Next paragraph first row\nNext paragraph second row']);
   });
 
   it('protects a superscript region without making the neighboring ordinary text read-only', async () => {

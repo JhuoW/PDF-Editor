@@ -72,7 +72,8 @@ test('restoring original wording retains formatting and resetting the font shows
   await text.dblclick(); const input = page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });
   await input.fill('Temporary wording'); await input.fill('Original wording'); await input.press('Control+Enter');
   const style = firstStyle(await download(page)); expect(style.font).toMatch(/Bold/i); expect(style.color[0]).toBeCloseTo(.8, 3);
-  await command(page, 'edit-objects'); await page.locator('.object-edit-box[data-object-kind="image"]').click(); await text.click();
+  await expect(page.locator('.workspace-ribbon [data-command="edit-objects"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.object-edit-box[data-object-kind="image"]').click(); await text.click();
   await expect(font).toBeEnabled(); await font.selectOption('original');
   await expect(panel.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'false');
   const original = firstStyle(await download(page)); expect(original.font).not.toMatch(/Bold/i); expect(original.color[0]).toBeCloseTo(.8, 3);

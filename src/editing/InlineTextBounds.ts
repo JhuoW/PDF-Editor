@@ -3,7 +3,7 @@ import type { PDFPage, Rect } from 'mupdf';
 import type { loadMuPDF } from '../utils/mupdf';
 
 /** Read painted content so automatic growth also respects images and vectors. */
-export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, block: TextBlock, width: number, height: number, targetRect?: TextRect, growWidth = false): TextRect {
+export function readInlineTextObstacles(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, sources: TextRect[]): TextRect[] {
   const obstacles: TextRect[] = [], inverse = engine.Matrix.invert(page.getTransform());
   const crop = engine.Rect.transform(page.getBounds(), inverse), unit = Math.hypot(...page.getTransform().slice(0, 2));
   const convert = (bounds: Rect): TextRect => {
@@ -15,8 +15,8 @@ export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF
     structured.walk({ onChar(_character, _origin, font, _size, quad) {
       try {
         const rect = convert([Math.min(quad[0], quad[2], quad[4], quad[6]), Math.min(quad[1], quad[3], quad[5], quad[7]), Math.max(quad[0], quad[2], quad[4], quad[6]), Math.max(quad[1], quad[3], quad[5], quad[7])]);
-        const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2, source = block.rect;
-        if (x < source.x || x > source.x + source.width || y < source.y || y > source.y + source.height) obstacles.push(rect);
+        const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+        if (!sources.some(source => x >= source.x && x <= source.x + source.width && y >= source.y && y <= source.y + source.height)) obstacles.push(rect);
       } finally { font.destroy(); }
     } });
   } finally { structured.destroy(); }
@@ -45,6 +45,11 @@ export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF
       } finally { subtype.destroy(); bounds.destroy(); flags.destroy(); annotation.destroy(); }
     });
   } finally { annotations.destroy(); object.destroy(); }
+  return obstacles;
+}
+
+export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, block: TextBlock, width: number, height: number, targetRect?: TextRect, growWidth = false): TextRect {
+  const obstacles = readInlineTextObstacles(engine, page, [block.rect]);
   // The source glyphs will be removed from block.rect, but growth after a move
   // must be measured around the destination rather than the old paragraph.
   const destination = targetRect ? { ...block, rect: targetRect } : block;
