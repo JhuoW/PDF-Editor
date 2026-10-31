@@ -5,6 +5,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { PDFDocument, degrees } from 'pdf-lib';
 import * as mupdf from 'mupdf';
 
+// Search regenerates and parses an exported PDF, including embedded CJK fonts.
+// Allow bounded asynchronous processing on shared CI runners.
+test.setTimeout(60_000);
+const expectSearch = expect.configure({ timeout: 20_000 });
+
 async function open(page: Page, rotated = false) {
   const pdf = await PDFDocument.create(), sheet = pdf.addPage([500, 600]);
   sheet.drawText('Original editable text', { x: 60, y: 480, size: 16 });
@@ -50,22 +55,25 @@ function inspect(bytes: Uint8Array) {
 }
 
 test('built-in Chinese font, live search, deletion, undo and redo use the current PDF', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await open(page);
   const panel = await properties(page);
   await panel.getByRole('combobox', { name: 'Text font' }).selectOption('zh-Hans');
   await expect(panel.getByRole('button', { name: 'Bold', exact: true })).toBeDisabled();
   await replace(page, '中文编辑 ABC 中文测试');
-  await expect(await query(page, 'Original')).toHaveText('No matches found');
-  await expect(await query(page, '中文')).toHaveText('1 of 2 matches');
+  await expectSearch(await query(page, 'Original')).toHaveText('No matches found');
+  await expectSearch(await query(page, '中文')).toHaveText('1 of 2 matches');
   await expect(page.locator('.text-edit-preview-selection mark.search-highlight')).toHaveCount(2);
   await page.getByRole('button', { name: 'Next search result' }).click();
   await expect(page.locator('.text-edit-preview-selection mark.active')).toHaveText('中文');
   await replace(page, '中文编辑 ABC');
-  await expect(page.getByRole('search').getByRole('status')).toHaveText('1 of 1 matches');
+  await expectSearch(page.getByRole('search').getByRole('status')).toHaveText('1 of 1 matches');
   await page.locator('.workspace-history > button').nth(0).click();
-  await expect(page.getByRole('search').getByRole('status')).toHaveText('1 of 2 matches');
+  await expectSearch(page.getByRole('search').getByRole('status')).toHaveText('1 of 2 matches');
   await page.locator('.workspace-history > button').nth(1).click();
-  await expect(page.getByRole('search').getByRole('status')).toHaveText('1 of 1 matches');
+  await expectSearch(page.getByRole('search').getByRole('status')).toHaveText('1 of 1 matches');
   const bytes = await exportPDF(page), output = inspect(bytes);
   expect(output.text).toContain('中文编辑 ABC'); expect(output.text).not.toContain('Original'); expect(output.text).toContain('Unchanged neighbor');
   expect(output.names[0]).toContain('Droid');
@@ -73,9 +81,10 @@ test('built-in Chinese font, live search, deletion, undo and redo use the curren
   const reopened = await page.context().newPage(); await reopened.goto('./');
   await reopened.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'exported.pdf', mimeType: 'application/pdf', buffer: bytes });
   await expect(reopened.locator('canvas.page-canvas')).toBeVisible();
-  await expect(await query(reopened, '中文')).toHaveText('1 of 1 matches');
-  await expect(await query(reopened, 'Original')).toHaveText('No matches found');
+  await expectSearch(await query(reopened, '中文')).toHaveText('1 of 1 matches');
+  await expectSearch(await query(reopened, 'Original')).toHaveText('No matches found');
   await reopened.close();
+  expect(errors).toEqual([]);
 });
 
 test('local Chinese OTF is embedded, persists after reload and remains usable after library removal', async ({ page }) => {
@@ -91,7 +100,7 @@ test('local Chinese OTF is embedded, persists after reload and remains usable af
   await manager.getByRole('button', { name: 'Use font', exact: true }).click();
   await expect(panel.getByRole('combobox', { name: 'Text font' })).toHaveValue(/^custom:/);
   await replace(page, '中文字体编辑 ABC\n搜索测试，第二行。');
-  await expect(await query(page, '搜索')).toHaveText('1 of 1 matches');
+  await expectSearch(await query(page, '搜索')).toHaveText('1 of 1 matches');
   const mark = page.locator('.text-edit-preview-selection mark.active'); await expect(mark).toHaveText('搜索');
   const canvas = (await page.locator('canvas.page-canvas').boundingBox())!, highlight = (await mark.boundingBox())!;
   expect(highlight.x).toBeGreaterThan(canvas.x); expect(highlight.x + highlight.width).toBeLessThan(canvas.x + canvas.width);
@@ -105,7 +114,7 @@ test('local Chinese OTF is embedded, persists after reload and remains usable af
   await manager.getByRole('button', { name: 'Close (Esc)' }).click();
   await expect(panel.getByRole('combobox', { name: 'Text font' })).toHaveValue(/^custom:/);
   expect(inspect(await exportPDF(page))).toEqual(before);
-  await expect(await query(page, '中文')).toHaveText('1 of 1 matches');
+  await expectSearch(await query(page, '中文')).toHaveText('1 of 1 matches');
   await page.screenshot({ path: test.info().outputPath('chinese-font-search-rotated.png') });
   const saved = await exportPDF(page); await writeFile(test.info().outputPath('custom-font.pdf'), saved);
   const reopened = await page.context().newPage(); await reopened.goto('./');
@@ -123,7 +132,7 @@ test('local Chinese OTF is embedded, persists after reload and remains usable af
     return ink;
   })).toBeGreaterThan(expectedInk * .8);
   await replace(reopened, '中文字体编辑 ABC\n搜索替换，第二行。');
-  await expect(await query(reopened, '替换')).toHaveText('1 of 1 matches');
+  await expectSearch(await query(reopened, '替换')).toHaveText('1 of 1 matches');
   const editedAgain = inspect(await exportPDF(reopened));
   expect(editedAgain.text).toContain('搜索替换，第二行。'); expect(editedAgain.names).toEqual(['PDFEditorTestCJK']);
   await reopened.close();
@@ -164,6 +173,6 @@ test('TTF selection inside the text-layout dialog survives draft save and export
   await expect(layout.getByRole('button', { name: 'Save draft', exact: true })).toBeEnabled();
   await layout.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(layout).toHaveCount(0);
-  await expect(await query(page, '中文')).toHaveText('1 of 1 matches');
+  await expectSearch(await query(page, '中文')).toHaveText('1 of 1 matches');
   const output = inspect(await exportPDF(page)); expect(output.text).toContain('中文编辑 ABC'); expect(output.names).toEqual(['PDFEditorTestTTF']);
 });
