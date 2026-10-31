@@ -9,6 +9,7 @@ export interface InlineTextPreviewRequest {
   imageEdits?: ImageEditOperation[];
 }
 export interface InlineTextPreviewResult {
+  issues?: { blockId: string; message: string }[];
   textGeometry?: { id: string; signature: string; rect: TextRect }[];
   id: number; activeId?: string | null; png?: Uint8Array<ArrayBuffer>; bytes?: Uint8Array<ArrayBuffer>; prepared?: PreparedTextEditLayout; availableRect?: TextRect; error?: string;
 }

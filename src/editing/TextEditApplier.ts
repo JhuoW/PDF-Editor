@@ -1,9 +1,10 @@
-import type { Color, PDFDocument, PDFObject, PDFPage } from 'mupdf';
+import type { PDFDocument, PDFObject, PDFPage } from 'mupdf';
 import { loadMuPDF, toMuPDFPageRect } from '../utils/mupdf';
 import type { TextBlock, TextEditOperation } from './types';
 import { assertTextEditSource } from './TextEditSource';
 import { standardTextFont, TextLayoutSession, type TextLayoutControl, type TextLayoutInput, type TextLayoutResult } from './TextLayout';
 import { readInlineTextBounds } from './InlineTextBounds';
+import { readTextSourceMetrics, replacementTextStyles } from './TextSourceMetrics';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
 export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number }; availableRect?: import('./types').TextRect }
@@ -41,40 +42,6 @@ function assertReplaceableTextRendering(engine: Engine, page: PDFPage, pageNumbe
   }
 }
 
-function sourceStyle(engine: Engine, page: PDFPage, block: TextBlock, session: TextLayoutSession): { name: string; color: Color; sourceFontKey?: string } {
-  let name = block.style.fontName;
-  let color: Color = [0, 0, 0];
-  const area = toMuPDFPageRect(engine, page, block.rect);
-  const text = page.toStructuredText('');
-  let found = false;
-  let sourceFontKey: string | undefined;
-  try {
-    text.walk({
-      onChar(character, _origin, font, _size, quad, charColor) {
-        let retained = false;
-        try {
-          if (found || !character.trim()) return;
-          const x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4;
-          const y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4;
-          if (x < area[0] || x > area[2] || y < area[1] || y > area[3]) return;
-          name = `${font.isMono() ? 'Courier' : font.isSerif() ? 'Times' : 'Helvetica'}${font.isBold() ? ' Bold' : ''}${font.isItalic() ? ' Italic' : ''}`;
-          color = charColor.length === 3 ? [...charColor] as Color : [0, 0, 0];
-          sourceFontKey = `source:${block.id}`;
-          session.useSourceFont(sourceFontKey, font, standardTextFont(name));
-          retained = true;
-          found = true;
-        } finally { if (!retained) font.destroy(); }
-      },
-    });
-  } finally {
-    text.destroy();
-  }
-  if (block.style.fontColor && /^#[0-9a-f]{6}$/i.test(block.style.fontColor)) {
-    color = [1, 3, 5].map(offset => parseInt(block.style.fontColor!.slice(offset, offset + 2), 16) / 255) as Color;
-  }
-  return { name: standardTextFont(name), color, sourceFontKey };
-}
-
 function pageGeometry(engine: Engine, page: PDFPage) {
   const transform = page.getTransform(), crop = engine.Rect.transform(page.getBounds(), engine.Matrix.invert(transform));
   const unit = Math.hypot(transform[0], transform[1]);
@@ -85,24 +52,32 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   cancelled(control);
   if (!block.editable) throw new Error(block.unsupportedReason ?? 'This text block is read-only.');
   if (block.lines.some(line => line.items.some(item => Math.abs(item.transform[1]) > 0.001 || Math.abs(item.transform[2]) > 0.001))) throw new Error(`Rotated or vertical text inside page ${block.pageNumber} cannot be replaced yet. Page rotation itself is supported.`);
-  const source = sourceStyle(engine, page, block, session), overrides = edit.layout ?? {}, geometry = pageGeometry(engine, page);
+  const source = readTextSourceMetrics(engine, page, block, session), overrides = edit.layout ?? {}, geometry = pageGeometry(engine, page);
+  const sourceSize = source?.fontSize ?? block.style.fontSize;
   const originalBaseline = overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined);
   const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,
     overrides.translate ? overrides.targetRect : undefined, overrides.fitToContent);
-  const rect = { ...(overrides.targetRect ?? (overrides.keepBaseline ? availableRect : block.rect)) };
-  if (overrides.translate && overrides.keepBaseline && overrides.autoGrow) {
-    rect.width = availableRect.width; rect.height = availableRect.height;
-  }
+  const rect = { ...(overrides.targetRect ?? block.rect) };
   if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 || rect.x + rect.width > geometry.width + 0.01 || rect.y + rect.height > geometry.height + 0.01) throw new Error('The text layout region must be completely inside the visible page.');
-  const input: TextLayoutInput = { text: edit.newText, rect, fontName: overrides.fontName ?? source.name, fontSize: overrides.fontSize ?? block.style.fontSize,
-    fontColor: overrides.fontColor ?? '#' + source.color.map(value => Math.round(Math.max(0, Math.min(1, value)) * 255).toString(16).padStart(2, '0')).join(''),
-    alignment: overrides.alignment ?? block.style.alignment, lineHeight: overrides.lineHeight ?? Math.min(5, Math.max(originalBaseline ? .25 : 1, Number.isFinite(block.style.lineHeight) ? block.style.lineHeight : 1.2)), reflow: overrides.reflow };
-  if (!overrides.fontName) input.sourceFontKey = source.sourceFontKey;
+  const input: TextLayoutInput = { text: edit.newText, rect, fontName: overrides.fontName ?? source?.fontName ?? standardTextFont(block.style.fontName), fontSize: overrides.fontSize ?? sourceSize,
+    fontColor: overrides.fontColor ?? block.style.fontColor ?? source?.fontColor ?? '#000000',
+    alignment: overrides.alignment ?? block.style.alignment, lineHeight: overrides.lineHeight ?? Math.min(5, Math.max(originalBaseline ? .25 : 1, Number.isFinite(block.style.lineHeight) ? block.style.lineHeight * block.style.fontSize / sourceSize : 1.2)), reflow: overrides.reflow };
+  if (!overrides.fontName) input.sourceFontKey = source?.fontKey;
+  if (source) {
+    input.sourceFontSize = sourceSize;
+    input.sourceStyles = replacementTextStyles(source.source, input.text, !!overrides.reflow).map(style => ({ ...style,
+      ...(overrides.fontName ? { fontKey: overrides.fontName, fontName: overrides.fontName } : {}),
+      ...(overrides.fontColor || block.style.fontColor ? { fontColor: input.fontColor } : {}),
+    }));
+  }
   if (originalBaseline) input.legacyBaseline = (block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8)
     + (overrides.translate ? rect.y - block.rect.y : 0);
-  if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === block.style.fontSize) input.sourceRows = block.lines.map(line => ({ text: line.text, width: line.width }));
+  if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === sourceSize) input.sourceRows = block.lines.map(line => ({ text: line.text, width: line.width }));
   let layout = session.layout(input, control);
-  if (overrides.fitToContent && originalBaseline && !layout.fits) {
+  // Automatic typing is resolved here, not by an asynchronous preview mutating
+  // the edit. Save, preview, reload and Apply therefore use the same final area.
+  const grow = overrides.fitToContent || overrides.autoGrow || (overrides.keepBaseline && overrides.reflow && !overrides.translate);
+  if (grow && originalBaseline && !layout.fits) {
     const natural = session.layout({ ...input, rect: { ...input.rect, width: availableRect.width, height: availableRect.height } }, control);
     if (natural.fits) {
       input.rect.width = Math.max(input.rect.width, Math.min(availableRect.width, Math.ceil(Math.max(0, ...natural.lines.map(line => line.width)) * 1000) / 1000 + .01));
@@ -162,7 +137,9 @@ function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage
     const overlayPage = keep(overlay.findPage(0));
     const overlayContents = keep(overlayPage.get('Contents'));
     const content = keep(overlayContents.readStream());
-    const resources = keep(document.graftObject(keep(overlayPage.get('Resources'))));
+    const overlayResources = keep(overlayPage.get('Resources'));
+    session.preserveUnicode(overlay, overlayResources, blocks.map(block => block.layout));
+    const resources = keep(document.graftObject(overlayResources));
     // Detach the input from WASM memory before addStream can grow that memory.
     const form = keep(document.addStream(new Uint8Array(content.asUint8Array()), { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, width, height], Resources: resources }));
     const pageObject = keep(page.getObject());
@@ -205,11 +182,11 @@ export async function applyTextEdits(
 }
 
 /** Visual feedback may show overflowing text; the actual writer still rejects it. */
-export async function previewInlineTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], rects?: Map<string, import('./types').TextRect>): Promise<Uint8Array> {
-  return writeTextEdits(data, blocks, edits, {}, true, rects);
+export async function previewInlineTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], rects?: Map<string, import('./types').TextRect>, layouts?: Map<string, PreparedTextEditLayout>): Promise<Uint8Array> {
+  return writeTextEdits(data, blocks, edits, {}, true, rects, layouts);
 }
 
-async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], control: TextLayoutControl, preview: boolean, rects?: Map<string, import('./types').TextRect>): Promise<Uint8Array> {
+async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]>, edits: TextEditOperation[], control: TextLayoutControl, preview: boolean, rects?: Map<string, import('./types').TextRect>, layouts?: Map<string, PreparedTextEditLayout>): Promise<Uint8Array> {
   cancelled(control);
   if (edits.length === 0) return new Uint8Array(data.slice(0));
   const latest = new Map<string, TextEditOperation>();
@@ -247,6 +224,7 @@ async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]
         assertReplaceableTextRendering(engine, page, pageNumber);
         const prepared = entries.map(({ block, edit }) => prepareBlock(engine, page, block, edit, session, control));
         for (const item of prepared) rects?.set(item.block.id, { ...item.input.rect });
+        for (const item of prepared) layouts?.set(item.block.id, item);
         const overflow = prepared.find(item => !item.layout.fits);
         if (overflow && !preview) throw new Error(`Page ${pageNumber}: ${overflow.layout.overflow}`);
         preparedPages.set(pageNumber, prepared);

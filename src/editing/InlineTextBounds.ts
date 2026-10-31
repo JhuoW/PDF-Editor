@@ -31,6 +31,20 @@ export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF
   });
   try { page.runPageContents(device, engine.Matrix.identity); device.close(); }
   finally { device.destroy(); stroke.destroy(); }
+  // Read widget rectangles directly: MuPDF caches getWidgets() wrappers on the
+  // page, so destroying those borrowed objects breaks the next edited block.
+  const object = page.getObject(), annotations = object.get('Annots');
+  try {
+    if (annotations.isArray()) annotations.forEach(annotation => {
+      const subtype = annotation.get('Subtype'), bounds = annotation.get('Rect'), flags = annotation.get('F');
+      try {
+        const rect = bounds.asJS();
+        if (subtype.asName() === 'Widget' && !(flags.asNumber() & 35) && Array.isArray(rect) && rect.length === 4 && rect.every(Number.isFinite)) {
+          obstacles.push({ x: (rect[0] - crop[0]) * unit, y: (crop[3] - rect[3]) * unit, width: (rect[2] - rect[0]) * unit, height: (rect[3] - rect[1]) * unit });
+        }
+      } finally { subtype.destroy(); bounds.destroy(); flags.destroy(); annotation.destroy(); }
+    });
+  } finally { annotations.destroy(); object.destroy(); }
   // The source glyphs will be removed from block.rect, but growth after a move
   // must be measured around the destination rather than the old paragraph.
   const destination = targetRect ? { ...block, rect: targetRect } : block;

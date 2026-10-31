@@ -41,6 +41,7 @@ test('draws a transparent signature and preserves movement, resizing, deletion, 
   const initialData = await exported(page), initial = images(initialData); expect(initial).toHaveLength(1);
   expect((await PDFDocument.load(initialData)).getForm().getTextField('Contact').getText()).toBe('签名后的表单');
   expect(sample(initialData, initial[0][0] + 1, initial[0][1] + 1)).toEqual(sample(background, initial[0][0] + 1, initial[0][1] + 1));
+  await revealPDFRegion(page, 360, 425);
   let box = (await page.locator('canvas.page-canvas').boundingBox())!;
   await page.keyboard.down('Shift'); await page.mouse.move(box.x + 300, box.y + 380); await page.mouse.down(); await page.mouse.move(box.x + 330, box.y + 405, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift');
   const moved = images(await exported(page))[0]; expect(moved[0]).toBeCloseTo(initial[0][0] + 30, 0); expect(moved[1]).toBeCloseTo(initial[0][1] + 25, 0);

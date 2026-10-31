@@ -1,4 +1,8 @@
 export const en = {
+  "feedback.prompt": "Found a bug or encountered an issue? Please report it on",
+  "feedback.link": "GitHub Issues",
+  "text.edit.overflow.help": "This text needs more space. Open Text Layout to resize or move the region before saving. Your text has been kept in full.",
+  "text.edit.font.fallback": "Some added characters are unavailable in the original font and use a matching local font.",
   "file.save.permission.error": "Permission to save this PDF was denied. Choose Save As to save a copy.",
   "file.saveAs.name": "Save PDF as",
   "file.save.name.required": "Enter a PDF file name.",

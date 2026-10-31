@@ -12,6 +12,19 @@ vi.mock('pdfjs-dist', () => ({ AnnotationMode: { DISABLE: 0 }, OPS: {
 } }));
 
 describe('text block coordinate detection', () => {
+  it('separates the font size from horizontal character scaling', async () => {
+    const page = { pageNumber: 1, userUnit: 1,
+      getOperatorList: async () => ({ fnArray: [], argsArray: [] }),
+      getViewport: () => ({ convertToViewportPoint: (x: number, y: number) => [x, 600 - y] }),
+      getTextContent: async () => ({ items: ['alpha beta', 'gamma delta', 'third line'].map((str, i) => ({ str,
+        transform: [21, 0, 0, 12, 40, 500 - i * 16], width: str.length * 12.6, height: 12, fontName: 'f1' })), styles: { f1: { fontFamily: 'monospace' } } }),
+    } as unknown as PDFPageProxy;
+    const [block] = await detectTextBlocks(page);
+    expect(block.style.fontSize).toBe(12);
+    expect(block.style.lineHeight * block.style.fontSize).toBeCloseTo(16);
+    expect(block.rect.height).toBe(44);
+    expect(block.lines).toHaveLength(3);
+  });
   it('does not merge managed page marks into original body text blocks', async () => {
     const content = vi.fn(async () => ({ items: [
       { type: 'beginMarkedContentProps', tag: 'Artifact' },

@@ -60,7 +60,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     const mapped = mapViewportRect(rect, source, viewport);
     return { left: mapped.x, top: mapped.y, width: mapped.width, height: mapped.height };
   };
-  const blockStyle = (block: TextBlock) => rectStyle(layouts.get(block.id)?.targetRect ?? block.rect);
+  const blockStyle = (block: TextBlock) => rectStyle(preview?.textGeometry?.find(item => item.id === block.id && item.signature === JSON.stringify([block.text, layouts.get(block.id)]))?.rect ?? layouts.get(block.id)?.targetRect ?? block.rect);
 
   useEffect(() => {
     if (mode !== 'text' || hasBlocks) return;
@@ -100,12 +100,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     }
     input.current?.setSelectionRange(start, end);
   }, [prepared, editText, preview, activeId]);
-  useEffect(() => {
-    const previous = activeId ? layouts.get(activeId) : undefined;
-    if (activeId && group.current && (!previous?.translate || previous.autoGrow) && pageEdits.some(edit => edit.blockId === activeId) && preview?.activeId === activeId && preview.availableRect && (!previous || previous.keepBaseline)) {
-      updateBlockText(activeId, editText, group.current, { ...previous, targetRect: preview.availableRect, keepBaseline: true, reflow: true, ...(previous?.translate ? { autoGrow: false } : {}) });
-    }
-  }, [activeId, pageEdits, layouts, preview, editText, updateBlockText]);
+
 
   const pointAt = (event: React.PointerEvent | React.MouseEvent) => {
     const bounds = layer.current!.getBoundingClientRect();
@@ -158,8 +153,8 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     preferredColumn.current = null;
     setEditText(value);
     const previous = activeId ? layouts.get(activeId) : undefined;
-    const automatic = previous?.translate ? { ...previous, ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), reflow: true, autoGrow: true }
-      : !previous || previous.keepBaseline ? { ...previous, ...(preview?.activeId === activeId && preview.availableRect ? { targetRect: preview.availableRect } : {}), keepBaseline: true, reflow: true } : undefined;
+    const automatic = !previous || previous.keepBaseline
+      ? { ...previous, keepBaseline: true, reflow: true, autoGrow: true } : undefined;
     if (activeId && group.current) updateBlockText(activeId, value, group.current, automatic);
     if (input.current) setSelection({ start: input.current.selectionStart, end: input.current.selectionEnd });
   };
@@ -199,6 +194,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const readOnlyReason = pageBlocks.find(block => !block.editable)?.unsupportedReason;
   const caret = activeId && prepared ? rectStyle(inlineCaret(prepared, selection.end)) : null;
   const regions = activeId && prepared ? inlineSelection(prepared, selection.start, selection.end).map(rectStyle) : [];
+  const layoutIssue = preview?.issues?.[0];
   const toolbarHost = window.document.getElementById('pdf-text-edit-controls');
   const editActions = selectedBlock && selectedRect && <div ref={actions} className={`text-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { left: Math.max(0, Math.min(selectedRect.left, (viewport.width || 500) - 270)), top: Math.max(0, selectedRect.top - 40) }}>
     {activeId && !toolbarHost && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); setMode('none'); }}>{t("m.done.e9b450")}</button>}
@@ -241,6 +237,10 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
       {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status">{translateError(readOnlyReason)} <button type="button" onClick={() => setMode('none')}>{t("m.exit.text.editing.6c1160")}</button></div>}
     </>}
-    {(preview?.error || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">{translateError(preview?.error) || t("m.text.exceeds.the.available.space.open.text.layou.c2d953")}</div>}
+    {(preview?.error || layoutIssue || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">
+      {translateError(preview?.error) || t("text.edit.overflow.help")}
+      {onTextLayout && (layoutIssue || activeId) && <button type="button" onClick={() => { finish(); onTextLayout(layoutIssue?.blockId ?? activeId!); }}>{t('m.text.layout.661a8e')}</button>}
+    </div>}
+    {!!prepared?.layout.warnings.length && !layoutIssue && <div className="text-edit-font-notice" role="status">{prepared.layout.warnings.map(translateError).join(' ')}</div>}
   </div>;
 }

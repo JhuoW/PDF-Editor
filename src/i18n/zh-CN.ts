@@ -1,5 +1,9 @@
 import type { en } from "./en";
 export const zhCN: Record<keyof typeof en, string> = {
+  "feedback.prompt": "使用过程中遇到问题或发现 Bug？欢迎通过",
+  "feedback.link": "GitHub Issues 反馈",
+  "text.edit.overflow.help": "文字需要更多空间。请打开“文字布局”调整区域大小或位置后再保存。所有文字均已完整保留。",
+  "text.edit.font.fallback": "原字体中缺少部分新增字符，已使用相近的本地字体显示这些字符。",
   "file.save.permission.error": "没有保存此 PDF 的权限，请使用“另存为”保存副本。",
   "file.saveAs.name": "PDF 另存为",
   "file.save.name.required": "请输入 PDF 文件名。",

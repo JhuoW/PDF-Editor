@@ -100,7 +100,18 @@ for (const rotation of [90, 270]) {
     await expect(editor).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    const preview = pixels(await page.locator('canvas.annotation-canvas').screenshot());
+    // Read the entire rendered canvas: a laptop viewport can clip its lower
+    // edge even after scrolling. A DOM screenshot would omit valid PDF pixels.
+    const preview = pixels(Buffer.from(await page.locator('canvas.annotation-canvas').evaluate(source => {
+      const canvas = document.createElement('canvas');
+      const bounds = source.getBoundingClientRect();
+      canvas.width = Math.round(bounds.width); canvas.height = Math.round(bounds.height);
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.setTransform(new DOMMatrix(getComputedStyle(source.parentElement!).transform));
+      context.drawImage(source as HTMLCanvasElement, 0, 0);
+      return canvas.toDataURL('image/png').split(',')[1];
+    }), 'base64'));
     assertNear(bounds(preview, [20, 20, 280, 200], 'blue'), [78, 78, 241, 181]);
     expect(bounds(preview, [390, 340, 520, 460], 'green')).not.toBeNull();
     await draw(page, 'Sticky Note', [[600, 450]]);

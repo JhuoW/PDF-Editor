@@ -77,8 +77,13 @@ export const PageCanvas = memo(function PageCanvas({
     const effectiveRotation = getEffectiveRotation(page, rotation);
 
     // Set canvas size
-    canvas.width = dimensions.width;
-    canvas.height = dimensions.height;
+    const pixelRatio = window.devicePixelRatio || 1;
+    canvas.width = Math.ceil(dimensions.width * pixelRatio);
+    canvas.height = Math.ceil(dimensions.height * pixelRatio);
+    // Keep the raster's CSS geometry identical to text/form/selection layers.
+    // Intrinsic canvas dimensions round to integers and otherwise drift at fit zoom.
+    canvas.style.width = `${dimensions.width}px`;
+    canvas.style.height = `${dimensions.height}px`;
 
     const viewport = page.getViewport({ scale, rotation: effectiveRotation });
 
@@ -88,6 +93,7 @@ export const PageCanvas = memo(function PageCanvas({
       canvas: null,
       canvasContext: ctx,
       viewport,
+      transform: [canvas.width / dimensions.width, 0, 0, canvas.height / dimensions.height, 0, 0],
       // Interactive controls paint their current values in FormLayer. Rendering
       // original widget appearances underneath leaves old text/check marks visible.
       annotationMode: htmlForms ? AnnotationMode.ENABLE_FORMS : AnnotationMode.ENABLE,

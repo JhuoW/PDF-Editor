@@ -1686,6 +1686,9 @@ function App() {
 
           <div ref={setNavigationHost} className="document-navigation-slot" />
         </footer>
+        <div className="app-feedback">
+          {t('feedback.prompt')}{' '}<a href="https://github.com/JhuoW/PDF-Editor/issues" target="_blank" rel="noopener noreferrer">{t('feedback.link')}</a>
+        </div>
         {document && !isLoading && <StickyNoteEditor />}
         {passwordRequest && <PasswordDialog request={passwordRequest} onSubmit={submitPassword} onCancel={cancelPasswordRequest} />}
         {document && propertiesOpen && <Suspense fallback={<div role="status">{t("m.loading.document.properties.3f510b")}</div>}><DocumentPropertiesDialog isOpen={propertiesOpen} documentKey={getOriginalDocument()} revision={documentVersion}

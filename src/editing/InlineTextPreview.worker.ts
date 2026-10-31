@@ -44,9 +44,11 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
     const imageBytes = request.imageEdits?.length
       ? await applyImageEdits(source.slice(0), new Map([[request.pageNumber, request.images ?? []]]), request.imageEdits) : null;
     const data = imageBytes ? new Uint8Array(imageBytes).buffer : source.slice(0);
-    const prepared = active ? await prepareTextEditLayout(data, active, request.edits.find(edit => edit.blockId === active.id)) : undefined;
     const rects = new Map<string, import('./types').TextRect>();
-    const bytes = await previewInlineTextEdits(data, blocks, request.edits, rects);
+    const layouts = new Map<string, import('./TextEditApplier').PreparedTextEditLayout>();
+    const bytes = await previewInlineTextEdits(data, blocks, request.edits, rects, layouts);
+    const prepared = active ? layouts.get(active.id) ?? await prepareTextEditLayout(data, active) : undefined;
+    const issues = [...layouts].filter(([, prepared]) => !prepared.layout.fits).map(([blockId, prepared]) => ({ blockId, message: prepared.layout.overflow! }));
     const textGeometry = request.edits.flatMap(edit => { const rect = rects.get(edit.blockId); return rect ? [{ id: edit.blockId, signature: JSON.stringify([edit.newText, edit.layout]), rect }] : []; });
     const engine = await loadMuPDF();
     const availableRect = prepared?.availableRect;
@@ -81,7 +83,7 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
         })();
         try {
           const png = new Uint8Array(pixmap.asPNG());
-          self.postMessage({ id: request.id, activeId: request.activeId, png, prepared, bytes, availableRect, textGeometry }, { transfer: [png.buffer, bytes.buffer] });
+          self.postMessage({ id: request.id, activeId: request.activeId, png, prepared, bytes, availableRect, textGeometry, issues }, { transfer: [png.buffer, bytes.buffer] });
         } finally { pixmap.destroy(); }
       } finally { page.destroy(); }
     } finally { document.destroy(); }

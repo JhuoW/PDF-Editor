@@ -80,7 +80,9 @@ export async function detectTextBlocks(page: PDFPageProxy): Promise<TextBlock[]>
       // The viewport includes CropBox offsets and /UserUnit. Store all editing
       // coordinates in this unrotated, scale=1 viewport consistently.
       const [x, y] = viewport.convertToViewportPoint(tx[4], tx[5]);
-      const fontSize = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]) * unit;
+      // Tz changes horizontal scale, not point size. Using the first column
+      // turns a 12pt, 175%-wide font into 21pt and makes a 44pt region need 53pt.
+      const fontSize = Math.hypot(tx[2], tx[3]) * unit;
       const width = (item.width ?? 0) * unit;
       const height = item.height ? item.height * unit : fontSize;
 
@@ -257,15 +259,17 @@ function estimateAlignment(lines: TextLine[]): 'left' | 'center' | 'right' | 'ju
   const rightVariance = calculateVariance(rightPositions);
   const centerVariance = calculateVariance(centerPositions);
 
+  // Justified paragraphs usually end with a shorter, left-aligned final row.
+  // Check their full rows first; checking the left edge first made this branch
+  // unreachable and changed justified text to ragged-right after editing.
+  if (lines.length >= 3 && leftVariance < 5 && calculateVariance(rightPositions.slice(0, -1)) < 1) return 'justify';
+
   // Low variance means consistent alignment
   const minVariance = Math.min(leftVariance, rightVariance, centerVariance);
 
   if (minVariance === leftVariance && leftVariance < 5) return 'left';
   if (minVariance === rightVariance && rightVariance < 5) return 'right';
   if (minVariance === centerVariance && centerVariance < 5) return 'center';
-
-  // If both left and right are aligned, it's justified
-  if (leftVariance < 5 && rightVariance < 5) return 'justify';
 
   return 'left';
 }

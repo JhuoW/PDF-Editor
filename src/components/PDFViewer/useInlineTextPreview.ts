@@ -11,7 +11,7 @@ import type { PreparedTextEditLayout } from '../../editing/TextEditApplier';
 const EMPTY_IMAGES: PDFImage[] = [];
 
 export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blocks: TextBlock[], edits: TextEditOperation[], activeId: string | null, scale: number, rotation: number) {
-  const [preview, setPreview] = useState<(InlineTextPreviewResult & { page: PDFPageProxy; geometry: Map<string, PreparedTextEditLayout> }) | null>(null);
+  const [preview, setPreview] = useState<(InlineTextPreviewResult & { page: PDFPageProxy; geometry: Map<string, PreparedTextEditLayout>; signatures: Map<string, string> }) | null>(null);
   const client = useRef<InlineTextPreviewClient | null>(null), sequence = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contexts = useRef(new Map<number, object>());
@@ -62,8 +62,14 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
       if (result.textGeometry?.length) useObjectTransformStore.getState().setTextGeometry(result.textGeometry);
       setPreview(previous => {
         const geometry = new Map(previous?.page === page ? previous.geometry : []);
-        if (result.activeId && result.prepared) geometry.set(result.activeId, result.prepared);
-        return { ...result, page, geometry };
+        const signatures = new Map(previous?.page === page ? previous.signatures : []);
+        if (result.activeId && result.prepared) {
+          geometry.set(result.activeId, result.prepared);
+          const edit = latest.current.edits.find(edit => edit.blockId === result.activeId);
+          signatures.set(result.activeId, result.textGeometry?.find(item => item.id === result.activeId)?.signature
+            ?? JSON.stringify([result.prepared.input.text, edit?.layout]));
+        }
+        return { ...result, page, geometry, signatures };
       });
     });
     // Read the current proxy, never another browser tab's recovery cache.
@@ -71,7 +77,7 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
       if (canceled) return;
       client.current = worker;
       requestPreview(new Uint8Array(data).buffer);
-    }).catch(cause => { if (!canceled) setPreview({ id: -1, page, geometry: new Map(), error: cause instanceof Error ? cause.message : 'Could not read the PDF.' }); });
+    }).catch(cause => { if (!canceled) setPreview({ id: -1, page, geometry: new Map(), signatures: new Map(), error: cause instanceof Error ? cause.message : 'Could not read the PDF.' }); });
     return () => { canceled = true; worker.destroy(); ownedContexts.clear(); if (client.current === worker) client.current = null; };
   }, [page, pageNumber, needed, requestPreview]);
   useEffect(() => () => {
@@ -84,8 +90,13 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
     timer.current = setTimeout(() => { timer.current = null; requestPreview(); }, 35);
   }, [pageNumber, blocks, previewEdits, images, previewImageEdits, activeId, scale, rotation, htmlForms, needed, requestPreview]);
   if (!needed || preview?.page !== page) return null;
-  const cached = activeId ? preview.geometry.get(activeId) : undefined;
-  return cached?.input.text === blocks.find(block => block.id === activeId)?.text
-    ? { ...preview, activeId, prepared: cached, availableRect: cached?.availableRect }
-    : preview;
+  // Text alone is insufficient: changing font, size or bounds also invalidates
+  // caret positions. Never revive geometry from an older layout.
+  const geometry = new Map([...preview.geometry].filter(([id]) => {
+    const edit = previewEdits.find(edit => edit.blockId === id);
+    const text = edit?.newText ?? blocks.find(block => block.id === id)?.text;
+    return preview.signatures.get(id) === JSON.stringify([text, edit?.layout]);
+  }));
+  const prepared = activeId ? geometry.get(activeId) : undefined;
+  return { ...preview, geometry, activeId, prepared, availableRect: prepared?.availableRect };
 }
