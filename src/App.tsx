@@ -65,7 +65,7 @@ import { applySecureRedactions } from './editing/SecureRedaction';
 import './App.css';
 import './workspace.css';
 import { WorkspaceInspector } from './components/Workspace/WorkspaceInspector';
-import { FileUp, FilePenLine, Highlighter, Files, ImagePlus, ShieldCheck } from 'lucide-react';
+import { FileUp, FilePenLine, Highlighter, Files, ImagePlus, ShieldCheck, History } from 'lucide-react';
 import type { OCRDialogProgress, OCRRunOptions } from './components/Dialogs/OCRDialog';
 import type { OCRPageResult } from './ocr/recognizePDF';
 import type { FormDesignOperation } from './forms/FormDesignerTypes';
@@ -91,6 +91,7 @@ const CleanDocumentDialog = lazy(() => import('./components/Dialogs/CleanDocumen
 const CompressPDFDialog = lazy(() => import('./components/Dialogs/CompressPDFDialog'));
 const TextLayoutDialog = lazy(() => import('./components/Dialogs/TextLayoutDialog'));
 const TextCheckDialog = lazy(() => import('./components/Dialogs/TextCheckDialog').then(module => ({ default: module.TextCheckDialog })));
+const UpdateHistoryDialog = lazy(() => import('./components/Dialogs/UpdateHistoryDialog').then(module => ({ default: module.UpdateHistoryDialog })));
 const PDFLinksDialog = lazy(() => import('./components/Dialogs/PDFLinksDialog'));
 const PDFBookmarksDialog = lazy(() => import('./components/Dialogs/PDFBookmarksDialog'));
 const SignatureDialog = lazy(() => import('./components/Dialogs/SignatureDialog'));
@@ -151,6 +152,7 @@ function App() {
   const [compressPDFOpen, setCompressPDFOpen] = useState(false);
   const [textLayoutBlockId, setTextLayoutBlockId] = useState<string | null>(null);
   const [textCheckOpen, setTextCheckOpen] = useState(false);
+  const [updateHistoryOpen, setUpdateHistoryOpen] = useState(false);
   const textLayoutCommit = useRef<((edit: TextEditOperation, signal: AbortSignal) => void) | null>(null);
   const [linksOpen, setLinksOpen] = useState(false);
   const linksApply = useRef<((operations: PDFLinkOperation[], signal: AbortSignal, onCommit: () => void) => Promise<void>) | null>(null);
@@ -1723,8 +1725,10 @@ function App() {
           <div ref={setNavigationHost} className="document-navigation-slot" />
         </footer>
         <div className="app-feedback">
-          {t('feedback.prompt')}{' '}<a href="https://github.com/JhuoW/PDF-Editor/issues" target="_blank" rel="noopener noreferrer">{t('feedback.link')}</a>
+          <span>{t('feedback.prompt')}{' '}<a href="https://github.com/JhuoW/PDF-Editor/issues" target="_blank" rel="noopener noreferrer">{t('feedback.link')}</a></span>
+          <button type="button" className="update-history-trigger" aria-haspopup="dialog" onClick={() => setUpdateHistoryOpen(true)}><History size={13} aria-hidden="true" />{t('updates.title')}</button>
         </div>
+        {updateHistoryOpen && <Suspense fallback={<div role="status">{t('updates.loading')}</div>}><UpdateHistoryDialog onClose={() => setUpdateHistoryOpen(false)} /></Suspense>}
         {document && !isLoading && <StickyNoteEditor />}
         {passwordRequest && <PasswordDialog request={passwordRequest} onSubmit={submitPassword} onCancel={cancelPasswordRequest} />}
         {document && propertiesOpen && <Suspense fallback={<div role="status">{t("m.loading.document.properties.3f510b")}</div>}><DocumentPropertiesDialog isOpen={propertiesOpen} documentKey={getOriginalDocument()} revision={documentVersion}

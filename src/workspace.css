@@ -101,7 +101,10 @@ body { background: #f3f5f8; }
 .document-statusbar .session-save-status { background: none; border: 0; margin: 0; min-height: auto; padding: 0; color: #8a95a6; font-size: 10px; white-space: nowrap; }
 .document-statusbar .session-save-status::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #72ad89; margin-right: 7px; }
 .document-statusbar .status-error { color: #c25555; }
-.app-feedback { flex-shrink: 0; padding: 3px 12px 5px; background: var(--gray-1, #fff); color: var(--gray-11, #667085); text-align: center; font-size: 11px; line-height: 1.4; }
+.app-feedback { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 14px; padding: 3px 12px 5px; background: var(--gray-1, #fff); color: var(--gray-11, #667085); text-align: center; font-size: 11px; line-height: 1.4; }
+.update-history-trigger { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.update-history-trigger:hover { color: var(--accent-11, #2559a7); background: var(--accent-3, #eff6ff); }
+.update-history-trigger:focus-visible { outline: 2px solid var(--accent-9, #2563eb); outline-offset: 2px; }
 .app-feedback a { color: inherit; text-underline-offset: 2px; }
 .app-feedback a:hover { color: var(--accent-11, #2559a7); }
 .app-feedback a:focus-visible { outline: 2px solid var(--accent-9, #2563eb); outline-offset: 2px; border-radius: 2px; }
