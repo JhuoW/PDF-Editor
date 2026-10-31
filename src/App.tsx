@@ -1,3 +1,6 @@
+import { FontManagerHost } from './components/Fonts/FontManagerHost';
+import { useSearchDocument } from './hooks/useSearchDocument';
+import { SearchDocumentContext } from './utils/searchDocumentContext';
 import { ErrorMessage } from './components/Feedback/ErrorMessage';
 import { isAbortError } from './utils/cancellation';
 import { useLocale, translateMessage, t } from "./i18n";
@@ -199,6 +202,7 @@ function App() {
     else toggleDesktopSidebar();
   }, [narrowViewport, toggleDesktopSidebar]);
   const { query: searchQuery, clearSearch, getCurrentResult } = useSearchStore();
+  const searchSource = useSearchDocument(document, searchOpen && !!searchQuery);
   const { annotations: annotationMap, currentTool, setCurrentTool, selectedAnnotationId, selectAnnotation, getAllAnnotations } = useAnnotationStore();
   const { fields: formFields, resetToOriginal: resetFormToOriginal } = useFormStore();
   const { redactions, mode: editingMode } = useEditingStore();
@@ -1410,7 +1414,7 @@ function App() {
   };
 
   return (
-    <Theme appearance="light" accentColor="blue" radius="medium">
+    <SearchDocumentContext.Provider value={searchSource}><Theme appearance="light" accentColor="blue" radius="medium">
       <div className="app-container" data-has-document={!!document} data-sidebar-open={!!document && sidebarOpen && !narrowViewport}>
         {/* Main Toolbar */}
         <MainToolbar
@@ -1762,9 +1766,10 @@ function App() {
         {document && encryptDialogOpen && (
           <EncryptDialog preparePDF={prepareExport} onClose={() => setEncryptDialogOpen(false)} />
         )}
+        <FontManagerHost />
         {exportProgress && <PDFExportProgressDialog progress={exportProgress} onCancel={cancelExport} />}
       </div>
-    </Theme>
+    </Theme></SearchDocumentContext.Provider>
   );
 }
 

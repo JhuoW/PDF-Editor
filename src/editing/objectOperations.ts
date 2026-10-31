@@ -16,6 +16,7 @@ export function objectRect(target: ObjectTarget): TextRect {
 export function textObjectEdit(block: TextBlock, rect: TextRect): TextEditOperation {
   const previous = useEditingStore.getState().textEdits.find(edit => edit.blockId === block.id), layout = previous?.layout;
   return { blockId: block.id, originalText: previous?.originalText ?? block.text, newText: block.text, timestamp: Date.now(),
+    ...(previous?.font ? { font: previous.font } : {}),
     layout: { ...layout, targetRect: rect, ...(layout && !layout.keepBaseline ? {} : { keepBaseline: true, translate: true, autoGrow: false }) } };
 }
 export function transformObjectEdits(targets: ObjectTarget[], rects: TextRect[], resize = false) {

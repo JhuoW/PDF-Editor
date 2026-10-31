@@ -81,6 +81,8 @@ export interface TextEditOperation {
   timestamp: number;
   /** The original block rectangle remains the source removal area. */
   layout?: TextLayoutOptions;
+  /** Retained with edits so removing a library entry cannot break a draft or undo. */
+  font?: import('../fonts/fontAsset').FontAsset;
 }
 
 // ============================================================================

@@ -1,5 +1,7 @@
+import { textLayerGeometry } from '../../utils/textLayerGeometry';
+import { SearchDocumentContext } from '../../utils/searchDocumentContext';
 import { useLocale } from "../../i18n";
-import { useEffect, useRef } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { useSearchStore } from '../../store/searchStore';
@@ -26,6 +28,12 @@ export function TextLayer({
   useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchOptions = useSearchStore(state => state.options);
+  const source = useContext(SearchDocumentContext);
+  const storeQuery = useSearchStore(state => state.query), searching = useSearchStore(state => state.isSearching);
+  const activeResult = useSearchStore(state => state.results[state.currentResultIndex]);
+  const query = searching || (source && !source.ready) ? '' : searchQuery ?? storeQuery;
+  const activePage = activeMatchPage ?? activeResult?.pageNumber, activeIndex = activeMatchIndex ?? activeResult?.matchIndex;
+  const searchPDF = source?.ready && query ? source.document : null;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -47,7 +55,9 @@ export function TextLayer({
 
     const renderTextLayer = async () => {
       try {
-        const textContent = await page.getTextContent();
+        const textPage = searchPDF ? await searchPDF.getPage(page.pageNumber) : page;
+        if (cancelled) return;
+        const textContent = await textPage.getTextContent();
 
         if (cancelled) return;
 
@@ -58,36 +68,34 @@ export function TextLayer({
 
         const searchable = buildSearchText(textContent.items);
         const textSpans: Array<{ span: HTMLElement; start: number; end: number }> = [];
+        const measure = typeof CanvasRenderingContext2D === 'undefined' ? null : document.createElement('canvas').getContext('2d');
         // Keep each item's offset in the same page text used by the search store.
         for (const segment of searchable.segments) {
           const item = textContent.items[segment.itemIndex];
           if (!('str' in item) || !item.str) continue;
 
-          const tx = item.transform;
-          const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]) * scale;
-          const x = tx[4] * scale;
-          const y = viewport.height - tx[5] * scale - fontHeight;
-
+          const style = textContent.styles?.[item.fontName];
+          const geometry = textLayerGeometry(item, { transform: viewport.transform ?? [scale, 0, 0, -scale, 0, viewport.height] }, style);
           const span = document.createElement('span');
           span.textContent = item.str;
-          span.style.left = `${x}px`;
-          span.style.top = `${y}px`;
-          span.style.fontSize = `${fontHeight}px`;
-          span.style.fontFamily = 'sans-serif';
-
-          // Calculate width for proper selection
-          if (item.width) {
-            span.style.width = `${item.width * scale}px`;
-          }
+          span.style.left = `${geometry.left}px`;
+          span.style.top = `${geometry.top}px`;
+          span.style.fontSize = `${geometry.height}px`;
+          span.style.fontFamily = style?.fontFamily ?? 'sans-serif';
+          // Match the extracted glyph advance even if the selection layer uses a browser fallback font.
+          if (measure) measure.font = `${geometry.height}px ${span.style.fontFamily}`;
+          const measured = measure?.measureText(item.str).width;
+          span.style.transform = `rotate(${geometry.angle}rad) scaleX(${measured && geometry.width ? geometry.width / measured : 1})`;
+          span.style.width = `${measured || geometry.width}px`;
 
           textLayerDiv.appendChild(span);
           textSpans.push({ span, start: segment.start, end: segment.end });
         }
 
         // Apply search highlighting if query exists
-        if (searchQuery && searchQuery.length > 0) {
-          const isActivePage = activeMatchPage === page.pageNumber;
-          const active = highlightSearchMatches(textSpans, findTextMatches(searchable.text, searchQuery, searchOptions), isActivePage ? activeMatchIndex : undefined);
+        if (query) {
+          const isActivePage = activePage === page.pageNumber;
+          const active = highlightSearchMatches(textSpans, findTextMatches(searchable.text, query, searchOptions), isActivePage ? activeIndex : undefined);
           if (active) scrollTimer = setTimeout(() => {
             if (!cancelled && active.isConnected) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }, 100);
@@ -105,7 +113,7 @@ export function TextLayer({
       cancelled = true;
       clearTimeout(scrollTimer);
     };
-  }, [page, scale, rotation, searchQuery, searchOptions, activeMatchPage, activeMatchIndex]);
+  }, [page, scale, rotation, query, searchOptions, activePage, activeIndex, searchPDF]);
 
   return <div ref={containerRef} className="text-layer-container" />;
 }

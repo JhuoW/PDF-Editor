@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { WorkspaceSnapshot } from './workspaceSnapshot';
-import { captureWorkspace } from './workspaceSnapshot';
+import { readWorkspace } from './workspaceSnapshot';
 
 export interface PersistedDocumentSaveState { nativeHash?: string; workspaceHash?: string; unsaved?: boolean }
 export interface DocumentSavePoint { documentKey: object; nativeHash: string; workspaceHash: string }
@@ -41,7 +41,8 @@ export function workspaceSaveHash(workspace: WorkspaceSnapshot): string {
   return fastHash(JSON.stringify(canonical({
     annotations: new Map([...workspace.annotations].filter(([, annotations]) => annotations.length > 0)),
     values: new Map(workspace.form.fields.map(field => [field.name, field.value])),
-    text: workspace.editing.textEdits.map(edit => ({ ...edit, block: blocks.get(edit.blockId) })),
+    // Font programs are immutable and content-addressed; never hash megabytes on each keystroke.
+    text: workspace.editing.textEdits.map(edit => ({ ...edit, font: edit.font?.id, block: blocks.get(edit.blockId) })),
     images: workspace.editing.imageEdits.map(edit => ({ ...edit, image: images.get(edit.imageId) })),
     redactions: workspace.editing.redactions.filter(area => !area.applied),
   })));
@@ -85,12 +86,12 @@ export function initializeDocumentSaveState(data: ArrayBuffer, workspace: Worksp
 export async function captureDocumentSavePoint(): Promise<DocumentSavePoint | null> {
   const entry = current;
   if (!entry) return null;
-  const workspaceHash = workspaceSaveHash(captureWorkspace());
+  const workspaceHash = workspaceSaveHash(readWorkspace());
   return { documentKey: entry.key, nativeHash: await entry.native, workspaceHash };
 }
 export function refreshDocumentSaveState() {
   if (!current) return;
-  current.workspaceHash = workspaceSaveHash(captureWorkspace()); updateDirty();
+  current.workspaceHash = workspaceSaveHash(readWorkspace()); updateDirty();
 }
 export function markDocumentSaved(point: DocumentSavePoint) {
   if (!current || current.key !== point.documentKey) return;

@@ -1,3 +1,5 @@
+import { TextFontPicker } from '../Fonts/TextFontPicker';
+import type { FontAsset } from '../../fonts/fontAsset';
 import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { t, useLocale } from '../../i18n';
@@ -6,7 +8,7 @@ import { useDocumentStore } from '../../store/documentStore';
 import { useHistoryStore } from '../../store/historyStore';
 import { commitPendingEditors } from '../../store/workspaceHistory';
 import { prepareTextEditLayoutInWorker } from '../../editing/TextLayoutClient';
-import { TEXT_LAYOUT_FONTS, standardTextFont } from '../../editing/TextLayout';
+import { standardTextFont } from '../../editing/TextLayout';
 import { objectRect } from '../../editing/objectOperations';
 import type { PreparedTextEditLayout } from '../../editing/TextEditApplier';
 import type { TextBlock, TextLayoutOptions } from '../../editing/types';
@@ -55,7 +57,7 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
       useEditingStore.getState().selectBlock(block.id);
     }
   };
-  const change = (patch: TextLayoutOptions, groupKey?: string) => {
+  const change = (patch: TextLayoutOptions, groupKey?: string, asset?: FontAsset) => {
     if (disabled) return;
     if (!groupKey) commitTextEditor();
     const state = useEditingStore.getState(), latest = state.getBlock(block.id), previous = state.textEdits.find(edit => edit.blockId === block.id);
@@ -63,9 +65,10 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
     const previousLayout = previous?.layout;
     const next: TextLayoutOptions = { keepBaseline: true, ...previousLayout, targetRect: objectRect({ kind: 'text', item: latest }),
       autoGrow: false, fitToContent: true, ...patch };
-    state.updateBlockLayout({ blockId: block.id, originalText: previous?.originalText ?? latest.text, newText: latest.text, layout: next, timestamp: Date.now() }, groupKey);
+    state.updateBlockLayout({ blockId: block.id, originalText: previous?.originalText ?? latest.text, newText: latest.text, layout: next, font: asset ?? previous?.font, timestamp: Date.now() }, groupKey);
   };
-  const bold = /Bold/.test(font), italic = /Italic|Oblique/.test(font);
+  const custom = font === 'zh-Hans' || font.startsWith('custom:');
+  const bold = custom ? !!edit?.font?.bold : /Bold/.test(font), italic = custom ? !!edit?.font?.italic : /Italic|Oblique/.test(font);
   const variant = (isBold: boolean, isItalic: boolean) => {
     if (font.startsWith('Times')) return isBold ? isItalic ? 'Times-BoldItalic' : 'Times-Bold' : isItalic ? 'Times-Italic' : 'Times-Roman';
     const family = font.startsWith('Courier') ? 'Courier' : 'Helvetica';
@@ -78,12 +81,10 @@ export function NativeTextProperties({ block, onTextLayout }: { block: TextBlock
     {block.editable && !currentFont?.error && !current?.error && <TextFontSummary fonts={edit ? currentFont?.prepared?.fonts : prepared?.fonts} />}
     {currentFont?.error && <p role="alert"><ErrorMessage error={currentFont.error} operation="Check text font" /></p>}
     <fieldset disabled={disabled}>
-      <label>{t('m.font.b97c4d')}<select aria-label={t('text.format.font')} value={layout?.fontName ?? 'original'} onChange={event => change({ fontName: event.target.value === 'original' ? undefined : event.target.value })}>
-        <option value="original">{t('m.original.pdf.font.0d4133')}</option>{TEXT_LAYOUT_FONTS.map(name => <option key={name} value={name}>{name}</option>)}
-      </select></label>
+      <TextFontPicker value={layout?.fontName} asset={edit?.font} onChange={(fontName, asset) => change({ fontName }, undefined, asset)} />
       <div className="native-field-grid"><DecorationNumberInput label={t('m.font.size.83ca9e')} value={layout?.fontSize ?? prepared?.input.fontSize ?? block.style.fontSize} min={1} max={500} onChange={fontSize => change({ fontSize })} />
         <DecorationNumberInput label={t('m.line.spacing.18f550')} value={layout?.lineHeight ?? prepared?.input.lineHeight ?? block.style.lineHeight} min={layout?.keepBaseline === false ? 1 : .25} max={5} step={.1} onChange={lineHeight => change({ lineHeight })} /></div>
-      <div className="native-button-grid"><button type="button" aria-pressed={bold} onClick={() => change({ fontName: variant(!bold, italic) })}>{t('text.format.bold')}</button><button type="button" aria-pressed={italic} onClick={() => change({ fontName: variant(bold, !italic) })}>{t('text.format.italic')}</button></div>
+      <div className="native-button-grid"><button type="button" disabled={custom} aria-pressed={bold} onClick={() => change({ fontName: variant(!bold, italic) })}>{t('text.format.bold')}</button><button type="button" disabled={custom} aria-pressed={italic} onClick={() => change({ fontName: variant(bold, !italic) })}>{t('text.format.italic')}</button></div>
       <label>{t('m.text.color.1c7a30')}<input type="color" aria-label={t('m.text.color.1c7a30')} value={layout?.fontColor ?? prepared?.input.fontColor ?? '#000000'} onFocus={() => { commitTextEditor(); colorGroup.current = `format:${block.id}:${crypto.randomUUID()}`; }} onBlur={() => { useHistoryStore.getState().endGroup(); colorGroup.current = undefined; }} onChange={event => change({ fontColor: event.target.value }, colorGroup.current)} /></label>
       <label>{t('m.alignment.7f8c51')}<select aria-label={t('text.format.alignment')} value={layout?.alignment ?? prepared?.input.alignment ?? block.style.alignment} onChange={event => change({ alignment: event.target.value as TextLayoutOptions['alignment'] })}>
         {(['left', 'center', 'right', 'justify'] as const).map(value => <option key={value} value={value}>{t(`text.format.align.${value}`)}</option>)}

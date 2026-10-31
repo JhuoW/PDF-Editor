@@ -1,6 +1,8 @@
+import { SearchDocumentContext } from '../../utils/searchDocumentContext';
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { translateMessage } from '../../i18n';
 import { useLocale, t } from "../../i18n";
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useSearchStore, searchDocument, type SearchOptions, type SearchResult } from '../../store/searchStore';
 import './SearchDialog.css';
@@ -21,13 +23,15 @@ interface CompletedSearch {
 
 export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDialogProps) {
   useLocale();
+  const source = useContext(SearchDocumentContext);
+  const searchable = source ? source.document : document;
   const inputRef = useRef<HTMLInputElement>(null);
   const [completed, setCompleted] = useState<CompletedSearch | null>(null);
   const {
     query, results, currentResultIndex, isSearching, options,
     setQuery, setResults, setIsSearching, setOptions, nextResult, previousResult,
   } = useSearchStore();
-  const isCurrent = completed?.document === document && completed.query === query && completed.options === options;
+  const isCurrent = !!searchable && completed?.document === searchable && completed.query === query && completed.options === options;
   const currentResults = isCurrent && completed.results === results ? results : [];
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -35,20 +39,20 @@ export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDial
   useEffect(() => {
     const controller = new AbortController();
     setResults([]);
-    setIsSearching(Boolean(query));
+    setIsSearching(Boolean(query) && !source?.error);
     const timer = setTimeout(async () => {
-      if (!query) return;
+      if (!query || !searchable) return;
       try {
-        const found = await searchDocument(document, query, options, controller.signal);
+        const found = await searchDocument(searchable, query, options, controller.signal);
         if (controller.signal.aborted) return;
         setResults(found);
-        setCompleted({ document, query, options, results: found });
+        setCompleted({ document: searchable, query, options, results: found });
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error('Search error:', error);
         const empty: SearchResult[] = [];
         setResults(empty);
-        setCompleted({ document, query, options, results: empty, error: 'Unable to search this document. Change the query to retry.' });
+        setCompleted({ document: searchable, query, options, results: empty, error: 'Unable to search this document. Change the query to retry.' });
       } finally {
         if (!controller.signal.aborted) setIsSearching(false);
       }
@@ -58,7 +62,7 @@ export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDial
       clearTimeout(timer);
       setIsSearching(false);
     };
-  }, [document, query, options, setResults, setIsSearching]);
+  }, [searchable, source?.error, query, options, setResults, setIsSearching]);
 
   useEffect(() => {
     if (!isCurrent || completed.results !== results) return;
@@ -105,10 +109,11 @@ export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDial
         </label>
       </div>
       <div className="search-status" role="status" aria-live="polite">
-        {query && (isSearching || !isCurrent ? t("m.searching.ba2b5a") : translateMessage(completed.error) || (
+        {query && (source?.error ? t('search.editsFailed') : isSearching || !isCurrent ? t("m.searching.ba2b5a") : translateMessage(completed.error) || (
           currentResults.length ? t("m.of.matches.749f03", { v0: currentResultIndex + 1, v1: currentResults.length }) : t("m.no.matches.found.a68d28")
         ))}
       </div>
+      {!!source?.error && <div className="search-index-error"><ErrorMessage error={source.error} operation="Search edited PDF" /><button onClick={source.retry}>{t('search.retry')}</button></div>}
     </div>
   );
 }

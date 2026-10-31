@@ -1,3 +1,5 @@
+import { TextFontPicker } from '../Fonts/TextFontPicker';
+import type { FontAsset } from '../../fonts/fontAsset';
 import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateMessage } from "../../i18n";
@@ -95,8 +97,8 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
     return () => { clearTimeout(timer); request.abort(); };
   }, [current, draft, requestKey, dragging]);
 
-  const change = (patch: TextLayoutOptions) => {
-    setDraft(previous => previous ? { ...previous, layout: { ...previous.layout, ...patch, keepBaseline: false }, timestamp: Date.now() } : previous); setSaveError(null);
+  const change = (patch: TextLayoutOptions, asset?: FontAsset) => {
+    setDraft(previous => previous ? { ...previous, font: 'fontName' in patch ? asset : previous.font, layout: { ...previous.layout, ...patch, keepBaseline: false }, timestamp: Date.now() } : previous); setSaveError(null);
   };
   const changeRect = (rect: TextRect) => change({ targetRect: rect });
   const numberDraft = (label: string, dirty: boolean) => setDirtyNumbers(previous => {
@@ -142,7 +144,7 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
             <DecorationNumberInput label={t("m.height.3f608b")} value={input.rect.height} min={1} max={Math.min(TEXT_LAYOUT_LIMITS.dimension, page ? page.height - input.rect.y : TEXT_LAYOUT_LIMITS.dimension)} onDraftChange={dirty => numberDraft('height', dirty)} onChange={height => changeRect({ ...input.rect, height })} />
           </div>
           <p className="text-layout-help">{t("m.positions.use.unrotated.page.points.drag.the.blu.f1dd43")}</p>
-          <label>{t("m.font.b97c4d")}<select value={draft.layout?.fontName ?? 'original'} onChange={event => change({ fontName: event.target.value === 'original' ? undefined : event.target.value })}><option value="original">{t("m.original.pdf.font.0d4133")}</option>{TEXT_LAYOUT_FONTS.map(font => <option key={font} value={font}>{font}</option>)}</select></label>
+          <TextFontPicker value={draft.layout?.fontName} asset={draft.font} onChange={(fontName, asset) => change({ fontName }, asset)} />
           <div className="text-layout-numbers"><DecorationNumberInput label={t("m.font.size.83ca9e")} value={input.fontSize} min={1} max={TEXT_LAYOUT_LIMITS.fontSize} onDraftChange={dirty => numberDraft('fontSize', dirty)} onChange={fontSize => change({ fontSize })} />
             <DecorationNumberInput label={t("m.line.spacing.18f550")} value={input.lineHeight} min={1} max={TEXT_LAYOUT_LIMITS.lineHeight} onDraftChange={dirty => numberDraft('lineHeight', dirty)} onChange={lineHeight => change({ lineHeight })} /></div>
           {dirtyNumbers.size > 0 && <p role="status" className="text-layout-help">{t("m.press.enter.or.leave.the.numeric.field.to.update.bffe6e")}</p>}

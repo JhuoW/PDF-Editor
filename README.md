@@ -19,7 +19,7 @@
 ## Features
 
 - **📄 Viewing & Navigation**: Browse PDFs with thumbnails, bookmarks, search, and flexible page views.
-- **✏️ Text & Image Editing**: Format original text, arrange objects, crop and transform images, or insert new content.
+- **✏️ Text & Image Editing**: Edit original text with Chinese and imported TTF/OTF fonts; arrange objects, crop images, or insert content.
 - **🖊️ Annotations & Signatures**: Highlight, draw, add notes, and place handwritten or image signatures.
 - **🔗 Page Organization**: Extract, duplicate, replace, crop, merge, split, and reorder pages.
 - **🖼️ PDF & Images**: Create PDFs from images, or export selected PDF pages as PNG/JPEG.

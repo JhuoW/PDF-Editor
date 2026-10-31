@@ -1,5 +1,7 @@
+import { cffGlyphCIDs, cffTableData } from '../fonts/cffCharset';
 import type { Device, Font, PDFDocument, PDFObject, StrokeState } from 'mupdf';
 import { loadMuPDF } from '../utils/mupdf';
+import { isImportedFont, validateFontData, type FontAsset } from '../fonts/fontAsset';
 import type { TextRect } from './types';
 
 export const TEXT_LAYOUT_FONTS = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique',
@@ -77,7 +79,7 @@ function normalize(input: TextLayoutInput) {
     throw new Error('This text requires complex-script or bidirectional layout, which is not supported yet. No characters were omitted or reordered.');
   }
   if (Array.from(text).some(character => (character.codePointAt(0)! < 32 && character !== '\n') || character.codePointAt(0) === 127)) throw new Error('Replacement text contains an unsupported control character.');
-  if (!(TEXT_LAYOUT_FONTS as readonly string[]).includes(input.fontName)) throw new Error('Choose one of the supported standard text fonts.');
+  if (!(TEXT_LAYOUT_FONTS as readonly string[]).includes(input.fontName) && input.fontName !== 'zh-Hans' && !isImportedFont(input.fontName)) throw new Error('Choose one of the supported standard text fonts.');
   if (!/^#[0-9a-f]{6}$/i.test(input.fontColor)) throw new Error('Text colors must use six-digit hexadecimal notation, such as #336699.');
   if (!['left', 'center', 'right', 'justify'].includes(input.alignment)) throw new Error('Choose a supported paragraph alignment.');
   if (!Number.isFinite(input.fontSize) || input.fontSize < 1 || input.fontSize > TEXT_LAYOUT_LIMITS.fontSize) throw new Error('Font size must be between 1 and 500 points.');
@@ -134,6 +136,9 @@ function wrap(glyphs: MeasuredGlyph[], width: number): WrappedLine[] {
 /** The same measured glyph positions drive the preview and the PDF writer. */
 export class TextLayoutSession {
   private readonly fonts = new Map<string, Font>();
+  private readonly fontCFF = new Map<string, Uint8Array>();
+  private readonly fontCIDs = new Map<string, number[]>();
+  private readonly fontLabels = new Map<string, string>();
   private readonly measured = new Map<string, MeasuredGlyph>();
   private readonly fallbacks = new Map<string, string>();
   private readonly sourceGlyphs = new Map<string, Map<string, number>>();
@@ -141,8 +146,19 @@ export class TextLayoutSession {
   private stroke?: StrokeState;
   private readonly engine: Engine;
   constructor(engine: Engine) { this.engine = engine; }
+  useImportedFont(asset: FontAsset) {
+    if (!isImportedFont(asset.id)) throw new Error('The selected font data is missing. Import and select the font again.');
+    if (this.fonts.has(asset.id)) return;
+    validateFontData(asset.data);
+    // Separate PDF resource names for different programs with the same family name.
+    const font = new this.engine.Font(`PDFEditor-${asset.id.slice(7, 23)}-${asset.name}`, asset.data);
+    this.fonts.set(asset.id, font);
+    const cids = cffGlyphCIDs(asset.data);
+    if (cids) { this.fontCIDs.set(font.getName(), cids); this.fontCFF.set(font.getName(), cffTableData(asset.data)!); }
+    this.fontLabels.set(asset.id, asset.name);
+  }
   usedFontNames(layout: TextLayoutResult): string[] {
-    return [...new Set(layout.lines.flatMap(line => line.glyphs).map(glyph => this.font(glyph.fontName).getName()))];
+    return [...new Set(layout.lines.flatMap(line => line.glyphs).map(glyph => this.fontLabels.get(glyph.fontName) ?? this.font(glyph.fontName).getName()))];
   }
   useSourceFont(key: string, font: Font, fallback: string) {
     if (this.fonts.has(key)) { font.destroy(); return; }
@@ -179,6 +195,7 @@ export class TextLayoutSession {
   }
   layout(input: TextLayoutInput, control: TextLayoutControl = {}): TextLayoutResult {
     check(control); const text = normalize(input);
+    if (isImportedFont(input.fontName) && !this.fonts.has(input.fontName)) throw new Error('The selected font data is missing. Import and select the font again.');
     if (text === '') return { fits: true, requiredHeight: 0, suggestedHeight: 0, lines: [], fontSize: input.fontSize, lineAdvance: input.fontSize * input.lineHeight, inkBounds: null, warnings: [] };
     const legacy = input.legacyBaseline !== undefined;
     if (legacy && !Number.isFinite(input.legacyBaseline)) throw new Error('The original text baseline is invalid.');
@@ -276,7 +293,7 @@ export class TextLayoutSession {
       for (let step = 0; step < 16; step++) { const middle = (low + high) / 2; if (assemble(middle, false).fits) low = middle; else high = middle; }
       result.suggestedFontSize = Math.max(1, Math.floor(low * 10) / 10);
     }
-    if (paragraphs.some(paragraph => paragraph.some(glyph => glyph.fontName === 'zh-Hans'))) result.warnings.push('CJK and other missing Latin glyphs use the locally embedded regular fallback font.');
+    if (primary !== 'zh-Hans' && paragraphs.some(paragraph => paragraph.some(glyph => glyph.fontName === 'zh-Hans'))) result.warnings.push('CJK and other missing Latin glyphs use the locally embedded regular fallback font.');
     if (paragraphs.some(paragraph => paragraph.some(glyph => !space(glyph.character) && !glyph.fontName.startsWith('source:') && glyph.fontName !== 'zh-Hans')) && input.sourceFontKey) result.warnings.push('Some added characters are unavailable in the original font and use a matching local font.');
     check(control); return result;
   }
@@ -303,11 +320,12 @@ export class TextLayoutSession {
    * legacy TeX codes instead of the source PDF's actual Unicode mappings. Keep
    * the painted glyphs and explicitly attach the text we measured and drew. */
   preserveUnicode(document: PDFDocument, resources: PDFObject, layouts: TextLayoutResult[]) {
-    const mappings = new Map<string, Map<number, string>>();
+    const mappings = new Map<string, Map<number, string>>(), programs = new Map<string, Font>();
     for (const layout of layouts) for (const line of layout.lines) for (const glyph of line.glyphs) {
       let name = this.font(glyph.fontName).getName();
       // Base-14 substitutes are embedded under their actual program name.
       if ((TEXT_LAYOUT_FONTS as readonly string[]).includes(name)) name = this.font(name).getName();
+      programs.set(name, this.font(glyph.fontName));
       const mapping = mappings.get(name) ?? new Map<number, string>();
       mapping.set(glyph.glyphId, glyph.character); mappings.set(name, mapping);
     }
@@ -326,11 +344,41 @@ export class TextLayoutSession {
           }
           const cmap = document.addStream(`/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /PDFEditorUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <ffff>\nendcodespacerange\n${chunks.join('\n')}\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend`, {});
           try { font.put('ToUnicode', cmap); } finally { cmap.destroy(); }
+          // Imported OpenType fonts use GIDs. Reused raw CFF PDF fonts already
+          // expose CIDs to the drawing device and must retain their existing codes.
+          const cids = this.fontCIDs.get(base.asName());
+          const program = programs.get(base.asName());
+          if (cids && program) {
+            const entries = [...mapping.keys()].map(gid => {
+              const cid = cids[gid];
+              if (cid === undefined) throw new Error('The font file has damaged tables.');
+              return { gid, cid, width: program.advanceGlyph(gid) * 1000 };
+            });
+            const ranges: string[] = [];
+            for (let offset = 0; offset < entries.length; offset += 100) {
+              const rows = entries.slice(offset, offset + 100);
+              ranges.push(`${rows.length} begincidchar\n${rows.map(({ gid, cid }) => `<${hex(gid)}> ${cid}`).join('\n')}\nendcidchar`);
+            }
+            const encodingMap = document.addStream(`/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def\n/CMapName /PDFEditorCharset def\n/CMapType 1 def\n/WMode 0 def\n1 begincodespacerange\n<0000> <ffff>\nendcodespacerange\n${ranges.join('\n')}\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend`, {});
+            const descendants = font.get('DescendantFonts'), descendant = descendants.get(0);
+            try {
+              font.put('Encoding', encodingMap);
+              descendant.put('W', entries.flatMap(({ cid, width }) => [cid, [width]]));
+              // Embed CID-keyed CFF as CIDFontType0C. Some readers interpret an
+              // OpenType wrapper as GID-addressed even with a CID encoding CMap.
+              // The outlines are unchanged; both MuPDF and PDF.js now use CIDs.
+              const cff = this.fontCFF.get(base.asName())!;
+              const descriptor = descendant.get('FontDescriptor');
+              const programStream = document.addStream(cff, { Subtype: 'CIDFontType0C' });
+              try { descriptor.put('FontFile3', programStream); }
+              finally { descriptor.destroy(); programStream.destroy(); }
+            } finally { encodingMap.destroy(); descendant.destroy(); descendants.destroy(); }
+          }
         } finally { base.destroy(); encoding.destroy(); font.destroy(); }
       });
     } finally { fonts.destroy(); }
   }
-  destroy() { for (const font of this.fonts.values()) font.destroy(); this.fonts.clear(); this.measured.clear(); this.sourceGlyphs.clear(); this.sourceClusters.clear(); this.stroke?.destroy(); this.stroke = undefined; }
+  destroy() { for (const font of this.fonts.values()) font.destroy(); this.fonts.clear(); this.fontLabels.clear(); this.fontCIDs.clear(); this.fontCFF.clear(); this.measured.clear(); this.sourceGlyphs.clear(); this.sourceClusters.clear(); this.stroke?.destroy(); this.stroke = undefined; }
 }
 
 export async function layoutText(input: TextLayoutInput, control: TextLayoutControl = {}): Promise<TextLayoutResult> {

@@ -54,6 +54,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   if (!block.editable) throw new Error(block.unsupportedReason ?? 'This text block is read-only.');
   if (block.lines.some(line => line.items.some(item => Math.abs(item.transform[1]) > 0.001 || Math.abs(item.transform[2]) > 0.001))) throw new Error(`Rotated or vertical text inside page ${block.pageNumber} cannot be replaced yet. Page rotation itself is supported.`);
   const source = readTextSourceMetrics(engine, page, block, session), overrides = edit.layout ?? {}, geometry = pageGeometry(engine, page);
+  if (edit.font && edit.font.id === overrides.fontName) session.useImportedFont(edit.font);
   const sourceSize = source?.fontSize ?? block.style.fontSize;
   const originalBaseline = overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined);
   const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,

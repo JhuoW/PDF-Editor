@@ -1,0 +1,20 @@
+.text-font-picker { min-width: 0; }
+.text-font-picker select { width: 100%; min-width: 0; }
+.font-manage-button { margin-top: 6px; width: 100%; min-height: 32px; padding: 6px 10px; border: 1px solid var(--border-color, #cbd5e1); border-radius: 6px; background: var(--bg-secondary, #f8fafc); color: inherit; cursor: pointer; font-size: 12px; }
+.font-help { color: var(--text-secondary, #64748b); font-size: 12px; line-height: 1.5; margin: 8px 0; }
+.font-manager-dialog { box-sizing: border-box; margin: auto; width: min(560px, calc(100vw - 32px)); max-height: min(680px, calc(100dvh - 32px)); padding: 0; border: 1px solid var(--border-color, #dbe3ee); border-radius: 14px; color: var(--text-primary, #17233b); background: var(--bg-primary, #fff); box-shadow: 0 20px 64px #10233b40; }
+.font-manager-dialog::backdrop { background: #0f172a66; }
+.font-manager-dialog[open] { display: flex; flex-direction: column; }
+.font-manager-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-color, #dbe3ee); flex-shrink: 0; }
+.font-manager-dialog h2 { font-size: 18px; margin: 0; }
+.font-manager-content { padding: 16px 20px; overflow: auto; font-size: 13px; }
+.font-manager-content > p:first-child { margin-top: 0; line-height: 1.6; }
+.font-manager-dialog button { padding: 6px 10px; border: 1px solid var(--border-color, #cbd5e1); border-radius: 6px; background: var(--bg-secondary, #f8fafc); color: inherit; font: inherit; cursor: pointer; }
+.font-manager-dialog button:disabled { cursor: wait; opacity: .55; }
+.font-manager-dialog button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.font-library-list { padding: 0; margin: 16px 0; list-style: none; }
+.font-library-list li { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-color, #e2e8f0); }
+.font-library-list li > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.font-library-list small { display: block; color: var(--text-secondary, #64748b); margin-top: 4px; }
+.font-library-actions { display: flex; gap: 6px; flex-shrink: 0; }
+@media(max-width: 440px) { .font-library-list li { align-items: start; flex-direction: column; } }

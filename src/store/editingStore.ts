@@ -167,7 +167,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     const textEdits = state.textEdits.filter(edit => edit.blockId !== blockId);
     const retainsFormatting = layout && (layout.fitToContent || ['fontName', 'fontSize', 'fontColor', 'alignment', 'lineHeight']
       .some(key => layout[key as keyof TextLayoutOptions] !== undefined));
-    if (newText !== originalText || (layout && (layout.translate || !layout.keepBaseline || retainsFormatting))) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}) });
+    if (newText !== originalText || (layout && (layout.translate || !layout.keepBaseline || retainsFormatting))) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}), ...(existing?.font?.id === layout?.fontName ? { font: existing?.font } : {}) });
     const textBlocks = new Map(state.textBlocks);
     textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === blockId ? { ...item, text: newText } : item));
     set({ textBlocks, textEdits, isDirty: textEdits.length > 0 || state.imageEdits.length > 0 || state.redactions.some(area => !area.applied) });
@@ -179,11 +179,13 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     const previous = state.textEdits.find(item => item.blockId === edit.blockId);
     const originalText = previous?.originalText ?? block.text;
     const layout = edit.layout && Object.keys(edit.layout).length ? structuredClone(edit.layout) : undefined;
-    if (block.text === edit.newText && JSON.stringify(previous?.layout) === JSON.stringify(layout)) return;
+    const font = (edit.font ?? previous?.font)?.id === layout?.fontName ? edit.font ?? previous?.font : undefined;
+    if (block.text === edit.newText && JSON.stringify(previous?.layout) === JSON.stringify(layout) && previous?.font?.id === font?.id) return;
     recordEditingState(state, 'Change text layout', groupKey);
     const textEdits = state.textEdits.filter(item => item.blockId !== edit.blockId);
     if (edit.newText !== originalText || layout) textEdits.push({
       blockId: edit.blockId, originalText, newText: edit.newText, timestamp: Date.now(), ...(layout ? { layout } : {}),
+      ...(font ? { font } : {}),
     });
     const textBlocks = new Map(state.textBlocks);
     textBlocks.set(block.pageNumber, (textBlocks.get(block.pageNumber) ?? []).map(item => item.id === block.id ? { ...item, text: edit.newText } : item));

@@ -51,19 +51,22 @@ export function createWorkspace(fields: FormField[] = []): WorkspaceSnapshot {
   });
 }
 
-export function captureWorkspace(): WorkspaceSnapshot {
+/** Live references for synchronous read-only inspection; use captureWorkspace for owned snapshots. */
+export function readWorkspace(): WorkspaceSnapshot {
   const { annotations } = useAnnotationStore.getState();
   const { past, future } = useAnnotationHistoryStore.getState();
   const { fields, originalValues, isDirty: formDirty } = useFormStore.getState();
   const { textBlocks, images, redactions, textEdits, imageEdits, isDirty } = useEditingStore.getState();
 
-  return structuredClone({
+  return {
     annotations,
     annotationHistory: { past, future },
     form: { fields, originalValues, isDirty: formDirty },
     editing: { textBlocks, images, redactions, textEdits, imageEdits, isDirty },
-  });
+  };
 }
+
+export function captureWorkspace(): WorkspaceSnapshot { return structuredClone(readWorkspace()); }
 
 export function restoreWorkspace(snapshot: WorkspaceSnapshot): void {
   // Restored stores must not retain references into an undo or persisted snapshot.
