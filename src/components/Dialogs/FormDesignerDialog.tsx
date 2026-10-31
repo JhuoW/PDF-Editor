@@ -76,7 +76,10 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
         if (canceled) return;
         setLoaded({ key: loadKey, design, document: pdf }); setLoadError(null); setFields(structuredClone(design.fields)); setSelection(null); setTool(null); setError(null);
         setPageNumber(previous => Math.max(1, Math.min(previous, design.pages.length)));
-        requestAnimationFrame(() => { if (!canceled) pageInput.current?.focus(); });
+        const initialFocus = window.document.activeElement;
+        requestAnimationFrame(() => {
+          if (!canceled && window.document.activeElement === initialFocus) pageInput.current?.focus();
+        });
       } catch (cause) { if (!canceled) setLoadError({ key: loadKey, message: cause instanceof Error ? cause.message : 'Could not load the form designer.' }); }
     };
     void load();

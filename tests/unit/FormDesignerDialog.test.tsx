@@ -65,10 +65,14 @@ describe('FormDesignerDialog', () => {
   });
 
   it('flushes a focused numeric draft before Ctrl+S even when it is the only change', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
     const field = makeDesignField('text', 1, { x: 10, y: 20, width: 100, height: 30 }, []); design.fields = [field];
     await render(); await click(`Choose ${field.name}`);
     const input = [...host.querySelectorAll('label')].find(item => item.textContent === 'Width')!.querySelector('input')!;
     await act(async () => input.focus()); await fill('Width', '175');
+    await act(async () => frames.forEach(callback => callback(0)));
+    expect(document.activeElement).toBe(input);
     expect(button('Save form design').disabled).toBe(true);
     await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true })));
     expect(props.onSave).toHaveBeenCalledWith([{ type: 'update-widget', fieldId: field.id, widgetId: field.widgets[0].id, patch: { pageNumber: 1, rect: { x: 10, y: 20, width: 175, height: 30 }, hidden: false } }], expect.any(AbortSignal), expect.any(Function));
