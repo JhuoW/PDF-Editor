@@ -5,7 +5,7 @@ export interface UpdateRecord { id: string; updatedAt: string; changes: readonly
 // For each release, prepend its UTC+08:00 ISO timestamp and message keys, then add
 // both translations in src/i18n. Backfilled timestamps come from Git commits.
 export const updateHistory = [
-  {"id":"2026-11-01-paragraph-object-editing","updatedAt":"2026-11-01T02:16:00+08:00","changes":["updates.text.paragraphs","updates.text.objects"]},
+  {"id":"2026-11-01-paragraph-object-editing","updatedAt":"2026-11-01T02:18:53+08:00","changes":["updates.text.paragraphs","updates.text.objects","updates.text.export","updates.text.fonts"]},
   {"id":"2026-10-31-chinese-fonts-search","updatedAt":"2026-10-31T19:30:26+08:00","changes":["updates.fonts.library","updates.fonts.export","updates.fonts.search"]},
   {"id":"2026-10-31-reliability","updatedAt":"2026-10-31T17:20:57+08:00","changes":["updates.reliability.text","updates.reliability.export","updates.reliability.errors","updates.reliability.ci","updates.reliability.history"]},
   {"id":"c14f48d","updatedAt":"2026-10-31T12:27:04+08:00","changes":["updates.entry.c14f48d"]},
