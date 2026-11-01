@@ -8,7 +8,7 @@ import { AnnotationMode, OPS } from 'pdfjs-dist';
 import type { TextItem, TextLine, TextBlock } from './types';
 import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON, TYPE3_TEXT_EDIT_REASON, UNMAPPED_TEXT_EDIT_REASON } from './types';
 import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
-import { textRegionFromTag, textRegionSource } from './TextRegionMarkers';
+import { textRegionFromTag, textRegionLeading, textRegionSource } from './TextRegionMarkers';
 
 const WORD_SPACING_THRESHOLD = 0.3;
 const COMPLEX_REGION_REASON = 'Some text regions contain superscripts, overlapping glyphs, or rotated text that cannot be safely reflowed. Ordinary text blocks can still be edited.';
@@ -20,6 +20,8 @@ interface DetectedLine extends TextLine {
   items: DetectedItem[];
   fontKey: string;
   fontSize: number;
+  /** The prose size, distinct from one larger inline word's layout footprint. */
+  bodyFontSize: number;
   complex: boolean;
   mixedFonts: boolean;
   region?: string;
@@ -222,6 +224,12 @@ function createLine(items: DetectedItem[]): DetectedLine {
   let previous: DetectedItem | null = null;
   let overlapping = false;
   const size = Math.max(...items.map(item => item.fontSize));
+  const sizeWeights = new Map<number, number>();
+  for (const item of items) {
+    const key = Math.round(item.fontSize * 100) / 100;
+    sizeWeights.set(key, (sizeWeights.get(key) ?? 0) + Array.from(item.str.replace(/\s/gu, '')).length);
+  }
+  const bodyFontSize = [...sizeWeights].sort((a, b) => b[1] - a[1])[0]?.[0] ?? size;
   const mainItems = items.filter(item => item.fontSize >= size * 0.85);
   const baseline = median(mainItems.map(item => item.y + item.height));
   for (const item of items) {
@@ -240,7 +248,7 @@ function createLine(items: DetectedItem[]): DetectedLine {
   const fonts = [...new Set(items.map(item => item.fontKey))].sort();
   return {
     items, text: text.trim(), x: minX, y: minY, width: maxX - minX, height: maxY - minY,
-    baseline, fontKey: fonts.join('|'), fontSize: size, mixedFonts: fonts.length > 1, region: items[0].region,
+    baseline, fontKey: fonts.join('|'), fontSize: size, bodyFontSize, mixedFonts: fonts.length > 1, region: items[0].region,
     complex: overlapping || items.some(item => item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
   };
 }
@@ -251,16 +259,18 @@ function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[]
   const active: DetectedLine[][] = [];
   const leading: number[] = [];
   for (const [index, line] of lines.entries()) {
-    for (let next = index + 1; next < lines.length && lines[next].baseline <= line.baseline + line.fontSize * 1.7; next++) {
+    const size = line.bodyFontSize;
+    for (let next = index + 1; next < lines.length && lines[next].baseline <= line.baseline + size * 1.7; next++) {
       const candidate = lines[next];
-      if (candidate.baseline > line.baseline + line.fontSize * .5 && Math.abs(candidate.x - line.x) < line.fontSize * .65
-        && Math.abs(candidate.fontSize - line.fontSize) < .1 && candidate.items.some(item => line.items.some(prior => prior.fontKey === item.fontKey))) {
-        leading.push((candidate.baseline - line.baseline) / line.fontSize); break;
+      if (candidate.baseline > line.baseline + size * .5 && Math.abs(candidate.x - line.x) < size * .65
+        && Math.abs(candidate.bodyFontSize - size) < .1 && candidate.items.some(item => line.items.some(prior => prior.fontKey === item.fontKey))) {
+        leading.push((candidate.baseline - line.baseline) / size); break;
       }
     }
   }
   const usualLeading = leading.length ? median(leading) : undefined;
   for (const line of lines) {
+    const size = line.bodyFontSize;
     let best: DetectedLine[] | undefined;
     let nearest = Infinity;
     for (let index = active.length - 1; index >= 0; index--) {
@@ -272,16 +282,16 @@ function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[]
       }
       // A distant paragraph can never match a later line. Avoid rescanning all
       // prior blocks on pages with many columns, labels, or style changes.
-      if (gap > previous.fontSize * 1.8) { active.splice(index, 1); continue; }
+      if (gap > previous.bodyFontSize * 1.8) { active.splice(index, 1); continue; }
       if (line.region !== previous.region) continue;
-      if (gap >= nearest || gap <= line.fontSize * 0.5 || gap > line.fontSize * 1.7) continue;
-      if (group.length === 1 && usualLeading && gap > usualLeading * line.fontSize * 1.2) continue;
+      if (gap >= nearest || gap <= size * 0.5 || gap > size * 1.7) continue;
+      if (group.length === 1 && usualLeading && gap > usualLeading * size * 1.2) continue;
       if (line.complex || previous.complex) continue;
       // Inline emphasis and Chinese/Latin fallback runs belong to the same
       // paragraph. Font changes within a row must not turn it into an isolated
       // editing area. A distinct heading font still starts a separate block.
       if (!line.items.some(item => previous.items.some(prior => prior.fontKey === item.fontKey))
-        || Math.abs(line.fontSize - previous.fontSize) > Math.max(0.1, line.fontSize * 0.03)) continue;
+        || Math.abs(size - previous.bodyFontSize) > Math.max(0.1, size * 0.03)) continue;
       const overlap = Math.min(line.x + line.width, previous.x + previous.width) - Math.max(line.x, previous.x);
       if (overlap <= Math.min(line.width, previous.width) * 0.3) continue;
       const left = Math.min(...group.map(part => part.x));
@@ -289,11 +299,11 @@ function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[]
       // A wrap column beside a figure must not become a page-wide region when
       // text continues below the figure. Likewise, a short fragment after an
       // equation does not own the blank space occupied by that equation.
-      if (group.length > 1 && line.x + line.width > right + Math.max(line.fontSize * 2, (right - left) * .25)) continue;
-      if (group.length === 1 && previous.x - line.x > line.fontSize * 3 && previous.width < line.width * .6) continue;
-      const centered = Math.abs(line.x + line.width / 2 - previous.x - previous.width / 2) < line.fontSize * 0.25;
+      if (group.length > 1 && line.x + line.width > right + Math.max(size * 2, (right - left) * .25)) continue;
+      if (group.length === 1 && previous.x - line.x > size * 3 && previous.width < line.width * .6) continue;
+      const centered = Math.abs(line.x + line.width / 2 - previous.x - previous.width / 2) < size * 0.25;
       // An indented first line starts a new paragraph even when leading is unchanged.
-      if (line.x - left > line.fontSize * 0.65 && !centered) continue;
+      if (line.x - left > size * 0.65 && !centered) continue;
       // A larger-than-usual baseline gap also marks a paragraph boundary.
       if (group.length > 1) {
         const leading = median(group.slice(1).map((part, index) => part.baseline - group[index].baseline));
@@ -314,7 +324,8 @@ function createBlock(lines: DetectedLine[], pageNumber: number): TextBlock {
   const maxY = Math.max(...lines.map(line => line.y + line.height));
   const fontSize = lines[0].fontSize;
   const fontName = lines[0].items.find(item => item.fontSize === fontSize)?.fontName ?? 'unknown';
-  const lineHeight = lines.length > 1
+  const nominalLeading = textRegionLeading(lines[0].region);
+  const lineHeight = nominalLeading !== undefined ? nominalLeading / fontSize : lines.length > 1
     ? median(lines.slice(1).map((line, index) => line.baseline - lines[index].baseline)) / fontSize
     : 1.2;
   const complex = lines.some(line => line.complex);

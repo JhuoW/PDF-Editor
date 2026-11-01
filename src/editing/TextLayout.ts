@@ -44,7 +44,7 @@ export interface TextLayoutInput {
   /** Session-owned source font; absent when an explicit replacement font is chosen. */
   sourceFontKey?: string;
   /** Physical source rows retain their PDF word spacing when unchanged. */
-  sourceRows?: Array<{ text: string; width: number; x?: number; baseline?: number }>;
+  sourceRows?: Array<{ text: string; width: number; x?: number; baseline?: number; fontSize?: number; inkTop?: number; inkBottom?: number }>;
   firstLineIndent?: number;
   reflow?: boolean;
   /** Per-character source styles, already mapped through the current replacement. */
@@ -299,9 +299,14 @@ export class TextLayoutSession {
       // A word no longer split by this break needs no hyphen; one still split keeps it.
       if (input.reflow) for (const row of wrapped) row.glyphs = row.glyphs.filter((glyph, position) => !glyph.softHyphen || position === row.glyphs.length - 1);
       const lineAdvance = (useLegacy ? input.lineHeight : Math.max(input.lineHeight, ascent + descent)) * size;
-      const legacyHeight = Math.max(emHeight, (input.sourceRowHeight ?? 0) / (input.sourceFontSize ?? input.fontSize));
-      const requiredHeight = (useLegacy ? legacyHeight : ascent + descent) * size + Math.max(0, wrapped.length - 1) * lineAdvance;
+      const legacyHeight = input.sourceRowHeight !== undefined ? input.sourceRowHeight / (input.sourceFontSize ?? input.fontSize) : emHeight;
+      // The first physical row can be smaller than a later emphasized word. Its
+      // footprint starts at the fixed source baseline, even when a smaller font
+      // is selected; shrinking must not pull the following paragraph across it.
+      const firstFootprint = useLegacy ? Math.max(input.legacyBaseline! - input.rect.y, legacyHeight * size) : (ascent + descent) * size;
       let widest = 0, ink: [number, number, number, number] | undefined;
+      let baselineShift = 0;
+      let previousRow: { glyphs: TextLayoutGlyph[]; grew: boolean } | undefined;
       const lines = wrapped.map((row, index): TextLayoutLine => {
         const inset = index === 0 || wrapped[index - 1].paragraphEnd ? indent : 0;
         const rowWidth = input.rect.width - inset;
@@ -327,7 +332,8 @@ export class TextLayoutSession {
         const offset = input.alignment === 'right' ? rowWidth - width : input.alignment === 'center' ? (rowWidth - width) / 2 : 0;
         const sourceRow = unchanged;
         let x = (sourceRow?.x ?? input.rect.x + inset + offset) - metric.left * size;
-        const baseline = sourceRow?.baseline ?? (useLegacy ? input.legacyBaseline! : input.rect.y + ascent * size) + index * lineAdvance, start = x;
+        let baseline = (sourceRow?.baseline ?? (useLegacy ? input.legacyBaseline! : input.rect.y + ascent * size) + index * lineAdvance) + baselineShift;
+        const start = x;
         const glyphs = row.glyphs.map((glyph, position) => {
           const advance = glyph.advance * size + (gaps.has(position) ? extra : 0);
           const glyphBaseline = baseline + (glyph.baselineOffset ?? 0) * size;
@@ -336,12 +342,37 @@ export class TextLayoutSession {
           if (glyph.ink) {
             const bounds: [number, number, number, number] = [x + (glyph.inkLeft ?? glyph.left) * size, glyphBaseline - glyph.ascent * size, x + (glyph.inkRight ?? glyph.right) * size, glyphBaseline + glyph.descent * size];
             placed.inkBounds = { x: bounds[0], y: bounds[1], width: bounds[2] - bounds[0], height: bounds[3] - bounds[1] };
-            ink = ink ? [Math.min(ink[0], bounds[0]), Math.min(ink[1], bounds[1]), Math.max(ink[2], bounds[2]), Math.max(ink[3], bounds[3])] : bounds;
           }
           x += advance; return placed;
         });
+        const grew = (!!input.sourceRows && index >= input.sourceRows.length)
+          || Math.max(0, ...glyphs.map(glyph => glyph.fontSize ?? size)) > (original?.fontSize ?? input.sourceFontSize ?? input.fontSize) + .01;
+        const priorSource = input.sourceRows?.[index - 1];
+        const sourceClearanceKnown = original?.inkTop !== undefined && priorSource?.inkBottom !== undefined
+          && original.baseline !== undefined && priorSource.baseline !== undefined;
+        if (useLegacy && input.reflow && previousRow && (sourceClearanceKnown || grew || previousRow.grew)) {
+          // Larger inline text may wrap onto another row whose original leading
+          // was designed for small body text. Increase only the clearance these
+          // new glyphs need; two unchanged physical rows keep their source layout.
+          const above = previousRow.glyphs.flatMap(glyph => glyph.inkBounds ? [glyph.inkBounds] : []);
+          const current = glyphs.flatMap(glyph => glyph.inkBounds ? [glyph.inkBounds] : []);
+          // Tight source rows may have overlapping ink boxes without touching
+          // glyphs. Preserve that original allowance, but never introduce more.
+          const allowance = sourceClearanceKnown ? Math.max(0, priorSource!.baseline! + priorSource!.inkBottom! - original!.baseline! - original!.inkTop!) : 0;
+          let clearance = Math.max(0, Math.max(...above.map(bounds => bounds.y + bounds.height)) - Math.min(...current.map(bounds => bounds.y)) - allowance);
+          if (clearance > .001) {
+            clearance += .01; baseline += clearance; baselineShift += clearance;
+            for (const glyph of glyphs) { glyph.baseline += clearance; if (glyph.inkBounds) glyph.inkBounds.y += clearance; }
+          }
+        }
+        previousRow = { glyphs, grew };
+        for (const glyph of glyphs) if (glyph.inkBounds) {
+          const bounds = glyph.inkBounds, rect: [number, number, number, number] = [bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height];
+          ink = ink ? [Math.min(ink[0], rect[0]), Math.min(ink[1], rect[1]), Math.max(ink[2], rect[2]), Math.max(ink[3], rect[3])] : rect;
+        }
         return { text: row.glyphs.map(glyph => glyph.character).join(''), x: start, baseline, width, paragraphEnd: row.paragraphEnd, glyphs };
       });
+      const requiredHeight = firstFootprint + Math.max(0, (lines.at(-1)?.baseline ?? 0) - (lines[0]?.baseline ?? 0));
       const fits = requiredHeight <= input.rect.height + 0.001 && widest <= input.rect.width + widthTolerance;
       const overflow = fits ? undefined : widest > input.rect.width + widthTolerance
         ? `A character or punctuation group is wider than the text region (${Math.ceil(widest)} points). Enlarge the region or reduce the font size; no text was truncated.`

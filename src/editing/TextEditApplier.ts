@@ -10,7 +10,7 @@ import { textRegionTag } from './TextRegionMarkers';
 import { placeTextAnchors, resolveTextAnchors } from './TextContentOrder';
 import { contentText } from './ImageEditApplier';
 import { isType3Font } from './NativeSourceFonts';
-import { belongsToTextBlock, readTextPageContent, type TextPageContent } from './TextPageContent';
+import { belongsToTextBlock, readTextPageContent, sourceTextRow, type TextPageContent } from './TextPageContent';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
 export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number }; availableRect?: import('./types').TextRect; fonts?: TextFontInfo }
@@ -76,8 +76,9 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   if (font) session.useImportedFont(font);
   const sourceSize = source?.fontSize ?? block.style.fontSize;
   const originalBaseline = overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined);
+  const pageContent = context?.content ?? readTextPageContent(engine, page);
   const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,
-    overrides.translate ? overrides.targetRect : undefined, overrides.fitToContent, context?.content);
+    overrides.translate ? overrides.targetRect : undefined, overrides.fitToContent, pageContent);
   const rect = { ...(overrides.targetRect ?? block.rect) };
   // Source text may already extend past the page. It stays editable, and moving it
   // never requires more overflow than it had; a new region must fit on the page.
@@ -99,13 +100,27 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
     + (overrides.translate ? rect.y - block.rect.y : 0);
   if (originalBaseline && block.lines.length) {
     const sourceHeight = Math.max(...block.lines.map(line => line.y + line.height)) - Math.min(...block.lines.map(line => line.y));
-    input.sourceRowHeight = Math.max(sourceSize,
-      sourceHeight - Math.max(0, block.lines.length - 1) * block.style.lineHeight * block.style.fontSize);
+    // The first row may be smaller than an emphasized word on a later row.
+    // Its real footprint plus the physical baseline span describes the source;
+    // using the largest font on every row manufactures extra paragraph height.
+    input.sourceRowHeight = Math.max(.001, sourceHeight - (block.lines.at(-1)!.baseline - block.lines[0].baseline));
   }
-  if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === sourceSize) input.sourceRows = block.lines.map(line => ({ text: line.text, width: line.width,
-    ...(overrides.alignment === undefined ? { x: line.x + (overrides.translate ? rect.x - block.rect.x : 0) } : {}),
-    ...(overrides.lineHeight === undefined ? { baseline: line.baseline + (overrides.translate ? rect.y - block.rect.y : 0) } : {}),
-  }));
+  if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === sourceSize) {
+    const rowInk = new Map<TextBlock['lines'][number], TextRect[]>();
+    for (const glyph of pageContent.glyphs) {
+      const line = sourceTextRow(block, glyph.x, glyph.baseline, glyph.size);
+      if (line) { const ink = rowInk.get(line) ?? []; ink.push(glyph.rect); rowInk.set(line, ink); }
+    }
+    input.sourceRows = block.lines.map(line => {
+      const ink = rowInk.get(line) ?? [];
+      return { text: line.text, width: line.width,
+        ...(ink.length ? { inkTop: Math.min(...ink.map(rect => rect.y)) - line.baseline,
+          inkBottom: Math.max(...ink.map(rect => rect.y + rect.height)) - line.baseline } : {}),
+        ...(overrides.alignment === undefined ? { x: line.x + (overrides.translate ? rect.x - block.rect.x : 0) } : {}),
+        ...(overrides.lineHeight === undefined ? { baseline: line.baseline + (overrides.translate ? rect.y - block.rect.y : 0) } : {}),
+      };
+    });
+  }
   if (context?.unchanged && input.sourceRows) {
     // Reflow only translates this neighbor. Its physical rows are already final:
     // rounding between PDF.js and MuPDF widths must neither rewrap a word nor
@@ -279,9 +294,10 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
     }
     const paragraph = edit && textFlow(block, edit) === 'paragraph';
     if (paragraph) {
-      // The same row count occupies the same space. A rounding difference between
-      // measured and source leading must not rewrite every paragraph below it.
-      const delta = item.layout.lines.length === block.lines.length ? 0 : item.layout.requiredHeight - block.rect.height;
+      // Reflow follows occupied height, not row count: larger letters or leading
+      // can grow the same two rows into the following paragraph. Ignore only
+      // subpixel metric noise, using the same tolerance as translated neighbors.
+      const delta = item.layout.requiredHeight - block.rect.height;
       if (Math.abs(delta) >= FLOW_EPSILON) deltas.push({ rect: block.rect, delta });
     }
     // Validate the final page position, after all earlier paragraphs have
@@ -555,7 +571,8 @@ function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage
     let overlayIndex = 0;
     for (const prepared of regions) {
       const marked = keep(new engine.Buffer());
-      const tag = textRegionTag(prepared.block.kind ?? 'paragraph', prepared.block.id, prepared.regionIndex);
+      const tag = textRegionTag(prepared.block.kind ?? 'paragraph', prepared.block.id, prepared.regionIndex,
+        prepared.input.lineHeight * prepared.layout.fontSize);
       marked.write(`/${tag} BMC\n`);
       let resources: PDFObject;
       if (prepared.native) {
