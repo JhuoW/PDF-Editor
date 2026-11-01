@@ -12,11 +12,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Pin the OS supported by the Playwright version in package-lock.json.
+  # ubuntu-latest can advance before that browser release supports the new OS.
   # Preserve the existing required check name for branch protection.
   check:
     needs: [quality, browser, deployment]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Require all checks to pass
@@ -25,7 +27,7 @@ jobs:
         run: test "$CHECK_RESULTS" = "success,success,success"
 
   quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -41,7 +43,7 @@ jobs:
       - run: npm run build
 
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -65,7 +67,7 @@ jobs:
           if-no-files-found: ignore
 
   deployment:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -79,6 +81,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+        id: install_browser
       - run: npx playwright test --config tests/fixtures/deployment.playwright.config.ts --workers=2 --shard=${{ matrix.shard }}/2
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
@@ -88,7 +91,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
       - run: npx playwright test --config tests/fixtures/secure-redaction.playwright.config.ts
-        if: ${{ !cancelled() && matrix.shard == 1 }}
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.install_browser.outcome == 'success' }}
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() && matrix.shard == 1 }}
         with:
