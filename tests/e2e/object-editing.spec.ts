@@ -216,6 +216,29 @@ test('narrow-screen bilingual controls preserve selection, allow keyboard moveme
   expect(inspect(await exported(page)).images).toEqual(moved.images);
 });
 
+test('an almost full-page image keeps a stable ribbon toolbar when the top margin is too small', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  const pdf = await PDFDocument.create(), sheet = pdf.addPage([400, 400]);
+  const bitmap = await pdf.embedPng(bitmapPNG());
+  sheet.drawImage(bitmap, { x: 8, y: 8, width: 384, height: 342 });
+  await page.addInitScript(() => { Reflect.deleteProperty(window, 'showSaveFilePicker'); });
+  await page.goto('./');
+  await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'page-edge-image.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) });
+  await expect(page.locator('canvas.page-canvas')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
+  await page.locator('.workspace-ribbon [data-command="edit-objects"]').click();
+  await images(page).first().click();
+  const actions = page.locator('.object-edit-actions.in-toolbar');
+  await expect(actions).toBeVisible();
+  await images(page).first().press('ArrowRight');
+  expect(inspect(await exported(page)).images[0][0]).toBeCloseTo(9, 3);
+  await actions.getByRole('button', { name: 'Delete object', exact: true }).click();
+  await expect(images(page)).toHaveCount(0);
+  await page.locator('.workspace-history > button').first().click();
+  await expect(images(page)).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
 test('opening another PDF cancels an in-progress object transform', async ({ page }) => {
   await open(page);
   await startDrag(page, images(page).first(), 60, 60);

@@ -204,7 +204,10 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
   const placement = selectedRect ? toolbarPosition(selectedRect, viewport, toolbarSize, visibleArea) : null;
   const toolbarHost = selected.length && !placement ? window.document.getElementById('pdf-text-edit-controls') : null;
   useLayoutEffect(() => {
-    if (!actions.current || !selected.length || mode !== 'object') return;
+    // The compact ribbon and floating toolbar have different dimensions.
+    // Measuring the ribbon as the floating toolbar can alternate placements
+    // forever when an almost full-page object leaves only a narrow top margin.
+    if (!actions.current || !selected.length || mode !== 'object' || toolbarHost) return;
     const measure = () => {
       const size = actions.current?.getBoundingClientRect();
       if (size) setToolbarSize(previous => Math.abs(previous.width - size.width) < .1 && Math.abs(previous.height - size.height) < .1 ? previous : { width: size.width, height: size.height });
