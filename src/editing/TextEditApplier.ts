@@ -1,6 +1,6 @@
 import type { PDFDocument, PDFObject, PDFPage } from 'mupdf';
 import { loadMuPDF, toMuPDFPageRect } from '../utils/mupdf';
-import type { TextBlock, TextEditOperation, TextRect } from './types';
+import type { ImageEditOperation, PDFImage, TextBlock, TextEditOperation, TextRect } from './types';
 import { assertTextEditSource } from './TextEditSource';
 import { standardTextFont, TextLayoutSession, type TextLayoutControl, type TextLayoutInput, type TextLayoutResult } from './TextLayout';
 import { readInlineTextBounds, readInlineTextObstacles } from './InlineTextBounds';
@@ -10,6 +10,12 @@ import { textRegionTag } from './TextRegionMarkers';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
 export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number }; availableRect?: import('./types').TextRect; fonts?: TextFontInfo }
+export interface TextLayoutContext {
+  blocks: TextBlock[];
+  edits: TextEditOperation[];
+  images?: PDFImage[];
+  imageEdits?: ImageEditOperation[];
+}
 interface PreparedBlock extends PreparedTextEditLayout { block: TextBlock }
 function cancelled(control: TextLayoutControl) { if (control.signal?.aborted) throw new DOMException('Text editing cancelled.', 'AbortError'); }
 function textFlow(block: TextBlock, edit: TextEditOperation) {
@@ -56,7 +62,7 @@ function pageGeometry(engine: Engine, page: PDFPage) {
   return { width: (crop[2] - crop[0]) * unit, height: (crop[3] - crop[1]) * unit, crop, unit };
 }
 
-function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: TextEditOperation, session: TextLayoutSession, control: TextLayoutControl): PreparedBlock {
+function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: TextEditOperation, session: TextLayoutSession, control: TextLayoutControl, context?: { shiftY: number; peers: TextRect[] }): PreparedBlock {
   cancelled(control);
   if (!block.editable) throw new Error(block.unsupportedReason ?? 'This text block is read-only.');
   if (block.lines.some(line => line.items.some(item => Math.abs(item.transform[1]) > 0.001 || Math.abs(item.transform[2]) > 0.001))) throw new Error(`Rotated or vertical text inside page ${block.pageNumber} cannot be replaced yet. Page rotation itself is supported.`);
@@ -99,6 +105,22 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
     input.rect.width = Math.max(input.rect.width, Math.min(availableRect.width, Math.ceil(Math.max(0, ...natural.lines.map(line => line.width)) * 1000) / 1000 + .01));
   }
   let layout = session.layout(input, control);
+  if (grow && flow === 'paragraph' && block.lines.length === 1 && !overrides.targetRect && context) {
+    // A one-row paragraph may use clear space to its right, but its new rows
+    // must not grow across a neighboring column that starts farther down.
+    // Narrowing can add more rows, so repeat against the resulting footprint.
+    // Existing source width is always retained; never squeeze original text.
+    for (;;) {
+      const top = input.rect.y + context.shiftY, bottom = top + layout.requiredHeight;
+      const right = Math.min(input.rect.x + input.rect.width, ...context.peers
+        .filter(peer => peer.x >= block.rect.x + block.rect.width - .1 && peer.y < bottom && peer.y + peer.height > top)
+        .map(peer => peer.x - Math.min(4, input.fontSize * .25)));
+      const width = Math.max(block.rect.width, right - input.rect.x);
+      if (width >= input.rect.width - .001) break;
+      input.rect.width = width;
+      layout = session.layout(input, control);
+    }
+  }
   if (grow && flow) {
     // A paragraph owns its new rows. Following paragraphs are moved by the
     // page planner, rather than being treated as a 14pt-high hard boundary.
@@ -106,7 +128,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
     // Object widths and multi-row paragraph wrap columns remain fixed.
     input.rect.height = Math.max(.001, layout.requiredHeight);
     layout = session.layout(input, control);
-    if (input.rect.y + input.rect.height > geometry.height + .001) {
+    if (!context?.shiftY && input.rect.y + input.rect.height > geometry.height + .001) {
       layout.fits = false;
       layout.overflow = 'The edited text extends beyond the bottom of the page. Move the region or split the paragraph before saving; all text has been kept.';
     }
@@ -143,26 +165,36 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
   const prepared = new Map<string, PreparedBlock>();
   const geometry = pageGeometry(engine, page);
   const flow = edits.some(edit => { const block = blocks.find(block => block.id === edit.blockId); return block && textFlow(block, edit) === 'paragraph'; });
+  const positioned = blocks.filter(block => {
+    const edit = changes.get(block.id);
+    return edit?.layout?.targetRect && textFlow(block, edit) === 'object';
+  });
+  const positionedIds = new Set(positioned.map(block => block.id));
   // Printed page numbers are fixed page furniture, not the end of a body
   // paragraph's flow. Moving them used to manufacture a false page overflow.
-  const movable = blocks.filter(block => block.editable && block.kind !== 'line'
+  const movable = blocks.filter(block => block.editable && block.kind !== 'line' && !positionedIds.has(block.id)
     && !(block.lines.length === 1 && /^\s*\d{1,6}\s*$/u.test(block.lines[0].text)
       && block.rect.width < geometry.width * .25 && block.rect.y > geometry.height * .9));
   const movableIds = new Set(movable.map(block => block.id));
-  const obstacles = flow ? readInlineTextObstacles(engine, page, movable.map(block => block.rect)) : [];
+  const obstacles = flow ? [
+    ...readInlineTextObstacles(engine, page, [...movable, ...positioned].map(block => block.rect)),
+    ...positioned.filter(block => changes.get(block.id)!.newText !== '').map(block => changes.get(block.id)!.layout!.targetRect!),
+  ] : [];
   const deltas: { rect: TextRect; delta: number }[] = [];
+  const shift = (block: TextBlock) => flow && movableIds.has(block.id)
+    ? deltas.filter(item => item.rect.y + item.rect.height <= block.rect.y + .1 && sharesColumn(item.rect, block.rect)).reduce((sum, item) => sum + item.delta, 0) : 0;
   for (const block of [...blocks].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x)) {
     cancelled(control);
     const edit = changes.get(block.id);
-    const dy = flow && movableIds.has(block.id)
-      ? deltas.filter(item => item.rect.y + item.rect.height <= block.rect.y + .1 && sharesColumn(item.rect, block.rect)).reduce((sum, item) => sum + item.delta, 0) : 0;
+    const dy = shift(block);
     if (!edit && Math.abs(dy) < .001) continue;
     let item: PreparedBlock;
     try {
       item = prepareBlock(engine, page, block, edit ?? {
         blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0,
         layout: { keepBaseline: true },
-      }, session, control);
+      }, session, control, { shiftY: dy, peers: blocks.filter(peer => peer.id !== block.id).map(peer => positionedIds.has(peer.id)
+        ? changes.get(peer.id)!.layout!.targetRect! : { ...peer.rect, y: peer.rect.y + shift(peer) }) });
     } catch (error) {
       if (!issues) throw error;
       cancelled(control);
@@ -175,6 +207,9 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
       const delta = item.layout.requiredHeight - block.rect.height;
       if (Math.abs(delta) >= .001) deltas.push({ rect: block.rect, delta });
     }
+    // Validate the final page position, after all earlier paragraphs have
+    // released or consumed space. Testing the old y coordinate first leaves a
+    // false overflow behind when a preceding deletion pulls this edit upwards.
     if (flow && (paragraph || Math.abs(dy) >= .001)) {
       const ink = item.layout.inkBounds;
       if (item.input.rect.y < 0 || item.input.rect.y + item.layout.requiredHeight > item.page.height + .001
@@ -192,9 +227,35 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
 }
 
 /** Resolve original PDF style and measure without changing the document. */
-export async function prepareTextEditLayout(data: ArrayBuffer | Uint8Array, block: TextBlock, edit?: TextEditOperation, control: TextLayoutControl = {}): Promise<PreparedTextEditLayout> {
+export async function prepareTextEditLayout(data: ArrayBuffer | Uint8Array, block: TextBlock, edit?: TextEditOperation, control: TextLayoutControl = {}, context?: TextLayoutContext): Promise<PreparedTextEditLayout> {
   if (edit && edit.blockId !== block.id) throw new Error('The text edit does not belong to the selected source block.');
-  cancelled(control); await assertTextEditSource(data instanceof Uint8Array ? new Uint8Array(data).buffer : data, control.signal);
+  const source = data instanceof Uint8Array ? new Uint8Array(data).buffer : data;
+  cancelled(control); await assertTextEditSource(source, control.signal);
+  if (!context) return measureTextEditLayout(source, block, edit, control);
+  // The advanced dialog must inspect the same body as preview/check/export:
+  // passive managed marks are detached, and pending image moves or deletions
+  // are applied before computing available space for paragraphs.
+  const { preservePageDecorations, imagesWithoutDetachedDecorations } = await import('../core/PreservePageDecorations');
+  const images = (context.images ?? []).filter(image => image.pageNumber === block.pageNumber);
+  const imageIds = new Set(images.map(image => image.id));
+  const imageEdits = (context.imageEdits ?? []).filter(item => imageIds.has(item.imageId));
+  let measured: PreparedTextEditLayout | undefined;
+  await preservePageDecorations(source, new Set([block.pageNumber]), async (body, detached) => {
+    cancelled(control);
+    let actual = body;
+    if (imageEdits.length) {
+      const { applyImageEdits } = await import('./ImageEditApplier');
+      actual = new Uint8Array(await applyImageEdits(body,
+        imagesWithoutDetachedDecorations(new Map([[block.pageNumber, images]]), detached), imageEdits)).buffer;
+    }
+    measured = await measureTextEditLayout(actual, block, edit, control, context);
+    return new Uint8Array(body);
+  });
+  cancelled(control);
+  return measured!;
+}
+
+async function measureTextEditLayout(data: ArrayBuffer, block: TextBlock, edit: TextEditOperation | undefined, control: TextLayoutControl, context?: TextLayoutContext): Promise<PreparedTextEditLayout> {
   const engine = await loadMuPDF(); cancelled(control);
   const document = new engine.PDFDocument(data), session = new TextLayoutSession(engine);
   try {
@@ -202,7 +263,19 @@ export async function prepareTextEditLayout(data: ArrayBuffer | Uint8Array, bloc
     const page = document.loadPage(block.pageNumber - 1);
     try {
       assertReplaceableTextRendering(engine, page, block.pageNumber);
-      const prepared = prepareBlock(engine, page, block, edit ?? { blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0 }, session, control);
+      const existing = context?.edits.find(item => item.blockId === block.id);
+      const replacement = edit ?? existing ?? { blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0 };
+      const originalText = existing?.originalText ?? replacement.originalText;
+      const sourceBlock = { ...block, text: originalText };
+      let prepared: PreparedBlock | undefined;
+      if (context) {
+        const pageBlocks = [...context.blocks.filter(item => item.pageNumber === block.pageNumber && item.id !== block.id), sourceBlock];
+        const ids = new Set(pageBlocks.map(item => item.id));
+        const pageEdits = context.edits.filter(item => item.blockId !== block.id && ids.has(item.blockId));
+        if (replacement.newText !== originalText || (replacement.layout && Object.values(replacement.layout).some(value => value !== undefined))) pageEdits.push(replacement);
+        prepared = preparePageTextEdits(engine, page, pageBlocks, pageEdits, session, control).find(item => item.block.id === block.id);
+      }
+      prepared ??= prepareBlock(engine, page, sourceBlock, replacement, session, control);
       return { input: prepared.input, layout: prepared.layout, page: prepared.page, availableRect: prepared.availableRect, fonts: prepared.fonts };
     } finally { page.destroy(); }
   } finally { session.destroy(); document.destroy(); }

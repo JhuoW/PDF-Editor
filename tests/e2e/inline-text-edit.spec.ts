@@ -99,6 +99,29 @@ test('supports word selection, real Enter line breaks, vertical navigation, and 
   expect(inspect(await bytes(page)).text).toContain('中文编辑');
 });
 
+test('keeps a CJK soft-wrap boundary on the intended row when clicking and navigating', async ({ page }) => {
+  const block = await open(page); await block.click();
+  const input = page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });
+  const replacement = '中文编辑测试自动换行光标定位保持在当前文字行中文编辑测试自动换行';
+  await input.fill(replacement);
+  await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', replacement);
+  await input.press('Control+Home');
+  const firstTop = (await page.locator('.pdf-text-caret').boundingBox())!.y;
+  await input.press('End');
+  const firstEnd = await input.evaluate(element => element.selectionStart);
+  expect(firstEnd).toBeGreaterThan(0); expect(firstEnd).toBeLessThan(replacement.length);
+  expect((await page.locator('.pdf-text-caret').boundingBox())!.y).toBeCloseTo(firstTop, 1);
+  await input.press('ArrowDown'); await input.press('Home');
+  await expect.poll(() => input.evaluate(element => element.selectionStart)).toBe(firstEnd);
+  const second = (await page.locator('.pdf-text-caret').boundingBox())!;
+  expect(second.y).toBeGreaterThan(firstTop + 10);
+  await page.mouse.click(second.x + .5, second.y + second.height / 2);
+  await expect.poll(() => input.evaluate(element => element.selectionStart)).toBe(firstEnd);
+  expect((await page.locator('.pdf-text-caret').boundingBox())!.y).toBeCloseTo(second.y, 1);
+  await input.press('Control+Enter');
+  expect(inspect(await bytes(page)).text.replace(/\s/g, '')).toContain(replacement);
+});
+
 test('grows a short original line into available space while respecting a nearby figure', async ({ page }) => {
   const block = await open(page); await block.click();
   const input = page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });

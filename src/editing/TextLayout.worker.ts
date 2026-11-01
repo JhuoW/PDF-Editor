@@ -1,9 +1,9 @@
-import { prepareTextEditLayout } from './TextEditApplier';
+import { prepareTextEditLayout, type TextLayoutContext } from './TextEditApplier';
 import { previewWorkspaceTextEdit } from '../core/TextLayoutPreviewWorkspace';
 import type { WorkspaceSnapshot } from '../store/workspaceSnapshot';
 import type { TextBlock, TextEditOperation } from './types';
 
-type Request = { data: ArrayBuffer } & ({ job: 'prepare'; block: TextBlock; edit?: TextEditOperation }
+type Request = { data: ArrayBuffer } & ({ job: 'prepare'; block: TextBlock; edit?: TextEditOperation; context?: TextLayoutContext }
   | { job: 'preview'; workspace: WorkspaceSnapshot; edit: TextEditOperation });
 
 self.onmessage = async (event: MessageEvent<Request>) => {
@@ -11,7 +11,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
     const request = event.data;
     if (!(request?.data instanceof ArrayBuffer)) throw new Error('The text layout worker received invalid PDF data.');
     if (request.job === 'prepare') {
-      const result = await prepareTextEditLayout(request.data, request.block, request.edit);
+      const result = await prepareTextEditLayout(request.data, request.block, request.edit, {}, request.context);
       self.postMessage({ type: 'result', result });
     } else if (request.job === 'preview') {
       const result = await previewWorkspaceTextEdit(request.data, request.workspace, request.edit);

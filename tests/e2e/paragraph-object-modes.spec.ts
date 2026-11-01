@@ -127,3 +127,33 @@ test('every individual row can enter and leave object typing without changing mo
   }
   await expect(page.locator('.workspace-history > button').first()).toBeDisabled();
 });
+
+test('advanced text layout uses space released by an earlier paragraph instead of reporting stale page overflow', async ({ page }) => {
+  const pdf = await PDFDocument.create(), sheet = pdf.addPage([500, 600]);
+  const font = await pdf.embedFont(StandardFonts.Courier);
+  for (let row = 0; row < 10; row++) sheet.drawText(`Upper paragraph row ${row}`, { x: 40, y: 526 - row * 18, size: 14, font });
+  sheet.drawText('Lower paragraph', { x: 40, y: 50, size: 14, font });
+  await page.addInitScript(() => { Reflect.deleteProperty(window, 'showSaveFilePicker'); });
+  await page.goto('./');
+  await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'released-space.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) });
+  await expect(page.locator('canvas.page-canvas')).toBeVisible(); await mode(page, 'text');
+  await page.locator('.text-block').filter({ hasText: 'Upper paragraph' }).click({ position: { x: 5, y: 5 } });
+  await input(page).fill('Upper paragraph'); await input(page).press('Control+Enter');
+  await page.locator('.text-block').filter({ hasText: 'Lower paragraph' }).click({ position: { x: 5, y: 5 } });
+  const lower = Array.from({ length: 6 }, (_, row) => `Lower paragraph row ${row}`).join('\n');
+  await input(page).fill(lower);
+  await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', lower);
+  await expect(page.locator('.text-edit-notice')).toHaveCount(0);
+  await page.locator('#pdf-text-edit-controls').getByRole('button', { name: 'Text layout…', exact: true }).click();
+  const dialog = page.locator('.text-layout-dialog');
+  await expect(dialog.getByText('Preview ready', { exact: true })).toBeVisible();
+  expect(Number(await dialog.getByRole('spinbutton', { name: 'Y', exact: true }).inputValue())).toBeLessThan(400);
+  await dialog.getByRole('textbox', { name: 'Text', exact: true }).fill(lower + ' updated');
+  await expect(dialog.getByRole('button', { name: 'Save draft', exact: true })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const result = inspect(await save(page));
+  expect(result.text.replace(/\s/g, '')).toContain((lower + ' updated').replace(/\s/g, ''));
+  expect(result.glyphs.every(glyph => glyph.size === 14)).toBe(true);
+  await expect(page.locator('.error-state')).toHaveCount(0);
+});

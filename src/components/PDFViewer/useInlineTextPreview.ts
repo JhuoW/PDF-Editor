@@ -11,7 +11,7 @@ import type { PreparedTextEditLayout } from '../../editing/TextEditApplier';
 const EMPTY_IMAGES: PDFImage[] = [];
 
 export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blocks: TextBlock[], edits: TextEditOperation[], activeId: string | null, scale: number, rotation: number) {
-  const [preview, setPreview] = useState<(InlineTextPreviewResult & { page: PDFPageProxy; geometry: Map<string, PreparedTextEditLayout>; signatures: Map<string, string> }) | null>(null);
+  const [preview, setPreview] = useState<(InlineTextPreviewResult & { page: PDFPageProxy; session: object; geometry: Map<string, PreparedTextEditLayout>; signatures: Map<string, string> }) | null>(null);
   const client = useRef<InlineTextPreviewClient | null>(null), sequence = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contexts = useRef(new Map<number, object>());
@@ -40,6 +40,9 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
   const latest = useRef({ pageNumber, blocks, edits: previewEdits, images, imageEdits: previewImageEdits, activeId, scale, rotation, htmlForms, context });
   useEffect(() => { latest.current = { pageNumber, blocks, edits: previewEdits, images, imageEdits: previewImageEdits, activeId, scale, rotation, htmlForms, context }; });
   const needed = !!activeId || previewEdits.length > 0 || previewImageEdits.length > 0;
+  // Undo/cancel can stop this worker without replacing the PDF page. Its old
+  // pixels and caret cache must not become visible when a new edit starts.
+  const session = useMemo(() => ({ page, pageNumber, needed }), [page, pageNumber, needed]);
   const requestPreview = useCallback((data?: ArrayBuffer) => {
     const worker = client.current;
     if (!worker) return;
@@ -61,15 +64,15 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
       if (canceled || (result.id !== -1 && resultContext !== latest.current.context)) return;
       if (result.textGeometry?.length) useObjectTransformStore.getState().setTextGeometry(result.textGeometry);
       setPreview(previous => {
-        const geometry = new Map(previous?.page === page ? previous.geometry : []);
-        const signatures = new Map(previous?.page === page ? previous.signatures : []);
+        const geometry = new Map(previous?.session === session ? previous.geometry : []);
+        const signatures = new Map(previous?.session === session ? previous.signatures : []);
         if (result.activeId && result.prepared) {
           geometry.set(result.activeId, result.prepared);
           const edit = latest.current.edits.find(edit => edit.blockId === result.activeId);
           signatures.set(result.activeId, result.textGeometry?.find(item => item.id === result.activeId)?.signature
             ?? JSON.stringify([result.prepared.input.text, edit?.layout]));
         }
-        return { ...result, page, geometry, signatures };
+        return { ...result, page, session, geometry, signatures };
       });
     });
     // Read the current proxy, never another browser tab's recovery cache.
@@ -77,9 +80,9 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
       if (canceled) return;
       client.current = worker;
       requestPreview(new Uint8Array(data).buffer);
-    }).catch(cause => { if (!canceled) setPreview({ id: -1, page, geometry: new Map(), signatures: new Map(), error: cause instanceof Error ? cause.message : 'Could not read the PDF.' }); });
+    }).catch(cause => { if (!canceled) setPreview({ id: -1, page, session, geometry: new Map(), signatures: new Map(), error: cause instanceof Error ? cause.message : 'Could not read the PDF.' }); });
     return () => { canceled = true; worker.destroy(); ownedContexts.clear(); if (client.current === worker) client.current = null; };
-  }, [page, pageNumber, needed, requestPreview]);
+  }, [page, pageNumber, needed, requestPreview, session]);
   useEffect(() => () => {
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = null;
@@ -89,7 +92,7 @@ export function useInlineTextPreview(page: PDFPageProxy, pageNumber: number, blo
     // Throttle instead of debounce: a continuous drag still gets PDF frames.
     timer.current = setTimeout(() => { timer.current = null; requestPreview(); }, 35);
   }, [pageNumber, blocks, previewEdits, images, previewImageEdits, activeId, scale, rotation, htmlForms, needed, requestPreview]);
-  if (!needed || preview?.page !== page) return null;
+  if (!needed || preview?.session !== session) return null;
   // Text alone is insufficient: changing font, size or bounds also invalidates
   // caret positions. Never revive geometry from an older layout.
   const geometry = new Map([...preview.geometry].filter(([id]) => {

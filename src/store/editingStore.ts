@@ -16,12 +16,13 @@ import type {
 } from '../editing/types';
 
 let prepareTextMode: (() => Promise<void>) | undefined;
+let textModePreparation: { prepare: () => Promise<void>; session: unknown; promise: Promise<void> } | undefined;
 let modeRequest = 0;
 /** Bake drafts into the working PDF before changing text detection granularity.
  * The document operation owns error reporting and retains an undo checkpoint. */
 export function registerTextModePreparation(prepare: () => Promise<void>) {
   prepareTextMode = prepare;
-  return () => { if (prepareTextMode === prepare) { prepareTextMode = undefined; modeRequest++; } };
+  return () => { if (prepareTextMode === prepare) { prepareTextMode = undefined; textModePreparation = undefined; modeRequest++; } };
 }
 
 interface EditingStore {
@@ -104,9 +105,19 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
       const ids = new Set(incompatible.flatMap(([, blocks]) => blocks.map(block => block.id)));
       if (state.textEdits.some(edit => ids.has(edit.blockId)) && prepareTextMode) {
         const prepare = prepareTextMode, session = useHistoryStore.getState().originalDocument;
-        void prepare().then(() => {
+        // A repeated click must await the operation already baking these edits.
+        // Starting a second document operation rejects it as busy and would
+        // otherwise invalidate the first request's eventual mode activation.
+        const pending = textModePreparation?.prepare === prepare && textModePreparation.session === session
+          ? textModePreparation : { prepare, session, promise: prepare() };
+        textModePreparation = pending;
+        void pending.promise.then(() => {
+          if (textModePreparation === pending) textModePreparation = undefined;
           if (request === modeRequest && prepareTextMode === prepare && useHistoryStore.getState().originalDocument === session) get().setMode(mode);
-        }).catch(() => { /* The document operation reports the error; drafts remain intact. */ });
+        }).catch(() => {
+          if (textModePreparation === pending) textModePreparation = undefined;
+          // The document operation reports the error; drafts remain intact.
+        });
         return;
       }
       if (!state.textEdits.some(edit => ids.has(edit.blockId)) && incompatible.length) {
@@ -287,6 +298,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
 
   clearAll: () => {
     modeRequest++;
+    textModePreparation = undefined;
     set({
       mode: 'none',
       pendingTextEditId: null,

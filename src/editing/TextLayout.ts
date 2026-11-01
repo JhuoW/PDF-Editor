@@ -209,7 +209,7 @@ export class TextLayoutSession {
       return width > 0 ? Math.max(.8, row.width / width) : 1;
     })) : 1;
     let sourceIndex = 0;
-    const paragraphs = text.split('\n').map(paragraph => {
+    const paragraphs = text.split('\n').map((paragraph, paragraphIndex) => {
       const characters = Array.from(paragraph), glyphs: MeasuredGlyph[] = [];
       for (let index = 0; index < characters.length; index++) {
         const style = input.sourceStyles?.[sourceIndex], key = style?.fontKey ?? primary;
@@ -231,7 +231,12 @@ export class TextLayoutSession {
           ascent: glyph.ascent * sizeRatio, descent: glyph.descent * sizeRatio });
       }
       sourceIndex++;
-      const source = input.sourceRows?.find(row => row.text === paragraph);
+      // Identical strings can occupy different physical widths (for example
+      // repeated table labels or justified rows). Preserve the corresponding
+      // row's spacing, not the first occurrence of that text in the paragraph.
+      const sourceRow = input.sourceRows?.[paragraphIndex];
+      const source = sourceRow?.text === paragraph ? sourceRow
+        : input.reflow ? input.sourceRows?.find(row => row.text === paragraph) : undefined;
       const spaces = glyphs.filter(glyph => space(glyph.character));
       if (!source || !spaces.length) return glyphs;
       // PDF word spacing can shrink as well as stretch a line. Embedded font

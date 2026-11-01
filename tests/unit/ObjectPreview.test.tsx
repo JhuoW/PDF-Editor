@@ -53,6 +53,21 @@ afterEach(async () => {
 });
 
 describe('composite native-object previews', () => {
+  it('does not revive a discarded preview when editing restarts on the same PDF page', async () => {
+    await render([textEdit]);
+    const previous = FakeWorker.instances[0];
+    act(() => previous.reply(previous.packet().id, 9));
+    expect(host.textContent).toBe('9');
+    await render();
+    expect(host.textContent).toBe('none');
+    expect(previous.terminate).toHaveBeenCalledTimes(1);
+    await render([{ ...textEdit, newText: 'A different edit' }]);
+    expect(host.textContent).toBe('none');
+    const current = FakeWorker.instances[1];
+    act(() => current.reply(current.packet().id, 2));
+    expect(host.textContent).toBe('2');
+  });
+
   it('merges a temporary text layout and image transform with committed edits on the current page only', async () => {
     const replacement = new Uint8Array([4, 5]).buffer;
     useEditingStore.getState().setImages(2, [{ ...image, id: 'other-page', pageNumber: 2 }]);

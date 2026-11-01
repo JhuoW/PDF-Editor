@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import * as mupdf from 'mupdf';
-import { applyTextEdits, inspectTextBlocks, previewInlineTextEdits, type PreparedTextEditLayout } from '../../src/editing/TextEditApplier';
+import { applyTextEdits, inspectTextBlocks, prepareTextEditLayout, previewInlineTextEdits, type PreparedTextEditLayout } from '../../src/editing/TextEditApplier';
 import type { TextBlock, TextEditOperation } from '../../src/editing/types';
 
-async function fixture() {
+async function fixture(firstRows: readonly string[] = ['alpha beta gamma', 'delta epsilon']) {
   const document = await PDFDocument.create(), page = document.addPage([500, 600]);
   const font = await document.embedFont(StandardFonts.Courier);
   const blocks: TextBlock[] = [];
   for (const [id, rows, x, top, color] of [
-    ['first', ['alpha beta gamma', 'delta epsilon'], 40, 60, rgb(.2, .1, .6)],
+    ['first', firstRows, 40, 60, rgb(.2, .1, .6)],
     ['next', ['Following paragraph', 'keeps its own style'], 40, 100, rgb(.1, .5, .2)],
     ['last', ['Final paragraph'], 40, 150, rgb(.1, .2, .7)],
     ['column', ['Right column stays', 'exactly where it was'], 290, 100, rgb(.3, .2, .1)],
@@ -42,6 +42,75 @@ const operation = (block: TextBlock, text: string, flow: 'paragraph' | 'object' 
 });
 
 describe('paragraph reflow shared by live preview, checks and save', () => {
+  it('keeps a growing single-line paragraph out of an adjacent column that begins farther down', async () => {
+    const { data, blocks } = await fixture(['alpha beta gamma']), source = new Map([[1, blocks]]);
+    const text = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda '.repeat(3).trim();
+    const edits = [operation(blocks[0], text)], layouts = new Map<string, PreparedTextEditLayout>();
+    const preview = await previewInlineTextEdits(data, source, edits, undefined, layouts);
+    const prepared = layouts.get('first')!;
+    expect(prepared.layout.fits).toBe(true);
+    expect(prepared.input.rect.x + prepared.input.rect.width).toBeLessThan(blocks[3].rect.x);
+    const saved = await applyTextEdits(data, source, edits);
+    expect(inspect(saved)).toEqual(inspect(preview));
+    expect(inspect(saved).filter(row => /Right|exactly/.test(row.text))).toEqual(inspect(data).filter(row => /Right|exactly/.test(row.text)));
+    expect(inspect(saved).map(row => row.text).join('').replace(/\s/g, '')).toContain(text.replace(/\s/g, ''));
+    expect((await inspectTextBlocks(data, source, edits)).issues.filter(issue => issue.blocking)).toEqual([]);
+  });
+  it('allows a lower paragraph to grow into space released by deleting an earlier paragraph', async () => {
+    const document = await PDFDocument.create(), page = document.addPage([400, 200]);
+    const font = await document.embedFont(StandardFonts.Courier);
+    const blocks: TextBlock[] = [
+      { id: 'before', rows: ['Earlier paragraph', 'has two lines'], top: 110 },
+      { id: 'after', rows: ['Lower paragraph'], top: 170 },
+    ].map(({ id, rows, top }) => {
+      const lines = rows.map((text, index) => {
+        const baseline = top + 14 + index * 18, width = font.widthOfTextAtSize(text, 14);
+        page.drawText(text, { x: 40, y: 200 - baseline, font, size: 14 });
+        return { text, x: 40, y: baseline - 14, width, height: 14, baseline, items: [] };
+      });
+      return { id, kind: 'paragraph', pageNumber: 1, text: rows.join('\n'), editable: true, lines,
+        rect: { x: 40, y: top, width: Math.max(...lines.map(line => line.width)), height: 14 + (lines.length - 1) * 18 },
+        style: { fontName: 'Courier', fontSize: 14, alignment: 'left', lineHeight: 18 / 14 } };
+    });
+    const data = new Uint8Array(await document.save()).buffer, source = new Map([[1, blocks]]);
+    const edits = [operation(blocks[0], ''), operation(blocks[1], 'Lower paragraph\nSecond row')];
+    const layouts = new Map<string, PreparedTextEditLayout>();
+    const preview = await previewInlineTextEdits(data, source, edits, undefined, layouts);
+    expect(layouts.get('after')!.layout.fits).toBe(true);
+    expect(layouts.get('after')!.input.rect.y).toBe(138);
+    const measured = await prepareTextEditLayout(data, blocks[1], edits[1], {}, { blocks, edits });
+    expect(measured.layout.fits).toBe(true);
+    expect(measured.input.rect).toEqual(layouts.get('after')!.input.rect);
+    expect((await inspectTextBlocks(data, source, edits)).issues.filter(issue => issue.blocking)).toEqual([]);
+    const saved = await applyTextEdits(data, source, edits);
+    expect(inspect(saved)).toEqual(inspect(preview));
+    expect(inspect(saved).map(row => row.text)).toEqual(['Lower paragraph', 'Second row']);
+  });
+  it('uses an explicitly positioned object target as an absolute position during paragraph reflow', async () => {
+    const { data, blocks } = await fixture(), source = new Map([[1, blocks]]);
+    const fixed: TextEditOperation = { ...operation(blocks[1], 'Fixed position', 'object'),
+      layout: { flow: 'object', targetRect: { x: 40, y: 68, width: 200, height: 32 }, fontSize: 14, reflow: true } };
+    const edits = [operation(blocks[0], ''), fixed];
+    const prepared = await prepareTextEditLayout(data, blocks[1], fixed, {}, { blocks, edits });
+    expect(prepared.input.rect.y).toBe(68);
+    expect(prepared.layout.fits).toBe(true);
+    const layouts = new Map<string, PreparedTextEditLayout>();
+    const preview = await previewInlineTextEdits(data, source, edits, undefined, layouts);
+    expect(layouts.get('next')!.input.rect).toEqual(prepared.input.rect);
+    const saved = await applyTextEdits(data, source, edits);
+    expect(inspect(saved)).toEqual(inspect(preview));
+    expect(inspect(saved).find(row => row.text === 'Fixed position')!.y).toBeCloseTo(prepared.layout.lines[0].baseline, 2);
+  });
+  it('resets the current paragraph draft while retaining other paragraphs in the measured page plan', async () => {
+    const { data, blocks } = await fixture();
+    const edits = [operation(blocks[0], ''), operation(blocks[1], 'A much longer changed second paragraph with more rows')];
+    const changed = { ...blocks[1], text: edits[1].newText };
+    const reset: TextEditOperation = { blockId: changed.id, originalText: blocks[1].text, newText: blocks[1].text, timestamp: 2 };
+    const prepared = await prepareTextEditLayout(data, changed, reset, {}, { blocks: [blocks[0], changed, ...blocks.slice(2)], edits });
+    expect(prepared.input.text).toBe(blocks[1].text);
+    expect(prepared.input.rect.y).toBe(blocks[1].rect.y - blocks[0].rect.height);
+    expect(prepared.layout.lines.map(line => line.text)).toEqual(blocks[1].lines.map(line => line.text));
+  });
   it('grows at the same font size, moves subsequent paragraphs and leaves the other column unchanged', async () => {
     const { data, blocks } = await fixture(), source = new Map([[1, blocks]]);
     const text = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';

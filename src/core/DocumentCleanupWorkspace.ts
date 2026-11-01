@@ -3,7 +3,7 @@ import { createWorkspace } from '../store/workspaceSnapshot';
 import { extractFormFields } from '../forms/FormFieldExtractor';
 import { applyCurrentWorkspaceFormValues } from '../forms/WorkspaceFormValues';
 import { serializeAnnotationsToPDF } from '../annotations/AnnotationSerializer';
-import { applyWorkspaceContent } from './PDFExport';
+import { applyWorkspaceContent, retainCommittedTextFonts } from './PDFExport';
 import { cleanPDF, inspectPDFCleanup } from './DocumentCleanup';
 import type { CleanupControl, CleanupOptions } from './DocumentCleanupTypes';
 
@@ -70,6 +70,7 @@ export async function cleanWorkspacePDF(data: ArrayBuffer, workspace: WorkspaceS
   const fields = await extractFormFields(buffer(result.data));
   check(control.signal);
   next.form = createWorkspace(fields).form;
+  retainCommittedTextFonts(next);
   next.editing.textBlocks.clear(); next.editing.images.clear();
   next.editing.textEdits = []; next.editing.imageEdits = [];
   next.editing.isDirty = next.editing.redactions.some(area => !area.applied);

@@ -1,5 +1,9 @@
 import type { en } from "./en";
 export const zhCN: Record<keyof typeof en, string> = {
+  "updates.debug.layout": "文字排版：修复多段增删后的误报溢出、跨栏重叠和重复行字间距问题；高级布局与预览、检查、导出统一考虑整页编辑、水印和图片修改。",
+  "updates.debug.objects": "对象编辑：修复文字换行后立即移动的保存失败、越界图片意外移位和框选越界误选；明确定位的文字保持指定位置。",
+  "updates.debug.input": "编辑交互：修复中文软换行处的光标定位、撤销后的旧预览回显、工具切换后的旧输入状态和重复模式切换。",
+  "updates.debug.fonts": "字体与检查：页面裁剪、表单扁平化及链接、书签、文档清理操作后保留导入字体；从文字检查定位单行对象时保留编辑模式和草稿。",
   "updates.fonts.library": "中文字体：新增内置中文字体和本地 TTF/OTF 字体管理，导入字体随编辑草稿保留并嵌入导出的 PDF。",
   "updates.fonts.export": "字体兼容性：修正中文 OTF 字符映射，保留字形显示与可搜索文字，并支持重新打开 PDF 后继续编辑。",
   "updates.fonts.search": "编辑后搜索：文字修改及撤销、重做后同步刷新搜索结果与高亮，修正裁剪、旋转页面上的高亮位置。",

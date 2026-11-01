@@ -1,4 +1,8 @@
 export const en = {
+  "updates.debug.layout": "Text layout: fix false overflow after multiple paragraph edits, cross-column overlap and spacing on repeated rows. Advanced layout, preview, checks and export account for page edits, watermarks and image changes consistently.",
+  "updates.debug.objects": "Object editing: fix saving when wrapped text is moved immediately, unexpected movement of clipped images and out-of-page marquee selection. Explicitly positioned text retains its chosen coordinates.",
+  "updates.debug.input": "Editing interactions: fix caret placement at Chinese soft wraps, stale previews after undo, stale typing sessions after tool changes and repeated mode-switch requests.",
+  "updates.debug.fonts": "Fonts and checks: retain imported fonts after page cropping, form flattening, link and bookmark edits, and document cleanup. Locating a text-check issue preserves the row object's mode and draft.",
   "updates.fonts.library": "Chinese fonts: add a built-in Chinese font and local TTF/OTF font management. Imported fonts remain available in drafts and exported PDFs.",
   "updates.fonts.export": "Font compatibility: preserve Chinese OTF character mappings, glyph appearance and searchable text, including editing a reopened PDF.",
   "updates.fonts.search": "Search after editing: refresh results and highlights when text changes or edits are undone/redone; align highlights on cropped and rotated pages.",

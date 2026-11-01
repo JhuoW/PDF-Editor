@@ -550,8 +550,11 @@ function App() {
       }
       useEditingStore.getState().updateBlockLayout(edit);
     };
+    const pageImages = workspace.editing.images.get(block.pageNumber) ?? [];
     return {
       data: stored.data, block, edit: workspace.editing.textEdits.find(item => item.blockId === block.id),
+      context: { blocks: workspace.editing.textBlocks.get(block.pageNumber) ?? [], edits: workspace.editing.textEdits,
+        images: pageImages, imageEdits: workspace.editing.imageEdits.filter(edit => pageImages.some(image => image.id === edit.imageId)) },
       preview: async (edit: TextEditOperation, previewSignal: AbortSignal) => {
         previewSignal.throwIfAborted(); checkCurrent();
         const result = await previewTextEditInWorker(stored.data, workspace, edit, { signal: previewSignal });
@@ -1400,7 +1403,11 @@ function App() {
     if (!editing.textBlocks.has(issue.pageNumber)) editing.setTextBlocks(issue.pageNumber, blocks);
     goToPage(issue.pageNumber);
     useUIStore.getState().setWorkspace('edit');
-    editing.setMode('text');
+    // A report can refer to a row object with an unsaved draft. Switching it
+    // to paragraph detection would bake that draft and invalidate the very
+    // block the report is trying to open (or fail while baking an overflow).
+    const block = issue.blockId ? useEditingStore.getState().getBlock(issue.blockId) : blocks[0];
+    editing.setMode(block?.kind === 'line' ? 'object' : 'text');
     if (issue.blockId) {
       editing.selectBlock(issue.blockId);
       useUIStore.getState().setInspectorOpen(true);

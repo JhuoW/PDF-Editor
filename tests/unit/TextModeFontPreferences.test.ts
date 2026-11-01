@@ -3,14 +3,18 @@ import { afterEach, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import * as mupdf from 'mupdf';
 import { inspectFont } from '../../src/fonts/fontAsset';
-import { bakeWorkspaceContent, exportWorkspacePDF } from '../../src/core/PDFExport';
+import { bakeWorkspaceContent, exportWorkspacePDF, flattenWorkspaceForm } from '../../src/core/PDFExport';
+import { performPageManagement } from '../../src/core/PageManagementWorkspace';
+import { preparePDFLinksWorkspace, applyPDFLinksWorkspace } from '../../src/core/PDFLinksWorkspace';
+import { preparePDFBookmarksWorkspace, applyPDFBookmarksWorkspace } from '../../src/core/PDFBookmarksWorkspace';
+import { cleanWorkspacePDF } from '../../src/core/DocumentCleanupWorkspace';
 import { prepareTextEditLayout } from '../../src/editing/TextEditApplier';
 import { createWorkspace, captureWorkspace, restoreWorkspace } from '../../src/store/workspaceSnapshot';
 import { useEditingStore } from '../../src/store/editingStore';
 import type { TextBlock, TextEditOperation } from '../../src/editing/types';
 
 afterEach(() => useEditingStore.getState().clearAll());
-it('retains an imported full font through mode rebasing and recovery, even when old wording cannot use it', async () => {
+it.each(['mode', 'crop', 'flatten', 'links', 'bookmarks', 'cleanup'])('retains an imported full font through %s and recovery, even when old wording cannot use it', async operation => {
   const bytes = await readFile(new URL('../fixtures/fonts/TestCJK.otf', import.meta.url));
   const asset = await inspectFont(new Uint8Array(bytes).buffer, 'TestCJK.otf');
   const document = await PDFDocument.create();
@@ -24,7 +28,12 @@ it('retains an imported full font through mode rebasing and recovery, even when 
     layout: { fontName: asset.id, keepBaseline: true, fitToContent: true, flow: 'object' } };
   const prepared = await prepareTextEditLayout(data, block, edit);
   const workspace = createWorkspace(); workspace.editing.textBlocks.set(1, [block]); workspace.editing.textEdits = [edit];
-  const baked = await bakeWorkspaceContent(data, workspace);
+  const baked = operation === 'crop' ? await performPageManagement(data, workspace, { action: 'crop', pages: [1], margins: { top: 0, bottom: 10, left: 0, right: 0 } })
+    : operation === 'flatten' ? await flattenWorkspaceForm(data, workspace)
+      : operation === 'links' ? await applyPDFLinksWorkspace((await preparePDFLinksWorkspace(data, workspace)).data, workspace, [])
+        : operation === 'bookmarks' ? await applyPDFBookmarksWorkspace((await preparePDFBookmarksWorkspace(data, workspace)).data, workspace, [])
+          : operation === 'cleanup' ? await cleanWorkspacePDF(data, workspace, { metadata: true, attachments: false, activeContent: false, comments: false, links: false, forms: false, privateData: false })
+            : await bakeWorkspaceContent(data, workspace);
   expect(baked.workspace.editing.textFontPreferences?.get(block.id)?.font?.id).toBe(asset.id);
   restoreWorkspace(baked.workspace);
   const row = prepared.layout.lines[0];

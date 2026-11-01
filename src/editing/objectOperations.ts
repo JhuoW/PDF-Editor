@@ -17,7 +17,10 @@ export function textObjectEdit(block: TextBlock, rect: TextRect): TextEditOperat
   const previous = useEditingStore.getState().textEdits.find(edit => edit.blockId === block.id), layout = previous?.layout;
   return { blockId: block.id, originalText: previous?.originalText ?? block.text, newText: block.text, timestamp: Date.now(),
     ...(previous?.font ? { font: previous.font } : {}),
-    layout: { ...layout, targetRect: rect, ...(layout && !layout.keepBaseline ? {} : { keepBaseline: true, translate: true, autoGrow: false }) } };
+    // The preview may still be measuring newly wrapped text when a move starts.
+    // Keep its automatic height calculation so exporting never depends on a
+    // previously published preview rectangle.
+    layout: { ...layout, targetRect: rect, ...(layout && !layout.keepBaseline ? {} : { keepBaseline: true, translate: true, autoGrow: layout?.autoGrow ?? false }) } };
 }
 export function transformObjectEdits(targets: ObjectTarget[], rects: TextRect[], resize = false) {
   const textEdits: TextEditOperation[] = [], imageEdits: ImageEditOperation[] = [];

@@ -55,6 +55,42 @@ afterEach(async () => {
 });
 
 describe('text editing interaction', () => {
+  it('positions the caret on the clicked CJK row and preserves End and vertical navigation at soft wraps', async () => {
+    const lines = ['中文', '测试'].map((text, index) => ({ text, x: 10, y: 20 + index * 12, width: 20, height: 10, baseline: 28 + index * 12,
+      items: [{ str: text, x: 10, y: 20 + index * 12, width: 20, height: 10, fontName: 'Helvetica', fontSize: 10, transform: [10, 0, 0, 10, 10, 20 + index * 12] }] }));
+    useEditingStore.getState().setTextBlocks(1, [{ ...block, text: '中文\n测试', lines, style: { ...block.style, fontSize: 10 } }]);
+    await render(page());
+    act(() => container.querySelector<HTMLElement>('.text-block')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 37 })));
+    const textarea = container.querySelector('textarea')!;
+    const caret = () => container.querySelector<HTMLElement>('.pdf-text-caret')!;
+    expect(textarea.selectionStart).toBe(2);
+    expect(caret().style.top).toBe('32px');
+    expect(caret().style.left).toBe('10px');
+    act(() => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })));
+    expect(textarea.selectionStart).toBe(0);
+    act(() => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })));
+    expect(textarea.selectionStart).toBe(2);
+    expect(caret().style.top).toBe('20px');
+    expect(caret().style.left).toBe('30px');
+    act(() => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    expect(textarea.selectionStart).toBe(4);
+    expect(caret().style.top).toBe('32px');
+    expect(caret().style.left).toBe('30px');
+    expect(useEditingStore.getState().textEdits).toHaveLength(0);
+  });
+
+  it('ends the typing session when another tool removes the editor without firing blur', async () => {
+    useEditingStore.getState().setTextBlocks(1, [block]);
+    await render(page());
+    act(() => container.querySelector<HTMLElement>('.text-block')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+    expect(container.querySelector('textarea')).not.toBeNull();
+    act(() => useEditingStore.getState().setMode('none'));
+    act(() => useEditingStore.getState().setMode('text'));
+    expect(container.querySelector('textarea')).toBeNull();
+    act(() => container.querySelector<HTMLElement>('.text-block')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+    expect(container.querySelector('textarea')?.value).toBe('Original');
+  });
+
   it('opens the requested object block for direct typing without a second click', async () => {
     useEditingStore.getState().setTextBlocks(1, [{ ...block, kind: 'line' }]);
     useEditingStore.getState().requestTextEdit(block.id);

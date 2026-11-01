@@ -1,10 +1,10 @@
 import type { WorkspaceSnapshot } from '../store/workspaceSnapshot';
-import type { PreparedTextEditLayout } from './TextEditApplier';
+import type { PreparedTextEditLayout, TextLayoutContext } from './TextEditApplier';
 import type { TextLayoutControl } from './TextLayout';
 import type { TextBlock, TextEditOperation } from './types';
 
 const MAX_INPUT_BYTES = 200 * 1024 * 1024;
-type Request = { job: 'prepare'; block: TextBlock; edit?: TextEditOperation }
+type Request = { job: 'prepare'; block: TextBlock; edit?: TextEditOperation; context?: TextLayoutContext }
   | { job: 'preview'; workspace: WorkspaceSnapshot; edit: TextEditOperation };
 
 function run<T extends PreparedTextEditLayout | Uint8Array>(data: ArrayBuffer | Uint8Array, request: Request, control: TextLayoutControl): Promise<T> {
@@ -46,9 +46,9 @@ function run<T extends PreparedTextEditLayout | Uint8Array>(data: ArrayBuffer | 
 }
 
 export function prepareTextEditLayoutInWorker(
-  data: ArrayBuffer | Uint8Array, block: TextBlock, edit?: TextEditOperation, control: TextLayoutControl = {},
+  data: ArrayBuffer | Uint8Array, block: TextBlock, edit?: TextEditOperation, control: TextLayoutControl = {}, context?: TextLayoutContext,
 ): Promise<PreparedTextEditLayout> {
-  return run(data, { job: 'prepare', block, edit }, control);
+  return run(data, { job: 'prepare', block, edit, ...(context ? { context } : {}) }, control);
 }
 
 export function previewTextEditInWorker(

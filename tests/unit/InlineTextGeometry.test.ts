@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inlineAvailableRect } from '../../src/editing/InlineTextBounds';
-import { inlineCaret, inlineOffsetAt, inlineSelection, inlineTextRows } from '../../src/editing/InlineTextGeometry';
+import { inlineCaret, inlineOffsetAt, inlinePositionAt, inlineSelection, inlineTextRowAt, inlineTextRows } from '../../src/editing/InlineTextGeometry';
 import type { TextBlock } from '../../src/editing/types';
 import type { PreparedTextEditLayout } from '../../src/editing/TextEditApplier';
 
@@ -15,6 +15,28 @@ const prepared: PreparedTextEditLayout = {
 };
 
 describe('direct PDF editing geometry', () => {
+  it('distinguishes the start and end of adjacent rows at a soft-wrap offset', () => {
+    const value = structuredClone(prepared);
+    value.input.text = 'abcd';
+    value.layout.lines = ['ab', 'cd'].map((text, row) => ({ text, x: 10, baseline: 28 + row * 12, width: 20, paragraphEnd: row === 1,
+      glyphs: Array.from(text, (character, index) => ({ character, fontName: 'Helvetica', glyphId: 1, x: 10 + index * 10, baseline: 28 + row * 12, advance: 10 })) }));
+    expect(inlinePositionAt(value, 100, 25)).toEqual({ offset: 2, affinity: 'upstream' });
+    expect(inlinePositionAt(value, 10, 37)).toEqual({ offset: 2, affinity: 'downstream' });
+    expect(inlineCaret(value, 2, 'upstream')).toMatchObject({ x: 30, y: 20 });
+    expect(inlineCaret(value, 2, 'downstream')).toMatchObject({ x: 10, y: 32 });
+    expect(inlineTextRowAt(value, 2)?.text).toBe('cd');
+  });
+
+  it('keeps skipped wrap spaces on the preceding row instead of jumping to the paragraph end', () => {
+    const value = structuredClone(prepared);
+    value.input.text = 'ab   cd\nef';
+    value.layout.lines = ['ab', 'cd', 'ef'].map((text, row) => ({ text, x: 10, baseline: 28 + row * 12, width: 20, paragraphEnd: row > 0,
+      glyphs: Array.from(text, (character, index) => ({ character, fontName: 'Helvetica', glyphId: 1, x: 10 + index * 10, baseline: 28 + row * 12, advance: 10 })) }));
+    expect(inlineTextRows(value).map(row => [row.start, row.end])).toEqual([[0, 2], [5, 7], [8, 10]]);
+    expect(inlineCaret(value, 3)).toMatchObject({ x: 30, y: 20 });
+    expect(inlineCaret(value, 4)).toMatchObject({ x: 30, y: 20 });
+  });
+
   it('locates an intentionally blank row between two paragraph breaks', () => {
     const value = structuredClone(prepared);
     value.input.text = 'ab 😀\n\ncd';

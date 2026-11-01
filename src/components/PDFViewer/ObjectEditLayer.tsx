@@ -151,7 +151,8 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
     event.preventDefault(); event.stopPropagation();
     const current = point(event), dx = current.x - active.start.x, dy = current.y - active.start.y;
     if (active.marquee) {
-      const rect = { x: Math.max(0, Math.min(current.x, active.start.x)), y: Math.max(0, Math.min(current.y, active.start.y)), width: Math.abs(dx), height: Math.abs(dy) };
+      const end = { x: Math.max(0, Math.min(current.x, viewport.width)), y: Math.max(0, Math.min(current.y, viewport.height)) };
+      const rect = { x: Math.min(end.x, active.start.x), y: Math.min(end.y, active.start.y), width: Math.abs(end.x - active.start.x), height: Math.abs(end.y - active.start.y) };
       setMarquee(rect); active.next = rect;
       if (rect.width < 3 && rect.height < 3) return;
       const found = targets.filter(target => { const box = displayRect(target); return box.x >= rect.x && box.y >= rect.y && box.x + box.width <= rect.x + rect.width && box.y + box.height <= rect.y + rect.height; });

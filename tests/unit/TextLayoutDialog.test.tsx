@@ -55,6 +55,21 @@ describe('TextLayoutDialog', () => {
     expect(api.prepare.mock.calls[0][0]).toBe(source.data); expect(latestPreview().pageNumber).toBe(2); expect(latestPreview().data).toEqual(new Uint8Array([9, 8]));
     expect(latestPreview().sourceRect).toEqual(source.block.rect); expect(props.onSave).not.toHaveBeenCalled();
   });
+  it('measures with neighboring drafts and retains the reflowed position when formatting explicitly', async () => {
+    source.context = { blocks: [source.block], edits: [] };
+    api.prepare.mockImplementation(async (_data, block, edit) => {
+      const result = prepared(block, edit);
+      if (!edit.layout?.targetRect) result.input.rect = { ...result.input.rect, y: 80 };
+      return result;
+    });
+    await render(); await settle();
+    expect(api.prepare.mock.calls[0][4]).toBe(source.context);
+    expect(field('Y').value).toBe('80');
+    await fill('Text color', '#334455'); await settle(); await click('Save draft');
+    expect(vi.mocked(props.onSave).mock.calls[0][0].layout).toMatchObject({
+      flow: 'object', targetRect: { ...source.block.rect, y: 80 }, fontColor: '#334455',
+    });
+  });
   it('reports overflow and fits height only after an explicit action', async () => {
     await render(); await settle(); await fill('Text', 'A long replacement paragraph. '.repeat(5)); await settle();
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('needs 60 points'); expect(button('Save draft').disabled).toBe(true); expect(field('Height').value).toBe('20');

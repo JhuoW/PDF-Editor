@@ -2,7 +2,7 @@ import type { WorkspaceSnapshot } from '../store/workspaceSnapshot';
 import { extractFormFields } from '../forms/FormFieldExtractor';
 import { applyCurrentWorkspaceFormValues } from '../forms/WorkspaceFormValues';
 import { serializeAnnotationsToPDF } from '../annotations/AnnotationSerializer';
-import { applyWorkspaceContent } from './PDFExport';
+import { applyWorkspaceContent, retainCommittedTextFonts } from './PDFExport';
 import { applyPDFLinks, inspectPDFLinks } from './PDFLinks';
 import type { PDFLinkControl, PDFLinkOperation } from './PDFLinkTypes';
 
@@ -44,6 +44,7 @@ export async function applyPDFLinksWorkspace(data: ArrayBuffer, workspace: Works
   control.signal?.throwIfAborted();
   const next = structuredClone(workspace);
   next.form = { fields, originalValues: new Map(fields.map(field => [field.id, structuredClone(field.value)])), isDirty: false };
+  retainCommittedTextFonts(next);
   next.editing.textBlocks.clear(); next.editing.images.clear();
   next.editing.textEdits = []; next.editing.imageEdits = [];
   next.editing.isDirty = next.editing.redactions.some(area => !area.applied);

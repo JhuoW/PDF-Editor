@@ -37,16 +37,32 @@ export function inlineTextRows(prepared: PreparedTextEditLayout) {
   });
 }
 
-export function inlineOffsetAt(prepared: PreparedTextEditLayout, x: number, y: number) {
+export type InlineCaretAffinity = 'upstream' | 'downstream';
+
+/** A soft line break has two caret positions at the same UTF-16 offset. */
+export function inlineTextRowAt(prepared: PreparedTextEditLayout, offset: number, affinity: InlineCaretAffinity = 'downstream') {
   const rows = inlineTextRows(prepared);
-  const row = rows.reduce<typeof rows[number] | undefined>((best, row) => !best || Math.abs(y - (row.baseline - prepared.layout.fontSize * .3)) < Math.abs(y - (best.baseline - prepared.layout.fontSize * .3)) ? row : best, undefined);
-  if (!row) return 0;
-  return row.glyphs.find(glyph => x < glyph.x + glyph.advance / 2)?.index ?? row.end;
+  const matching = rows.filter(row => offset >= row.start && offset <= row.end);
+  if (matching.length) return affinity === 'upstream' ? matching[0] : matching.at(-1);
+  // Wrapping can omit several separating spaces from the painted glyphs. A
+  // cursor moving through those offsets belongs to the preceding row, not the
+  // final row of the entire paragraph.
+  return rows.filter(row => row.start <= offset).at(-1) ?? rows[0];
 }
 
-export function inlineCaret(prepared: PreparedTextEditLayout, offset: number) {
+export function inlinePositionAt(prepared: PreparedTextEditLayout, x: number, y: number) {
   const rows = inlineTextRows(prepared);
-  const row = rows.find(row => offset >= row.start && offset <= row.end) ?? rows.at(-1);
+  const row = rows.reduce<typeof rows[number] | undefined>((best, row) => !best || Math.abs(y - (row.baseline - prepared.layout.fontSize * .3)) < Math.abs(y - (best.baseline - prepared.layout.fontSize * .3)) ? row : best, undefined);
+  const offset = row?.glyphs.find(glyph => x < glyph.x + glyph.advance / 2)?.index ?? row?.end ?? 0;
+  return { offset, affinity: offset === row?.end ? 'upstream' as const : 'downstream' as const };
+}
+
+export function inlineOffsetAt(prepared: PreparedTextEditLayout, x: number, y: number) {
+  return inlinePositionAt(prepared, x, y).offset;
+}
+
+export function inlineCaret(prepared: PreparedTextEditLayout, offset: number, affinity: InlineCaretAffinity = 'downstream') {
+  const row = inlineTextRowAt(prepared, offset, affinity);
   const glyph = row?.glyphs.find(glyph => glyph.index >= offset), last = row?.glyphs.at(-1);
   const size = glyph?.fontSize ?? last?.fontSize ?? prepared.layout.fontSize;
   return { x: glyph?.x ?? (last ? last.x + last.advance : row?.x ?? prepared.input.rect.x), y: (row?.baseline ?? prepared.input.legacyBaseline ?? prepared.input.rect.y + size * .8) - size * .8, width: 1, height: size };

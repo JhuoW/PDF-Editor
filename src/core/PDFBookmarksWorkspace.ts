@@ -2,7 +2,7 @@ import type { WorkspaceSnapshot } from '../store/workspaceSnapshot';
 import { extractFormFields } from '../forms/FormFieldExtractor';
 import { applyCurrentWorkspaceFormValues } from '../forms/WorkspaceFormValues';
 import { serializeAnnotationsToPDF } from '../annotations/AnnotationSerializer';
-import { applyWorkspaceContent } from './PDFExport';
+import { applyWorkspaceContent, retainCommittedTextFonts } from './PDFExport';
 import { applyPDFBookmarks, inspectPDFBookmarks } from './PDFBookmarks';
 import type { PDFBookmarkControl, PDFBookmarkDraft } from './PDFBookmarksTypes';
 
@@ -44,6 +44,7 @@ export async function applyPDFBookmarksWorkspace(data: ArrayBuffer, workspace: W
   control.signal?.throwIfAborted();
   const next = structuredClone(workspace);
   next.form = { fields, originalValues: new Map(fields.map(field => [field.id, structuredClone(field.value)])), isDirty: false };
+  retainCommittedTextFonts(next);
   next.editing.textBlocks.clear(); next.editing.images.clear();
   next.editing.textEdits = []; next.editing.imageEdits = [];
   next.editing.isDirty = next.editing.redactions.some(area => !area.applied);

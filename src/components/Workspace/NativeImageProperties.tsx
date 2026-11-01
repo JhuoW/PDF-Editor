@@ -5,7 +5,6 @@ import { useDocumentStore } from '../../store/documentStore';
 import { useObjectTransformStore, type ObjectTransformDraft } from '../../store/objectTransformStore';
 import { commitPendingEditors, registerPendingEditor } from '../../store/workspaceHistory';
 import { changeImageAppearance, imageAppearance, type ImageAppearance } from '../../editing/imageAppearance';
-import { moveObjectRect } from '../../editing/objectGeometry';
 import type { PDFImage } from '../../editing/types';
 import { useNativePage } from './useNativePage';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
@@ -23,7 +22,10 @@ export function NativeImageProperties({ image }: { image: PDFImage }) {
     const current = imageAppearance(image, useEditingStore.getState().imageEdits), edit = changeImageAppearance(image, current, patch);
     const bounds = page.getViewport({ scale: 1, rotation: 0 }), rect = edit.newRect!;
     const factor = Math.min(1, bounds.width / rect.width, bounds.height / rect.height);
-    edit.newRect = moveObjectRect({ ...rect, width: rect.width * factor, height: rect.height * factor }, 0, 0, bounds);
+    const width = rect.width * factor, height = rect.height * factor;
+    // Rotation intentionally fits the new bounds into the page. Pointer moves
+    // instead preserve existing crop overflow and must not be used as a clamp.
+    edit.newRect = { width, height, x: Math.max(0, Math.min(rect.x, bounds.width - width)), y: Math.max(0, Math.min(rect.y, bounds.height - height)) };
     editing.addImageEdit(edit);
   };
   return <section className="inspector-card native-image-properties" aria-label={t('image.appearance')}>

@@ -48,6 +48,14 @@ function inspect(bytes: Uint8Array) {
     return { images, text: content.asText(), paragraph: index < 0 ? null : characters[index], green };
   } finally { content.destroy(); sheet.destroy(); pdf.destroy(); }
 }
+function imageMatrices(bytes: Uint8Array) {
+  const document = new mupdf.PDFDocument(bytes), sheet = document.loadPage(0), matrices: number[][] = [];
+  const device = new mupdf.Device({ fillImage(image, matrix) {
+    try { matrices.push([...matrix]); } finally { image.destroy(); }
+  } });
+  try { sheet.runPageContents(device, mupdf.Matrix.identity); device.close(); return matrices; }
+  finally { device.destroy(); sheet.destroy(); document.destroy(); }
+}
 async function exported(page: Page) {
   const pending = page.waitForEvent('download');
   await page.locator('.main-toolbar .toolbar-btn-primary').click();
@@ -240,4 +248,50 @@ test('a full-page background image does not intercept selection and movement of 
   expect(output.paragraph!.y - original.paragraph!.y).toBeCloseTo(40, 1);
   expect(output.images).toEqual(original.images);
   expect(output.text).toContain(paragraph);
+});
+
+test('selecting and moving a partly clipped original image preserves its existing crop overflow', async ({ page }) => {
+  const pdf = await PDFDocument.create(), sheet = pdf.addPage([600, 760]);
+  const bitmap = await pdf.embedPng(bitmapPNG());
+  sheet.drawImage(bitmap, { x: -20, y: 430, width: 100, height: 60 });
+  const bytes = await pdf.save(), original = inspect(bytes);
+  await page.goto('./');
+  await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'clipped-object.pdf', mimeType: 'application/pdf', buffer: Buffer.from(bytes) });
+  await expect(page.locator('canvas.page-canvas')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
+  await page.locator('.workspace-ribbon [data-command="edit-objects"]').click();
+  await expect(images(page)).toHaveCount(1);
+  await images(page).first().click();
+  await expect(page.locator('.workspace-history > button').nth(0)).toBeDisabled();
+  expect(inspect(await exported(page)).images).toEqual(original.images);
+  await page.keyboard.down('Alt'); await drag(page, images(page).first(), 10, 10); await page.keyboard.up('Alt');
+  const moved = await exported(page), output = inspect(moved);
+  // Structured text reports the visible clipped bounds. The full image starts
+  // at -20, and still overhangs by 10pt after the move; its left visible edge
+  // remains zero. Verify the actual draw matrix as well as the clipped result.
+  closeBounds(imageMatrices(moved)[0], imageMatrices(bytes)[0].map((value, index) => index < 4 ? value : value + 10));
+  closeBounds(output.images[0], [0, 280, 90, 340]);
+  await page.locator('.workspace-history > button').nth(0).click();
+  const restored = await exported(page);
+  expect(inspect(restored).images).toEqual(original.images);
+  expect(imageMatrices(restored)).toEqual(imageMatrices(bytes));
+});
+
+test('a marquee dragged outside the page does not select objects beyond its original anchor', async ({ page }) => {
+  const pdf = await PDFDocument.create(), sheet = pdf.addPage([600, 760]);
+  const bitmap = await pdf.embedPng(bitmapPNG());
+  sheet.drawImage(bitmap, { x: 80, y: 430, width: 80, height: 60 });
+  sheet.drawImage(bitmap, { x: 205, y: 430, width: 10, height: 60 });
+  await page.goto('./');
+  await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'marquee-boundary.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) });
+  await expect(page.locator('canvas.page-canvas')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Zoom', exact: true }).selectOption('1');
+  await page.locator('.workspace-ribbon [data-command="edit-objects"]').click();
+  await expect(images(page)).toHaveCount(2);
+  const layer = (await page.locator('.object-edit-layer').boundingBox())!;
+  await page.mouse.move(layer.x + 200, layer.y + 250); await page.mouse.down();
+  await page.mouse.move(layer.x - 50, layer.y + 350, { steps: 5 }); await page.mouse.up();
+  await expect(images(page).first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(images(page).nth(1)).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.workspace-history > button').nth(0)).toBeDisabled();
 });

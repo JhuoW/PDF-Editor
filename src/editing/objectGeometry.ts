@@ -7,14 +7,19 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 
 /** Geometry is measured in display-page pixels; viewport conversion handles page rotation. */
 export function moveObjectRect(rect: TextRect, dx: number, dy: number, bounds: { width: number; height: number }): TextRect {
-  return { ...rect, x: clamp(rect.x + dx, 0, Math.max(0, bounds.width - rect.width)), y: clamp(rect.y + dy, 0, Math.max(0, bounds.height - rect.height)) };
+  // PDFs can contain artwork extending beyond the crop box. Keep its existing
+  // overflow instead of snapping it on selection; movement can bring it inward.
+  // Oversized artwork can pan between both page edges without changing its size.
+  const move = (position: number, delta: number, size: number, limit: number) =>
+    clamp(position + delta, Math.min(0, limit - size, position), Math.max(0, limit - size, position));
+  return { ...rect, x: move(rect.x, dx, rect.width, bounds.width), y: move(rect.y, dy, rect.height, bounds.height) };
 }
 
 /** Keep the opposite edge/corner fixed, without flipping an object through its anchor. */
 export function resizeObjectRect(rect: TextRect, handle: ObjectResizeHandle, dx: number, dy: number, bounds: { width: number; height: number }, preserveRatio: boolean, minimum = 4): TextRect {
   const west = handle.includes('w'), east = handle.includes('e'), north = handle.includes('n'), south = handle.includes('s');
   const anchorX = west ? rect.x + rect.width : rect.x, anchorY = north ? rect.y + rect.height : rect.y;
-  const maxWidth = west ? anchorX : Math.max(0, bounds.width - anchorX), maxHeight = north ? anchorY : Math.max(0, bounds.height - anchorY);
+  const maxWidth = Math.max(rect.width, west ? anchorX : bounds.width - anchorX), maxHeight = Math.max(rect.height, north ? anchorY : bounds.height - anchorY);
   let width = rect.width + (west ? -dx : east ? dx : 0), height = rect.height + (north ? -dy : south ? dy : 0);
   if (preserveRatio && (west || east) && (north || south)) {
     const sx = width / rect.width, sy = height / rect.height;

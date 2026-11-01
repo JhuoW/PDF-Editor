@@ -88,7 +88,7 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
     const timer = window.setTimeout(() => { void (async () => {
       let prepared: PreparedTextEditLayout | undefined;
       try {
-        prepared = await prepareTextEditLayoutInWorker(current.source.data, current.source.block, draft, { signal: request.signal });
+        prepared = await prepareTextEditLayoutInWorker(current.source.data, current.source.block, draft, { signal: request.signal }, current.source.context);
         if (request.signal.aborted) return;
         setMeasurement({ key: requestKey, source: current, prepared });
         if (!prepared.layout.fits) return;
@@ -101,7 +101,8 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
 
   const change = (patch: TextLayoutOptions, asset?: FontAsset) => {
     setDraft(previous => previous ? { ...previous, font: 'fontName' in patch ? asset : previous.font,
-      layout: { ...previous.layout, ...patch, keepBaseline: false, flow: 'object', autoGrow: false, fitToContent: false }, timestamp: Date.now() } : previous); setSaveError(null);
+      layout: { ...previous.layout, targetRect: previous.layout?.targetRect ?? resolved?.input.rect ?? current?.source.block.rect,
+        ...patch, keepBaseline: false, flow: 'object', autoGrow: false, fitToContent: false }, timestamp: Date.now() } : previous); setSaveError(null);
   };
   const changeRect = (rect: TextRect) => change({ targetRect: rect });
   const numberDraft = (label: string, dirty: boolean) => setDirtyNumbers(previous => {

@@ -7,6 +7,7 @@ import type { TextCheckIssue, TextCheckReport } from '../../editing/TextCheckTyp
 import { inspectWorkspaceTextInWorker } from '../../core/PDFExportClient';
 import { captureWorkspace } from '../../store/workspaceSnapshot';
 import { useDocumentStore } from '../../store/documentStore';
+import { useEditingStore } from '../../store/editingStore';
 import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from '../Workspace/LanguageSwitcher';
 import './ConversionDialog.css';
@@ -32,12 +33,16 @@ export function TextCheckDialog({ pdf, revision, onClose, onLocate }: {
     void (async () => {
       try {
         const workspace = captureWorkspace();
+        // Keep diagnostics at the active detection granularity so locating a
+        // result never requires rewriting other pages' pending row edits.
+        const kind = [...workspace.editing.textBlocks.values()].flat().find(block => block.kind)?.kind
+          ?? (useEditingStore.getState().mode === 'object' ? 'line' : 'paragraph');
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
           controller.signal.throwIfAborted();
           if (!workspace.editing.textBlocks.has(pageNumber)) {
             const page = await pdf.getPage(pageNumber);
             controller.signal.throwIfAborted();
-            workspace.editing.textBlocks.set(pageNumber, await detectTextBlocks(page));
+            workspace.editing.textBlocks.set(pageNumber, await detectTextBlocks(page, kind));
           }
           if (!current()) return;
           setProgress(.4 * pageNumber / pdf.numPages);

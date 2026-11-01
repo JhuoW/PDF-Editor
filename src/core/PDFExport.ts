@@ -32,20 +32,25 @@ export async function applyWorkspaceContent(data: ArrayBuffer, workspace: Worksp
   });
 }
 
-/** Rebase drafts while retaining selected full fonts for newly detected rows.
- * A selected face may have no glyphs in the old wording yet (e.g. a Chinese
- * subset applied to English). It must still be available for the next edit. */
-export async function bakeWorkspaceContent(data: ArrayBuffer, workspace: WorkspaceSnapshot) {
-  const updated = await applyWorkspaceContent(data, workspace);
+/** Retain full selected fonts before an operation discards committed drafts.
+ * A Chinese face may not be embedded yet if the old wording is all Latin. */
+export function retainCommittedTextFonts(workspace: WorkspaceSnapshot) {
   const preferences = new Map(workspace.editing.textFontPreferences);
+  const edits = new Map(workspace.editing.textEdits.map(edit => [edit.blockId, edit]));
   for (const block of [...workspace.editing.textBlocks.values()].flat()) {
-    const edit = workspace.editing.textEdits.find(item => item.blockId === block.id);
+    const edit = edits.get(block.id);
     const fontName = edit?.layout && 'fontName' in edit.layout ? edit.layout.fontName : block.fontPreference?.fontName;
     if (!fontName) continue;
     const font = (edit?.font ?? block.fontPreference?.font)?.id === fontName ? edit?.font ?? block.fontPreference?.font : undefined;
     preferences.set(block.id, { fontName, ...(font ? { font } : {}) });
   }
   if (preferences.size) workspace.editing.textFontPreferences = preferences;
+}
+
+/** Rebase drafts while retaining selected full fonts for newly detected rows. */
+export async function bakeWorkspaceContent(data: ArrayBuffer, workspace: WorkspaceSnapshot) {
+  const updated = await applyWorkspaceContent(data, workspace);
+  retainCommittedTextFonts(workspace);
   workspace.editing.textBlocks.clear(); workspace.editing.images.clear();
   workspace.editing.textEdits = []; workspace.editing.imageEdits = [];
   workspace.editing.isDirty = workspace.editing.redactions.some(area => !area.applied);
@@ -91,20 +96,15 @@ export async function inspectWorkspaceText(data: ArrayBuffer, workspace: Workspa
 
 /** Apply pending original-content edits before widget appearances become page content. */
 export async function flattenWorkspaceForm(data: ArrayBuffer, workspace: WorkspaceSnapshot) {
-  const content = await applyWorkspaceContent(data, workspace);
+  const baked = await bakeWorkspaceContent(data, structuredClone(workspace));
   const fields = workspace.form.fields.filter(field => !field.readOnly && field.type !== 'button' && field.type !== 'signature');
-  const filled = await updateFormFieldValues(new Uint8Array(content).buffer, new Map(fields.map(field => [field.name, field.value])));
+  const filled = await updateFormFieldValues(new Uint8Array(baked.data).buffer, new Map(fields.map(field => [field.name, field.value])));
   const flattened = await flattenForm(new Uint8Array(filled).buffer);
   return {
     data: flattened,
     workspace: {
-      ...workspace,
+      ...baked.workspace,
       form: { fields: [], originalValues: new Map(), isDirty: false },
-      editing: {
-        ...workspace.editing,
-        textBlocks: new Map(), images: new Map(), textEdits: [], imageEdits: [],
-        isDirty: workspace.editing.redactions.some(area => !area.applied),
-      },
     } satisfies WorkspaceSnapshot,
   };
 }

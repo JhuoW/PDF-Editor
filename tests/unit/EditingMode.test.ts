@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerTextModePreparation, useEditingStore } from '../../src/store/editingStore';
 import { useHistoryStore } from '../../src/store/historyStore';
 import type { TextBlock } from '../../src/editing/types';
@@ -13,6 +13,18 @@ beforeEach(() => {
 afterEach(() => { unregister?.(); unregister = undefined; });
 
 describe('paragraph and single-row object mode boundaries', () => {
+  it('shares an in-flight conversion when the same mode is requested twice', async () => {
+    useEditingStore.getState().updateBlockText(block.id, 'Changed');
+    let finish!: () => void;
+    const prepare = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    unregister = registerTextModePreparation(prepare);
+    useEditingStore.getState().setMode('object');
+    useEditingStore.getState().setMode('object');
+    expect(prepare).toHaveBeenCalledTimes(1);
+    useEditingStore.setState({ textBlocks: new Map(), textEdits: [], mode: 'none' });
+    finish(); await Promise.resolve();
+    expect(useEditingStore.getState().mode).toBe('object');
+  });
   it('invalidates unedited paragraph detection when entering object mode', () => {
     useEditingStore.getState().setMode('object');
     expect(useEditingStore.getState().mode).toBe('object');

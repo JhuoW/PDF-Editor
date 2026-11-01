@@ -88,4 +88,20 @@ describe('moving original PDF text', () => {
     const result = inspect(await applyTextEdits(data, new Map([[1, [block]]]), [edit]));
     expect(result.text.replace(/\s+/g, ' ')).toContain(edit.newText); expect(result.text).toContain('Neighbor stays');
   });
+  it('moves newly wrapped object text before its asynchronous preview has measured the height', async () => {
+    const { data, block } = await fixture(false), state = useEditingStore.getState();
+    state.setTextBlocks(1, [{ ...block, kind: 'line' }]);
+    const wording = 'Edited object text wraps over several lines and still saves after being moved immediately.';
+    state.updateBlockText(block.id, wording, undefined, { keepBaseline: true, reflow: true, autoGrow: true, flow: 'object', targetRect: block.rect });
+    const latest = state.getBlock(block.id)!;
+    const moved = textObjectEdit(latest, { ...block.rect, x: 70, y: 120 });
+    const prepared = await prepareTextEditLayout(data, latest, moved);
+    expect(prepared.layout.lines.length).toBeGreaterThan(1);
+    expect(prepared.layout.fits).toBe(true);
+    expect(prepared.input.rect.height).toBeGreaterThan(block.rect.height);
+    expect(prepared.input.fontSize).toBe(block.style.fontSize);
+    const output = inspect(await applyTextEdits(data, new Map([[1, [latest]]]), [moved]));
+    expect(output.text.replace(/\s+/g, ' ')).toContain(wording);
+    expect(output.text).toContain('Neighbor stays');
+  });
 });

@@ -131,6 +131,30 @@ test('lists a pending overflowing edit and opens its layout controls from the re
   await expect(page.locator('.text-layout-dialog')).toBeVisible();
 });
 
+for (const overflow of [false, true]) test(`locating ${overflow ? 'overflow' : 'font fallback'} in an edited row preserves object mode and the draft`, async ({ page }) => {
+  await open(page);
+  await page.locator('.workspace-ribbon [data-command="edit-objects"]').click();
+  await page.getByRole('button', { name: 'Select text object 1', exact: true }).dblclick();
+  const replacement = overflow ? 'Long object text. '.repeat(150) : 'Updated 中文';
+  await page.getByRole('textbox', { name: 'Edit text on page 1', exact: true }).fill(replacement);
+  await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', replacement);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Check text', exact: true }).click();
+  const report = page.locator('.text-check-dialog');
+  const issue = report.locator('.text-check-issues > li').filter({ hasText: overflow ? 'Fix before exporting' : 'For review' }).first();
+  await issue.getByRole('button', { name: 'Go to region', exact: true }).click();
+  await expect(report).toHaveCount(0);
+  await expect(page.locator('.workspace-ribbon [data-command="edit-objects"]')).toHaveAttribute('aria-pressed', 'true');
+  if (overflow) {
+    await expect(page.locator('.text-layout-dialog textarea')).toHaveValue(replacement);
+    await page.getByRole('button', { name: 'Close text layout', exact: true }).click();
+  } else {
+    await expect(page.locator('.object-edit-box.selected')).toBeVisible();
+    expect((await exportText(page)).replace(/\s/g, '')).toContain(replacement.replace(/\s/g, ''));
+  }
+  await expect(page.locator('.error-state')).toHaveCount(0);
+});
+
 test('limits backing pixels for large PDF and annotation canvases while retaining page coordinates', async ({ page }) => {
   const pdf = await PDFDocument.create(); pdf.addPage([12000, 1200]);
   await page.goto('./');

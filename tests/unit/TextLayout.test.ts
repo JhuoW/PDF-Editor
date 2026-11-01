@@ -5,6 +5,15 @@ const input = (overrides: Partial<TextLayoutInput> = {}): TextLayoutInput => ({ 
 const compact = (text: string) => text.replace(/\s/g, '');
 
 describe('shared measured paragraph layout', () => {
+  it('preserves each physical source row width when repeated text uses different spacing', async () => {
+    const text = 'alpha beta';
+    const result = await layoutText(input({ text: `${text}\n${text}`, fontName: 'Courier', fontSize: 12,
+      rect: { x: 40, y: 68, width: 100, height: 30 }, legacyBaseline: 80, lineHeight: 1.5,
+      sourceRows: [{ text, width: 70, x: 40, baseline: 80 }, { text, width: 100, x: 40, baseline: 98 }] }));
+    expect(result.fits).toBe(true);
+    expect(result.lines.map(line => line.width)).toEqual([expect.closeTo(70, 3), expect.closeTo(100, 3)]);
+    expect(result.lines.map(line => line.baseline)).toEqual([80, 98]);
+  });
   it('keeps a complete word at the right edge when only its trailing space overflows', async () => {
     const result = await layoutText(input({ text: 'alpha beta gamma delta third line', fontName: 'Courier', fontSize: 12,
       rect: { x: 40, y: 88, width: 79.2, height: 44 }, legacyBaseline: 100, lineHeight: 16 / 12 }));

@@ -5,7 +5,7 @@ import { extractFormFields } from '../forms/FormFieldExtractor';
 import { applyCurrentWorkspaceFormValues } from '../forms/WorkspaceFormValues';
 import { assertTextEditSource } from '../editing/TextEditSource';
 import { remapWorkspacePages, type WorkspaceSnapshot } from '../store/workspaceSnapshot';
-import { applyWorkspaceContent } from './PDFExport';
+import { applyWorkspaceContent, retainCommittedTextFonts } from './PDFExport';
 import { insertionPageMap } from './pageMapping';
 import { assertPageManagementSource, cropPDFPages, duplicatePDFPages, replacePDFPages, resetPageCrop } from './PageManagement';
 
@@ -119,6 +119,7 @@ export async function performPageManagement(
   }));
   // Read values from the result; never restore old target fields onto replacements.
   next.form = { fields, originalValues, isDirty: fields.some(field => JSON.stringify(field.value) !== JSON.stringify(originalValues.get(field.id))) };
+  retainCommittedTextFonts(next);
   next.editing.textBlocks.clear(); next.editing.images.clear();
   next.editing.textEdits = []; next.editing.imageEdits = [];
   next.editing.isDirty = next.editing.redactions.some(area => !area.applied);

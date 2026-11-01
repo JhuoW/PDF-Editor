@@ -22,6 +22,15 @@ beforeEach(() => { FakeWorker.instances = []; vi.stubGlobal('Worker', FakeWorker
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('text layout worker lifecycle', () => {
+  it('includes neighboring paragraph drafts in preparation without transferring their buffers', async () => {
+    const context = { blocks: [block], edits: [edit] };
+    const pending = prepareTextEditLayoutInWorker(new Uint8Array([1]), block, edit, {}, context), worker = FakeWorker.instances[0];
+    const [packet, transfer] = worker.postMessage.mock.calls[0];
+    expect(packet.context).toEqual(context);
+    expect(transfer).toEqual([packet.data]);
+    worker.send({ type: 'result', result: prepared });
+    await expect(pending).resolves.toBe(prepared);
+  });
   it('prepares a private exact byte range with the supplied block and layout without detaching the source', async () => {
     const source = new Uint8Array([9, 1, 2, 8]);
     const pending = prepareTextEditLayoutInWorker(source.subarray(1, 3), block, edit), worker = FakeWorker.instances[0];
