@@ -189,8 +189,8 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault(); finish();
     } else if (prepared && input.current && ['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      // Native vertical navigation would follow the hidden input's 1px rows.
-      // Instead follow the same PDF glyph rows that paint the visible text.
+      // Native navigation follows input newlines, not the PDF's wrapped rows.
+      // Follow the same PDF glyph rows that paint the visible text instead.
       event.preventDefault();
       const element = input.current, backward = element.selectionDirection === 'backward';
       const offset = backward ? element.selectionStart : element.selectionEnd;
@@ -256,7 +256,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       {activeId && <>
         {regions.map((style, index) => <div key={index} className="pdf-text-selection" style={style} />)}
         {caret && selection.start === selection.end && <div className="pdf-text-caret" style={{ ...caret, width: Math.max(1.5, caret.width) }} />}
-        <textarea ref={input} className="pdf-text-input" aria-label={t("m.edit.text.on.page.1a4d7e", { v0: pageNumber })} aria-describedby="pdf-text-edit-help" value={editText} spellCheck={false} autoCapitalize="off" autoComplete="off" style={{ left: caret?.left ?? 0, top: caret?.top ?? 0 }} onChange={event => change(event.target.value)} onSelect={event => {
+        <textarea ref={input} className="pdf-text-input" aria-label={t("m.edit.text.on.page.1a4d7e", { v0: pageNumber })} aria-describedby="pdf-text-edit-help" value={editText} wrap="off" spellCheck={false} autoCapitalize="off" autoComplete="off" style={{ left: caret?.left ?? 0, top: caret?.top ?? 0 }} onChange={event => change(event.target.value)} onSelect={event => {
           const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd;
           setSelection(previous => previous.start === start && previous.end === end ? previous : { start, end, affinity: 'downstream' });
         }} onKeyDown={keyDown} onBlur={event => finish(!!actions.current?.contains(event.relatedTarget) || event.relatedTarget instanceof Element && !!event.relatedTarget.closest('.workspace-inspector'))} />

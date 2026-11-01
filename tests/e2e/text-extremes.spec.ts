@@ -174,6 +174,9 @@ for (const scenario of [
     await input(page).fill(scenario.text);
     await expect(page.locator('.text-edit-notice')).toContainText(scenario.message);
     await expect(input(page)).toHaveValue(scenario.text);
+    // The keyboard/IME textarea must not build thousands of invisible wrapped
+    // rows at its 1px width. The PDF owns visible wrapping and caret geometry.
+    expect(await input(page).evaluate(element => element.scrollHeight)).toBeLessThan(100);
     const downloads: string[] = [];
     const capture = (download: import('@playwright/test').Download) => { downloads.push(download.suggestedFilename()); };
     page.on('download', capture);
