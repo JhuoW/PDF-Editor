@@ -76,7 +76,7 @@ async function exported(page: Page, name: string) {
 }
 async function noErrors(page: Page) { await expect(page.getByRole('alert')).toHaveCount(0); }
 
-for (const [pageNumber, prefix] of [[8, '784 (28 × 28 grayscale)'], [9, 'done with networks of many different'], [18, 'The results of these experiments are'], [25, 'This section describes the network architectures']] as const) {
+for (const [pageNumber, prefix] of [[8, '784 (28 × 28 grayscale)'], [9, 'done with networks of many different'], [18, 'The results of these experiments are'], [19, 'Where θ'], [25, 'This section describes the network architectures']] as const) {
   test(`preserves neighboring plots and source glyph offsets when editing paper page ${pageNumber}`, async ({ page }) => {
     await openPaper(page, pageNumber);
     const block = page.locator('.text-block').filter({ hasText: prefix });

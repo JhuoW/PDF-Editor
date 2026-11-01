@@ -131,8 +131,15 @@ export function readTextSourceMetrics(engine: Engine, page: PDFPage, block: Text
       const missing = missingSpaces(i);
       if (!/^\s+$/u.test(missing)) continue;
       const a = row[i], b = row[i + 1];
-      const advance = ((b.x - a.x) / a.style.fontSize - a.naturalAdvance * a.style.horizontalScale - a.style.tracking) / missing.length;
-      if (advance <= 0) continue;
+      const gap = (b.x - a.x) / a.style.fontSize - a.naturalAdvance * a.style.horizontalScale;
+      let advance = (gap - a.style.tracking) / missing.length;
+      if (advance <= 0) {
+        // A math comma's inferred tracking can already include an unlabelled
+        // word gap elsewhere in the row. If it consumes this entire gap, use
+        // the measured distance here instead of adding a fallback space too.
+        a.style.tracking = Math.min(0, gap);
+        advance = Math.max(0, gap) / missing.length;
+      }
       for (let offset = positions[i] + a.character.length; offset < positions[i + 1]; offset++) syntheticSpaces.set(offset, { advance, style: a.style });
     }
     let cursor = 0;

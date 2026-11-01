@@ -27,6 +27,34 @@ function inspect(data: Uint8Array) {
   } finally { text.destroy(); page.destroy(); pdf.destroy(); }
 }
 describe('source text metrics and export fidelity', () => {
+  it('does not count an inferred math-punctuation gap again as a synthetic word space', async () => {
+    const pdf = await PDFDocument.create(), page = pdf.addPage([400, 400]);
+    const body = await pdf.embedFont(StandardFonts.Courier), math = await pdf.embedFont(StandardFonts.TimesRomanItalic);
+    const comma = math.widthOfTextAtSize(',', 12), second = 40 + 7.2 + comma + 2.1, last = second + 7.2 + comma + 2;
+    page.drawText('a', { x: 40, y: 300, font: body, size: 12 });
+    page.drawText(',', { x: 47.2, y: 300, font: math, size: 12 });
+    page.drawText('b', { x: second, y: 300, font: body, size: 12 });
+    page.drawText(',', { x: second + 7.2, y: 300, font: math, size: 12 });
+    page.drawText('c', { x: last, y: 300, font: body, size: 12 });
+    // Extraction recognizes only the second positioned gap as a word space.
+    const text = 'a,b, c', width = last + 7.2 - 40;
+    const block: TextBlock = { id: 'punctuation-space', pageNumber: 1, text, editable: true,
+      rect: { x: 40, y: 88, width, height: 12 }, style: { fontName: 'Courier', fontSize: 12, alignment: 'left', lineHeight: 1.2 },
+      lines: [{ text, items: [], x: 40, y: 88, width, height: 12, baseline: 100 }] };
+    const data = new Uint8Array(await pdf.save()).buffer;
+    const edit: TextEditOperation = { blockId: block.id, originalText: text, newText: 'a,b, d', timestamp: 1,
+      layout: { keepBaseline: true, reflow: true, autoGrow: true, flow: 'paragraph' } };
+    const prepared = await prepareTextEditLayout(data, block, edit);
+    expect(prepared.layout.lines).toHaveLength(1);
+    expect(prepared.layout.lines[0].glyphs.at(-1)!.x).toBeCloseTo(last, 3);
+    const result = inspect(await applyTextEdits(data, new Map([[1, [block]]]), [edit]));
+    // Written TJ adjustments are quantized; retain positions within 0.01pt.
+    expect(result.find(g => g.c === 'd')?.x).toBeCloseTo(last, 2);
+    expect(result.map(g => g.c).join('').replace(/\s/g, '')).toBe('a,b,d');
+    const commas = result.filter(g => g.c === ','), before = inspect(new Uint8Array(data)).filter(g => g.c === ',');
+    expect(commas).toHaveLength(before.length);
+    commas.forEach((glyph, index) => expect(glyph.x).toBeCloseTo(before[index].x, 2));
+  });
   it('retains a lowered source tilde that extraction combined into a normal-baseline text item', async () => {
     const pdf = await PDFDocument.create(), page = pdf.addPage([400, 400]), font = await pdf.embedFont(StandardFonts.Courier);
     const text = 'alpha ~ beta', size = 12;
