@@ -1,4 +1,7 @@
 export const en = {
+  "updates.extremes.spacing": "Repeated text editing: preserve real spaces and automatic row boundaries, preventing inserted spaces in long tokens and justified Chinese/Latin text after reopening. Keep local emphasis and colors aligned with the original characters.",
+  "updates.extremes.frame": "Paragraph geometry: retain the wrap column, alignment and baseline through font-size changes and repeated saves; prevent justified words from being mistaken for separate columns. Row objects keep independent physical bounds.",
+  "updates.extremes.validation": "Extreme-case verification: compare original and edited PDFs, test whole-paragraph and single-row deletion, blank lines, repeated saves, page-edge movement, overflow and invalid-input recovery; add real arXiv object-editing and three-reader glyph checks.",
   "text.unmapped.readonly": "This text has no reliable character mapping in the PDF, so what it says cannot be read safely. Other text on this page can still be edited.",
   "text.type3.readonly": "This region uses a Type 3 drawing font that cannot be rewritten safely. Other text on this page can still be edited.",
   "updates.modes.layout": "Paragraph layout: group mixed-size inline emphasis with its body text, measure actual paragraph height and prevent larger wrapped text from overlapping following rows. Preserve nominal leading in saved PDFs so later deletion reflows without position drift.",

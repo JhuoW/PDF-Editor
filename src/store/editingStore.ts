@@ -214,7 +214,7 @@ export const useEditingStore = create<EditingStore>((set, get) => ({
     const textEdits = state.textEdits.filter(edit => edit.blockId !== blockId);
     // The editor joins soft row breaks. Typing back to that wording is no edit at
     // all, so the source rows, rather than a re-laid-out copy, must be restored.
-    if (layout?.reflow && newText === originalParagraphText(originalText)) newText = originalText;
+    if (layout?.reflow && newText === originalParagraphText(originalText, block.lines)) newText = originalText;
     const retainsFormatting = layout && (layout.fitToContent || ['fontName', 'fontSize', 'fontColor', 'alignment', 'lineHeight']
       .some(key => layout[key as keyof TextLayoutOptions] !== undefined));
     if (newText !== originalText || (layout && (layout.translate || !layout.keepBaseline || retainsFormatting))) textEdits.push({ blockId, originalText, newText, timestamp: Date.now(), ...(layout ? { layout } : {}), ...(existing?.font?.id === layout?.fontName ? { font: existing?.font } : {}) });

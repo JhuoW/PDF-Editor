@@ -6,10 +6,13 @@ import { hexColor, standardTextFont, TEXT_LAYOUT_LIMITS, TextLayoutSession, type
 import { readInlineTextBounds, readInlineTextObstacles } from './InlineTextBounds';
 import { readTextSourceMetrics, replacementTextStyles } from './TextSourceMetrics';
 import { TextCheckError, type TextCheckIssue, type TextCheckReport, type TextFontInfo } from './TextCheckTypes';
-import { textRegionTag } from './TextRegionMarkers';
+import { textRegionTag, textRowTag } from './TextRegionMarkers';
+import { originalParagraphText } from './ParagraphText';
+import { textRowSpacingTag } from './TextRowSpacing';
 import { placeTextAnchors, resolveTextAnchors } from './TextContentOrder';
 import { contentText } from './ImageEditApplier';
 import { isType3Font } from './NativeSourceFonts';
+import { textFrameTag } from './TextFrameMarkers';
 import { belongsToTextBlock, readTextPageContent, sourceTextRow, type TextPageContent } from './TextPageContent';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
@@ -20,7 +23,7 @@ export interface TextLayoutContext {
   images?: PDFImage[];
   imageEdits?: ImageEditOperation[];
 }
-interface PreparedBlock extends PreparedTextEditLayout { block: TextBlock }
+interface PreparedBlock extends PreparedTextEditLayout { block: TextBlock; fixedWrap: boolean }
 function cancelled(control: TextLayoutControl) { if (control.signal?.aborted) throw new DOMException('Text editing cancelled.', 'AbortError'); }
 function textFlow(block: TextBlock, edit: TextEditOperation) {
   const layout = edit.layout;
@@ -75,6 +78,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   const font = edit.font?.id === overrides.fontName ? edit.font : block.fontPreference?.font?.id === overrides.fontName ? block.fontPreference?.font : undefined;
   if (font) session.useImportedFont(font);
   const sourceSize = source?.fontSize ?? block.style.fontSize;
+  const fixedWrap = !!overrides.targetRect || (block.fixedWrap ?? block.lines.length > 1);
   const originalBaseline = overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined);
   const pageContent = context?.content ?? readTextPageContent(engine, page);
   const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,
@@ -91,7 +95,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   if (!overrides.fontName) input.sourceFontKey = source?.fontKey;
   if (source) {
     input.sourceFontSize = sourceSize;
-    input.sourceStyles = replacementTextStyles(source.source, input.text, !!overrides.reflow).map(style => ({ ...style,
+    input.sourceStyles = replacementTextStyles(source.source, input.text, !!overrides.reflow, block.lines).map(style => ({ ...style,
       ...(overrides.fontName ? { fontKey: overrides.fontName, fontName: overrides.fontName } : {}),
       ...(overrides.fontColor || block.style.fontColor ? { fontColor: input.fontColor, ...(style.paint?.strokeColor ? { paint: { ...style.paint, strokeColor: input.fontColor } } : {}) } : {}),
     }));
@@ -127,7 +131,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
     // report a false overflow that blocks saving.
     const frozen = session.layout({ ...input, rect: { ...rect, width: Math.max(rect.width, ...block.lines.map(line => line.width)) + input.fontSize * 2, height: TEXT_LAYOUT_LIMITS.dimension } }, control);
     const fonts: TextFontInfo = { original: source?.fontNames ?? [block.style.fontName], used: session.usedFontNames(frozen), mode: 'original' };
-    return { block, input, layout: { ...frozen, fits: true, overflow: undefined, requiredHeight: block.rect.height }, page: { width: geometry.width, height: geometry.height }, availableRect, fonts };
+    return { block, fixedWrap, input, layout: { ...frozen, fits: true, overflow: undefined, requiredHeight: block.rect.height }, page: { width: geometry.width, height: geometry.height }, availableRect, fonts };
   }
   const flow = textFlow(block, edit);
   if (flow === 'paragraph' && ['left', 'justify'].includes(input.alignment) && block.lines.length > 1) {
@@ -137,7 +141,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   // the edit. Save, preview, reload and Apply therefore use the same final area.
   const grow = overrides.fitToContent || overrides.autoGrow || (overrides.keepBaseline && overrides.reflow && !overrides.translate);
   if (grow && block.lines.length === 1 && input.alignment === 'left'
-    && (overrides.fitToContent || flow === 'object' || (flow === 'paragraph' && !overrides.targetRect))) {
+    && (overrides.fitToContent || flow === 'object' || (flow === 'paragraph' && !overrides.targetRect && !fixedWrap))) {
     // A row that already runs past the page edge stays one row, rather than wrapping onto its neighbor.
     const room = block.rect.x + block.rect.width > geometry.width + .01 && flow === 'object' ? TEXT_LAYOUT_LIMITS.dimension : availableRect.width;
     const natural = session.layout({ ...input, rect: { ...input.rect, width: room } }, control);
@@ -187,7 +191,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   }
   const fonts: TextFontInfo = { original: source?.fontNames ?? [block.style.fontName], used: session.usedFontNames(layout),
     mode: layout.warnings.length || (!source && !overrides.fontName) ? 'fallback' : overrides.fontName ? 'selected' : 'original' };
-  return { block, input, layout, page: { width: geometry.width, height: geometry.height }, availableRect, fonts };
+  return { block, fixedWrap, input, layout, page: { width: geometry.width, height: geometry.height }, availableRect, fonts };
 }
 
 const overlaps = (a: TextRect, b: TextRect) => a.x < b.x + b.width - .05 && b.x < a.x + a.width - .05
@@ -533,8 +537,27 @@ function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage
       if (!groups.length || (prepared.input.reflow && groups.at(-1)!.at(-1)!.paragraphEnd)) groups.push([]);
       groups.at(-1)!.push(line);
     }
-    return groups.filter(lines => lines.some(line => line.glyphs.length)).flatMap((lines, regionIndex) =>
-      paintParts(lines, session).map(part => ({ ...prepared, regionIndex, native: part.native, layout: { ...prepared.layout, lines: part.lines } })));
+    return groups.filter(lines => lines.some(line => line.glyphs.length)).flatMap((lines, regionIndex) => {
+      const first = lines[0];
+      const baselineOffset = first === prepared.layout.lines[0] ? first.baseline - prepared.input.rect.y
+        : Math.max(prepared.layout.fontSize, ...first.glyphs.map(glyph => glyph.fontSize ?? prepared.layout.fontSize));
+      return lines.flatMap(line => {
+        // Each row owns its anchor: removing the first row through object editing
+        // or redaction must not move a centered/right-aligned surviving column.
+        const frameTag = prepared.block.kind === 'line' ? undefined : textFrameTag({ width: prepared.input.rect.width,
+          xOffset: line.x - prepared.input.rect.x, baselineOffset,
+          fontSize: Math.max(0, ...line.glyphs.map(glyph => glyph.fontSize ?? prepared.layout.fontSize)) || prepared.layout.fontSize,
+          alignment: prepared.input.alignment, fixedWrap: prepared.fixedWrap });
+        const index = prepared.layout.lines.indexOf(line), next = prepared.layout.lines[index + 1];
+        const source = prepared.block.lines[index];
+        // Reflow knows whether a physical break split a token or removed spaces.
+        // A translated, unchanged paragraph retains the provenance of its rows.
+        const joinAfter = prepared.input.reflow ? line.joinAfter ?? '' : source?.joinAfter
+          ?? (next ? originalParagraphText(`${line.text}\n${next.text}`).slice(line.text.length, -next.text.length) : '');
+        return paintParts([line], session).map(part => ({ ...prepared, regionIndex, baselineOffset, frameTag, joinAfter, spacingTag: textRowSpacingTag(line.text),
+          native: part.native, layout: { ...prepared.layout, lines: part.lines } }));
+      });
+    });
   });
   if (!regions.length) return;
   const transform = page.getTransform();
@@ -572,8 +595,8 @@ function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage
     for (const prepared of regions) {
       const marked = keep(new engine.Buffer());
       const tag = textRegionTag(prepared.block.kind ?? 'paragraph', prepared.block.id, prepared.regionIndex,
-        prepared.input.lineHeight * prepared.layout.fontSize);
-      marked.write(`/${tag} BMC\n`);
+        prepared.input.lineHeight * prepared.layout.fontSize, prepared.baselineOffset);
+      marked.write(`/${tag} BMC\n${prepared.frameTag ? `/${prepared.frameTag} BMC\n` : ''}/${textRowTag(prepared.joinAfter)} BMC\n/${prepared.spacingTag} BMC\n`);
       let resources: PDFObject;
       if (prepared.native) {
         const fonts = keep(document.newDictionary()), states = keep(document.newDictionary());
@@ -590,7 +613,7 @@ function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage
         resources = keep(graft.graftObject(overlayResources[index]));
         resources.put('ColorSpace', spaces);
       }
-      marked.write('\nEMC\n');
+      marked.write(`\nEMC\nEMC\nEMC\n${prepared.frameTag ? 'EMC\n' : ''}`);
       const form = keep(document.addStream(new Uint8Array(marked.asUint8Array()), { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, width, height], Resources: resources }));
       let name = 'PDFEditorText', suffix = 0;
       while (true) { const existing = xObjects.get(name); try { if (existing.isNull()) break; name = `PDFEditorText${++suffix}`; } finally { existing.destroy(); } }

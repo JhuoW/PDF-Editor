@@ -242,15 +242,20 @@ export function readTextSourceMetrics(engine: Engine, page: PDFPage, block: Text
 }
 
 /** Map unchanged runs through local replacements; inserted text inherits the replaced run's style. */
-export function replacementTextStyles(source: Array<{ character: string; style: TextGlyphStyle }>, text: string, reflow: boolean): TextGlyphStyle[] {
+export function replacementTextStyles(source: Array<{ character: string; style: TextGlyphStyle }>, text: string, reflow: boolean, rows?: ReadonlyArray<{ text: string; joinAfter?: string }>): TextGlyphStyle[] {
   const original = source.map(item => item.character).join('');
   if (reflow) {
-    const joined = originalParagraphText(original);
-    let offset = 0;
-    source = Array.from(joined, character => {
-      while (offset < source.length - 1 && source[offset].character === '\n' && character !== ' ' && character !== '\n') offset++;
-      const item = source[offset++] ?? source.at(-1)!;
-      return { character, style: item.style };
+    const authored = rows?.map(row => row.text).join('\n') === original ? rows : undefined;
+    let row = 0;
+    source = source.flatMap((item, index) => {
+      if (item.character !== '\n') return [item];
+      const boundary = row++, before = source[index - 1]?.character, after = source[index + 1]?.character;
+      if (!before || !after || before === '\n' || after === '\n') return [item];
+      const separator = authored?.[boundary]?.joinAfter
+        ?? originalParagraphText(`${before}\n${after}`).slice(before.length, -after.length);
+      // A wrap can remove several spaces; each retains this boundary's style,
+      // while the following real glyphs keep their own styles and source offsets.
+      return Array.from(separator, character => ({ character, style: item.style }));
     });
   }
   const next = Array.from(normalizeReplacementText(text));

@@ -62,6 +62,7 @@ export interface TextLayoutGlyph {
 }
 export interface TextLayoutLine {
   text: string; x: number; baseline: number; width: number; paragraphEnd: boolean; glyphs: TextLayoutGlyph[];
+  joinAfter?: string;
 }
 export interface TextLayoutResult {
   fits: boolean; requiredHeight: number; overflow?: string; suggestedFontSize?: number;
@@ -72,7 +73,7 @@ export interface TextLayoutResult {
 export interface TextLayoutControl { signal?: AbortSignal }
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
 interface MeasuredGlyph { character: string; fontName: string; glyphId: number; advance: number; left: number; right: number; inkLeft?: number; inkRight?: number; ascent: number; descent: number; ink: boolean; sizeRatio?: number; horizontalScale?: number; fontColor?: string; paint?: TextGlyphPaint; softHyphen?: boolean; naturalSpaceAdvance?: number; sourceSpaceAdvance?: number; baselineOffset?: number }
-interface WrappedLine { glyphs: MeasuredGlyph[]; paragraphEnd: boolean }
+interface WrappedLine { glyphs: MeasuredGlyph[]; paragraphEnd: boolean; joinAfter?: string }
 const check = (control: TextLayoutControl) => { if (control.signal?.aborted) throw new DOMException('Text layout cancelled.', 'AbortError'); };
 const cjk = (value: string) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value);
 const noLineStart = new Set(Array.from('，。、；：？！）》】」』〕〉〗〙〛,.!?;:)]}'));
@@ -147,7 +148,8 @@ function wrap(glyphs: MeasuredGlyph[], width: number, firstWidth = width, tolera
       while (row.length && space(row[row.length - 1].character)) row.pop();
       while (next < glyphs.length && space(glyphs[next].character)) next++;
     }
-    lines.push({ glyphs: row, paragraphEnd: next === glyphs.length }); start = next;
+    const joinAfter = glyphs.slice(start + row.length, next).map(glyph => glyph.character).join('');
+    lines.push({ glyphs: row, paragraphEnd: next === glyphs.length, joinAfter }); start = next;
   }
   return lines;
 }
@@ -370,7 +372,7 @@ export class TextLayoutSession {
           const bounds = glyph.inkBounds, rect: [number, number, number, number] = [bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height];
           ink = ink ? [Math.min(ink[0], rect[0]), Math.min(ink[1], rect[1]), Math.max(ink[2], rect[2]), Math.max(ink[3], rect[3])] : rect;
         }
-        return { text: row.glyphs.map(glyph => glyph.character).join(''), x: start, baseline, width, paragraphEnd: row.paragraphEnd, glyphs };
+        return { text: row.glyphs.map(glyph => glyph.character).join(''), x: start, baseline, width, paragraphEnd: row.paragraphEnd, joinAfter: row.joinAfter, glyphs };
       });
       const requiredHeight = firstFootprint + Math.max(0, (lines.at(-1)?.baseline ?? 0) - (lines[0]?.baseline ?? 0));
       const fits = requiredHeight <= input.rect.height + 0.001 && widest <= input.rect.width + widthTolerance;

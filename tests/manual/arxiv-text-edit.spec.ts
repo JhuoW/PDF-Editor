@@ -104,8 +104,22 @@ async function browserRaster(page: Page, pageNumber: number, artifact: string) {
 }
 
 function inRegion(word: Word, region: Rect) {
+  // PDF.js logical rows end at the baseline; MuPDF word quads include
+  // descenders. Membership uses the quad center, not its below-baseline edge.
+  const centerY = word.y + word.height / 2;
   return word.x >= region.x - 1 && word.x + word.width <= region.x + region.width + 1
-    && word.y >= region.y - 1 && word.y + word.height <= region.y + region.height + 2;
+    && centerY >= region.y - 1 && centerY <= region.y + region.height + 1;
+}
+
+function expectSameWords(actual: Word[], expected: Word[]) {
+  expect(actual).toHaveLength(expected.length);
+  for (const [index, word] of expected.entries()) {
+    expect(actual[index].text).toBe(word.text);
+    expect(actual[index].font).toBe(word.font);
+    // Re-serializing a content matrix can round a float by ~0.00003 pt.
+    // Independent raster checks below still require identical outside pixels.
+    for (const key of ['x', 'y', 'width', 'height', 'size'] as const) expect(actual[index][key]).toBeCloseTo(word[key], 3);
+  }
 }
 
 // Compare ink shapes, rather than ToUnicode strings. A bad CID/Type 1 encoding can
@@ -147,7 +161,7 @@ function inkDifference(before: ReturnType<typeof inkPatch>, after: ReturnType<ty
   return best;
 }
 
-async function assertGlyphFidelity(before: Raster, after: Raster, originalWords: Word[], outputWords: Word[], region: Rect, label: string) {
+async function assertGlyphFidelity(before: Raster, after: Raster, originalWords: Word[], outputWords: Word[], region: Rect, label: string, minimumWords = 35) {
   expect([after.width, after.height]).toEqual([before.width, before.height]);
   const candidates = originalWords.filter(word => inRegion(word, region) && /^[A-Za-z]{4,}$/.test(word.text));
   const results = outputWords.filter(word => inRegion(word, region) && /^[A-Za-z]{4,}$/.test(word.text)).flatMap(word => {
@@ -160,7 +174,7 @@ async function assertGlyphFidelity(before: Raster, after: Raster, originalWords:
   const report = test.info().outputPath(`${label}-glyph-fidelity.json`);
   await writeFile(report, JSON.stringify({ words: results.length, mean, results }, null, 2));
   await test.info().attach(`${label}-glyph-fidelity`, { path: report, contentType: 'application/json' });
-  expect(results.length, `${label}: check many words inside the rewritten paragraph`).toBeGreaterThan(35);
+  expect(results.length, `${label}: compare source words inside the rewritten region`).toBeGreaterThan(minimumWords);
   expect(mean, `${label}: original letter shapes must survive editing`).toBeLessThan(.24);
   expect(results.filter(item => item.score > .4).length / results.length, `${label}: no widespread garbled words`).toBeLessThan(.1);
 }
@@ -223,20 +237,20 @@ async function download(page: Page, action: 'Save' | 'Export', name: string) {
 }
 
 async function verifyOutput(page: Page, bytes: Buffer, pageNumber: number, replacement: string, region: Rect,
-  original: ReturnType<typeof inspect>, originalNative: Raster, originalBrowser: Raster, label: string) {
+  original: ReturnType<typeof inspect>, originalNative: Raster, originalBrowser: Raster, label: string, minimumWords = 35) {
   const output = inspect(bytes, pageNumber);
   expect(output.pageCount).toBe(15);
   expect(normalize(output.text)).toContain(normalize(replacement));
   expect(normalize(output.text).split(normalize(replacement))).toHaveLength(2);
   const native = await render(bytes, pageNumber, label);
-  await assertGlyphFidelity(originalNative, native, original.words, output.words, region, `${label}-mupdf`);
+  await assertGlyphFidelity(originalNative, native, original.words, output.words, region, `${label}-mupdf`, minimumWords);
   await openPDF(page, bytes, `${label}.pdf`, pageNumber);
   const browser = await browserRaster(page, pageNumber, label);
-  await assertGlyphFidelity(originalBrowser, browser, original.words, output.words, region, `${label}-pdfjs`);
+  await assertGlyphFidelity(originalBrowser, browser, original.words, output.words, region, `${label}-pdfjs`, minimumWords);
   if (process.env.PDF_EDITOR_POPPLER === '1') {
     const before = await renderPoppler(source, pageNumber, `${label}-original`);
     const after = await renderPoppler(bytes, pageNumber, label);
-    await assertGlyphFidelity(before, after, original.words, output.words, region, `${label}-poppler`);
+    await assertGlyphFidelity(before, after, original.words, output.words, region, `${label}-poppler`, minimumWords);
   }
   for (let index = 1; index <= 15; index++) if (index !== pageNumber) {
     if (!sourcePageIdentities.has(index)) sourcePageIdentities.set(index, pageIdentity(source, index - 1));
@@ -257,6 +271,9 @@ test('real arXiv Type 1 text remains readable after separate Save and Export, in
   const exportedResult = await verifyOutput(page, exported, 1, edit.replacement, edit.region, original, originalNative, originalBrowser, 'exported');
   expect(Buffer.from(exportedResult.native.pixels)).toEqual(Buffer.from(savedResult.native.pixels));
   expect(Buffer.from(exportedResult.browser.pixels)).toEqual(Buffer.from(savedResult.browser.pixels));
+  await writeFile(test.info().outputPath('comparison.json'), JSON.stringify({ mode: 'paragraph', page: 1,
+    region: edit.region, original: edit.original, replacement: edit.replacement, unchangedPages: 14,
+    outsideChangedPixels: 0, saveEqualsExport: true }, null, 2));
 });
 
 test('real body paragraph supports insertion, deletion and editing again after save/reopen without corrupting glyphs', async ({ page }) => {
@@ -267,15 +284,19 @@ test('real body paragraph supports insertion, deletion and editing again after s
   const saved = await download(page, 'Save', 'attention-first-save.pdf');
   await verifyOutput(page, saved, 1, first.replacement, first.region, original, originalNative, originalBrowser, 'first-save');
   const second = await editParagraph(page, 1, 'The dominant sequence transduction', text => text.replace('a new simple network', 'a new very simple network'));
+  expect(second.original).toBe(first.replacement);
   const exported = await download(page, 'Export', 'attention-word-inserted.pdf');
   // A reflow may grow the paragraph by a line, so include its original whitespace.
   const expanded = { ...first.region, height: first.region.height + 28 };
   await verifyOutput(page, exported, 1, second.replacement, expanded, original, originalNative, originalBrowser, 'word-inserted');
   const third = await editParagraph(page, 1, 'The dominant sequence transduction', text => text.replace('a new very simple network', 'a simple network'));
+  expect(third.original).toBe(second.replacement);
   const final = await download(page, 'Save', 'attention-word-deleted.pdf');
   await verifyOutput(page, final, 1, third.replacement, expanded, original, originalNative, originalBrowser, 'word-deleted');
   expect(normalize(inspect(final, 1).text)).not.toContain('anewverysimplenetwork');
   await page.screenshot({ path: test.info().outputPath('final-reopened-editor.png'), fullPage: true });
+  await writeFile(test.info().outputPath('comparison.json'), JSON.stringify({ mode: 'paragraph-round-trip', page: 1,
+    region: expanded, original: first.original, replacement: third.replacement, unchangedPages: 14 }, null, 2));
 });
 
 test('real second-page body text keeps inline formatting and neighboring mathematical text intact', async ({ page }) => {
@@ -286,4 +307,76 @@ test('real second-page body text keeps inline formatting and neighboring mathema
   const exported = await download(page, 'Export', 'attention-page-two-exported.pdf');
   const result = await verifyOutput(page, exported, 2, edit.replacement, edit.region, original, originalNative, originalBrowser, 'page-two-exported');
   unchangedOutside(originalNative, result.native, edit.region);
+  await writeFile(test.info().outputPath('comparison.json'), JSON.stringify({ mode: 'paragraph-mixed-format', page: 2,
+    region: edit.region, original: edit.original, replacement: edit.replacement, unchangedPages: 14, outsideChangedPixels: 0 }, null, 2));
+});
+
+async function abstractRowObject(page: Page) {
+  await page.locator('.workspace-ribbon [data-command="edit-text"]').click();
+  const paragraph = page.locator('.text-block').filter({ hasText: 'sequence transduction' });
+  await expect(paragraph).toHaveCount(1);
+  const paragraphRect = await rectOf(paragraph);
+  await page.locator('.workspace-ribbon [data-command="edit-objects"]').click();
+  const objects = page.locator('.object-edit-box[data-object-kind="text"]');
+  await expect(objects.first()).toBeVisible();
+  const id = await objects.evaluateAll((elements, rect) => elements.find(element => {
+    const style = (element as HTMLElement).style;
+    return Math.abs(parseFloat(style.left) - rect.x) < .1 && Math.abs(parseFloat(style.top) - rect.y) < .1;
+  })?.getAttribute('data-object-id'), paragraphRect);
+  expect(id).toBeTruthy();
+  const object = page.locator(`[data-object-id="${id}"]`), region = await rectOf(object);
+  await object.dblclick({ position: { x: 20, y: 5 } });
+  const input = page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });
+  await expect(input).toBeVisible();
+  return { input, region };
+}
+
+test('real arXiv row objects keep source glyphs and every neighbor through repeated Save, Export and reopening', async ({ page }) => {
+  await openPDF(page, source, 'attention-original.pdf', 1);
+  const originalBrowser = await browserRaster(page, 1, 'original');
+  const originalNative = await render(source, 1, 'original'), original = inspect(source, 1);
+  const first = await abstractRowObject(page), originalRow = await first.input.inputValue();
+  expect(originalRow).toContain('The dominant sequence transduction');
+  expect(originalRow).not.toContain('\n');
+  const replacement = originalRow.replace('dominant', 'powerful');
+  await first.input.fill(replacement);
+  const saved = await download(page, 'Save', 'attention-object-saved.pdf');
+  const exported = await download(page, 'Export', 'attention-object-exported.pdf');
+  const savedResult = await verifyOutput(page, saved, 1, replacement, first.region, original, originalNative, originalBrowser, 'object-saved', 4);
+  unchangedOutside(originalNative, savedResult.native, first.region);
+  const exportedResult = await verifyOutput(page, exported, 1, replacement, first.region, original, originalNative, originalBrowser, 'object-exported', 4);
+  expect(Buffer.from(exportedResult.native.pixels)).toEqual(Buffer.from(savedResult.native.pixels));
+  const second = await abstractRowObject(page);
+  await expect(second.input).toHaveValue(replacement);
+  const finalText = replacement.replace('powerful', 'advanced');
+  await second.input.fill(finalText);
+  const final = await download(page, 'Save', 'attention-object-resaved.pdf');
+  const result = await verifyOutput(page, final, 1, finalText, first.region, original, originalNative, originalBrowser, 'object-resaved', 4);
+  unchangedOutside(originalNative, result.native, first.region);
+  const untouchedWords = (words: Word[]) => words.filter(word => !inRegion(word, first.region));
+  expectSameWords(untouchedWords(inspect(final, 1).words), untouchedWords(original.words));
+  await writeFile(test.info().outputPath('comparison.json'), JSON.stringify({ mode: 'object', page: 1,
+    region: first.region, original: originalRow, replacement: finalText, unchangedPages: 14, outsideChangedPixels: 0 }, null, 2));
+});
+
+test('deleting an arXiv text object removes only that row and undo restores the exact original PDF appearance', async ({ page }) => {
+  await openPDF(page, source, 'attention-original.pdf', 1);
+  const originalBrowser = await browserRaster(page, 1, 'original');
+  const originalNative = await render(source, 1, 'original'), original = inspect(source, 1);
+  const row = await abstractRowObject(page), rowText = await row.input.inputValue();
+  await row.input.fill('');
+  await row.input.press('ControlOrMeta+Enter');
+  const deleted = await download(page, 'Save', 'attention-object-deleted.pdf');
+  const result = inspect(deleted, 1);
+  expect(normalize(result.text)).not.toContain(normalize(rowText));
+  expectSameWords(result.words.filter(word => !inRegion(word, row.region)), original.words.filter(word => !inRegion(word, row.region)));
+  unchangedOutside(originalNative, await render(deleted, 1, 'object-deleted'), row.region);
+  for (let index = 1; index < 15; index++) expect(pageIdentity(deleted, index)).toEqual(pageIdentity(source, index));
+  await page.locator('.workspace-history > button').first().click();
+  const restored = await download(page, 'Export', 'attention-object-undo.pdf');
+  expect(pageIdentity(restored, 0)).toEqual(pageIdentity(source, 0));
+  await openPDF(page, deleted, 'attention-object-deleted.pdf', 1);
+  unchangedOutside(originalBrowser, await browserRaster(page, 1, 'object-deleted'), row.region);
+  await writeFile(test.info().outputPath('comparison.json'), JSON.stringify({ mode: 'object-delete', page: 1,
+    region: row.region, original: rowText, replacement: '', unchangedPages: 14, outsideChangedPixels: 0, undoExact: true }, null, 2));
 });

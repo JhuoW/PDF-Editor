@@ -1,5 +1,8 @@
 import type { en } from "./en";
 export const zhCN: Record<keyof typeof en, string> = {
+  "updates.extremes.spacing": "重复编辑：保留真实空格和自动换行边界，修复长字符串、中英文两端对齐文字重新打开后被插入空格的问题，并保持局部字重和颜色与原文字对应。",
+  "updates.extremes.frame": "段落位置：保存换行宽度、对齐方式和基线，修复反复改变字号、保存后段落位置漂移，以及两端对齐文字被误判为分栏的问题；单行对象仍使用独立的实际边界。",
+  "updates.extremes.validation": "极端场景验证：对比编辑前后的 PDF，覆盖整段与单行删除、空行、多次保存、页面边缘移动、溢出及无效输入恢复；新增真实 arXiv 论文对象编辑和三种阅读器的字形检查。",
   "text.unmapped.readonly": "这段文字在 PDF 中没有可靠的字符映射，无法安全读取其内容。同页的其他文字仍可编辑。",
   "text.type3.readonly": "此区域使用暂不支持安全改写的 Type 3 图形字体。同页的其他文字仍可编辑。",
   "updates.modes.layout": "段落排版：将局部不同字号的文字归入完整段落，按实际高度移动后续段落，防止较大字号文字换行后与下行重叠；保存时保留基础行距，避免再次编辑后的回流位置漂移。",

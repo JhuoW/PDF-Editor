@@ -55,8 +55,8 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const activeBlock = pageBlocks.find(block => block.id === activeId);
   const fallback = useMemo(() => activeBlock ? sourceGeometry(activeBlock, editText, layouts.get(activeBlock.id)) : undefined, [activeBlock, editText, layouts]);
   const measured = preview?.activeId === activeId ? preview.prepared : undefined;
-  const prepared = useMemo(() => measured && measured.input.text !== editText && originalParagraphText(measured.input.text) === editText
-    ? { ...measured, input: { ...measured.input, text: editText } } : measured ?? fallback, [measured, editText, fallback]);
+  const prepared = useMemo(() => measured && measured.input.text !== editText && originalParagraphText(measured.input.text, activeBlock?.lines) === editText
+    ? { ...measured, input: { ...measured.input, text: editText } } : measured ?? fallback, [measured, editText, fallback, activeBlock?.lines]);
   const source = page.getViewport({ scale: 1, rotation: 0 });
   const viewport = page.getViewport({ scale, rotation: getEffectiveRotation(page, rotation) });
   const rectStyle = (rect: TextRect) => {
@@ -134,7 +134,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       finish(); useHistoryStore.getState().endGroup();
       focusedBlock.current = block.id; group.current = `text:${block.id}:${crypto.randomUUID()}`;
       const previous = layouts.get(block.id);
-      const text = previous?.reflow || (previous && !previous.keepBaseline) ? block.text : originalParagraphText(block.text);
+      const text = previous?.reflow || (previous && !previous.keepBaseline) ? block.text : originalParagraphText(block.text, block.lines);
       selectBlock(block.id); setEditText(text); setEditingBlockId(block.id);
       setSelection({ start: 0, end: 0, affinity: 'downstream' });
       pendingPoint.current = { ...point, detail: event.detail };
@@ -163,7 +163,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     finish(); useHistoryStore.getState().endGroup();
     focusedBlock.current = block.id; group.current = `text:${block.id}:${crypto.randomUUID()}`;
     const previous = layouts.get(block.id);
-    const text = previous?.reflow || (previous && !previous.keepBaseline) ? block.text : originalParagraphText(block.text);
+    const text = previous?.reflow || (previous && !previous.keepBaseline) ? block.text : originalParagraphText(block.text, block.lines);
     selectBlock(block.id); setEditText(text); setEditingBlockId(block.id);
     setSelection({ start: 0, end: 0, affinity: 'downstream' });
   }, [mode, pendingTextEditId, pageBlocks, layouts, finish, selectBlock]);

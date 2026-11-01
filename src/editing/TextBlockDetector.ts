@@ -8,14 +8,16 @@ import { AnnotationMode, OPS } from 'pdfjs-dist';
 import type { TextItem, TextLine, TextBlock } from './types';
 import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON, TYPE3_TEXT_EDIT_REASON, UNMAPPED_TEXT_EDIT_REASON } from './types';
 import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
-import { textRegionFromTag, textRegionLeading, textRegionSource } from './TextRegionMarkers';
+import { textRegionBaselineOffset, textRegionFromTag, textRegionLeading, textRegionSource, textRowJoin } from './TextRegionMarkers';
+import { restoreTextRowSpacing, textRowSpacing, type TextRowSpacing } from './TextRowSpacing';
+import { scaledTextFrame, textFrameFromTag, type TextFrame } from './TextFrameMarkers';
 
 const WORD_SPACING_THRESHOLD = 0.3;
 const COMPLEX_REGION_REASON = 'Some text regions contain superscripts, overlapping glyphs, or rotated text that cannot be safely reflowed. Ordinary text blocks can still be edited.';
 
 // Keep the original PDF font identity for grouping. Different embedded fonts can
 // all report the same generic CSS family (for example Computer Modern in papers).
-interface DetectedItem extends TextItem { fontKey: string; rotated: boolean; region?: string; unsupportedType3?: boolean }
+interface DetectedItem extends TextItem { fontKey: string; rotated: boolean; region?: string; joinAfter?: string; spacing?: TextRowSpacing; frame?: TextFrame; unsupportedType3?: boolean }
 interface DetectedLine extends TextLine {
   items: DetectedItem[];
   fontKey: string;
@@ -24,6 +26,7 @@ interface DetectedLine extends TextLine {
   bodyFontSize: number;
   complex: boolean;
   mixedFonts: boolean;
+  provenanceIntact: boolean;
   region?: string;
 }
 function median(values: number[]): number {
@@ -65,14 +68,14 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
 
   // Convert text content items to our TextItem format
   // PDF.js returns TextItem | TextMarkedContent, we only want TextItem (which has 'str')
-  const markedContent: { decoration: boolean; region?: string }[] = [], regions = new Map<object, string>();
+  const markedContent: { decoration: boolean; region?: string; join?: string; spacing?: TextRowSpacing; frame?: TextFrame }[] = [], regions = new Map<object, string>(), joins = new Map<object, string>(), spacings = new Map<object, TextRowSpacing>(), frames = new Map<object, TextFrame>();
   let items: DetectedItem[] = textContent.items
     .filter((item): item is import('pdfjs-dist/types/src/display/api').TextItem => {
       if ('type' in item) {
         if (item.type === 'endMarkedContent') markedContent.pop();
         else if (item.type === 'beginMarkedContent' || item.type === 'beginMarkedContentProps') {
           const tag = 'tag' in item ? item.tag : undefined;
-          markedContent.push({ decoration: decorationInstanceFromTag(tag) !== undefined, region: textRegionFromTag(tag) });
+          markedContent.push({ decoration: decorationInstanceFromTag(tag) !== undefined, region: textRegionFromTag(tag), join: textRowJoin(tag), spacing: textRowSpacing(tag), frame: textFrameFromTag(tag) });
         }
         return false;
       }
@@ -80,6 +83,12 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
       // templates and numbering must be changed in the decorations dialog.
       const region = [...markedContent].reverse().find(entry => entry.region)?.region;
       if (region) regions.set(item, region);
+      const join = region === undefined ? undefined : [...markedContent].reverse().find(entry => entry.join !== undefined)?.join;
+      if (join !== undefined) joins.set(item, join);
+      const spacing = region === undefined ? undefined : [...markedContent].reverse().find(entry => entry.spacing)?.spacing;
+      if (spacing) spacings.set(item, spacing);
+      const frame = region === undefined ? undefined : [...markedContent].reverse().find(entry => entry.frame)?.frame;
+      if (frame) frames.set(item, frame);
       return !markedContent.some(entry => entry.decoration) && typeof item.str === 'string' && item.str.trim() !== '';
     })
     .map((item) => {
@@ -115,6 +124,9 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
         // Compare real face names when available, including weight and style.
         fontKey: fontName?.replace(/^[A-Z]{6}\+/, '') ?? item.fontName ?? 'unknown',
         region: regions.get(item),
+        frame: frames.get(item),
+        joinAfter: joins.get(item),
+        spacing: spacings.get(item),
         rotated: !!textContent.styles[item.fontName]?.vertical || Math.abs(tx[1]) > 0.01 || Math.abs(tx[2]) > 0.01 || tx[0] < 0,
         unsupportedType3,
         fontSize,
@@ -146,7 +158,7 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
   const paragraphs = groupIntoBlocks(lines, page.pageNumber);
   const leading = new Map(paragraphs.flatMap(paragraph => paragraph.lines.map(line => [line, paragraph.style.lineHeight] as const)));
   const blocks = kind === 'line' ? lines.map(line => {
-    const block = createBlock([line], page.pageNumber);
+    const block = createBlock([line], page.pageNumber, false);
     block.style.lineHeight = leading.get(line) ?? block.style.lineHeight;
     return block;
   }) : paragraphs;
@@ -209,7 +221,11 @@ function groupIntoLines(items: DetectedItem[]): DetectedLine[] {
       // even when their baselines happen to fall in the same row cluster.
       const separateSize = previous && Math.min(previous.fontSize, item.fontSize) < Math.max(previous.fontSize, item.fontSize) * .6
         && gap > Math.max(previous.fontSize, item.fontSize) * .75;
-      if (segment.length && (gap > Math.max(12, row.size * 1.8) || separateSize || segment[0].region !== item.region)) {
+      // A justified authored paragraph can have very wide word spaces. Its
+      // explicit region identity is stronger evidence than the column-gap
+      // heuristic; splitting it loses row order on the next edit/save cycle.
+      const authoredRow = item.region !== undefined && segment[0]?.region === item.region;
+      if (segment.length && ((!authoredRow && (gap > Math.max(12, row.size * 1.8) || separateSize)) || segment[0].region !== item.region)) {
         lines.push(createLine(segment)); segment = [];
       }
       segment.push(item); right = Math.max(segment.length === 1 ? -Infinity : right, item.x + item.width);
@@ -246,9 +262,12 @@ function createLine(items: DetectedItem[]): DetectedLine {
   const minY = Math.min(...items.map(item => item.y));
   const maxY = Math.max(...items.map(item => item.y + item.height));
   const fonts = [...new Set(items.map(item => item.fontKey))].sort();
+  const restored = restoreTextRowSpacing(text, items[0].spacing);
   return {
-    items, text: text.trim(), x: minX, y: minY, width: maxX - minX, height: maxY - minY,
+    items, text: restored ?? text.trim(), x: minX, y: minY, width: maxX - minX, height: maxY - minY,
+    provenanceIntact: !items[0].spacing || restored !== undefined,
     baseline, fontKey: fonts.join('|'), fontSize: size, bodyFontSize, mixedFonts: fonts.length > 1, region: items[0].region,
+    ...(items[0].joinAfter !== undefined ? { joinAfter: items[0].joinAfter } : {}),
     complex: overlapping || items.some(item => item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
   };
 }
@@ -317,15 +336,29 @@ function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[]
   return groups.map(group => createBlock(group, pageNumber)).sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
 }
 
-function createBlock(lines: DetectedLine[], pageNumber: number): TextBlock {
+function createBlock(lines: DetectedLine[], pageNumber: number, logicalBounds = true): TextBlock {
   const minX = Math.min(...lines.map(line => line.x));
   const maxX = Math.max(...lines.map(line => line.x + line.width));
   const minY = Math.min(...lines.map(line => line.y));
   const maxY = Math.max(...lines.map(line => line.y + line.height));
   const fontSize = lines[0].fontSize;
   const fontName = lines[0].items.find(item => item.fontSize === fontSize)?.fontName ?? 'unknown';
+  const intact = lines[0].provenanceIntact;
+  const storedFrame = logicalBounds && intact ? lines[0].items.find(item => item.frame)?.frame : undefined;
+  // Names in an external PDF are untrusted. Individually valid coordinates can
+  // still exceed the layout limits after multiplying by a forged font ratio.
+  const frame = storedFrame ? scaledTextFrame(storedFrame, fontSize / storedFrame.fontSize) : undefined;
+  const frameScale = frame && storedFrame ? fontSize / storedFrame.fontSize : 1;
   const nominalLeading = textRegionLeading(lines[0].region);
-  const lineHeight = nominalLeading !== undefined ? nominalLeading / fontSize : lines.length > 1
+  // The editor keeps the first baseline fixed while changing font size. Its
+  // logical top must survive saving; replacing it with the new glyph top adds
+  // permanent spacing on every grow/shrink cycle. Physical rows remain intact
+  // for source selection, redaction, and single-line object hit areas.
+  const baselineOffset = frame ? frame.baselineOffset : logicalBounds && intact ? textRegionBaselineOffset(lines[0].region) : undefined;
+  const span = lines.at(-1)!.baseline - lines[0].baseline;
+  const rectY = baselineOffset === undefined ? minY : lines[0].baseline - baselineOffset;
+  const rectHeight = baselineOffset === undefined ? maxY - minY : Math.max(baselineOffset, maxY - minY - span) + span;
+  const lineHeight = nominalLeading !== undefined ? nominalLeading * frameScale / fontSize : lines.length > 1
     ? median(lines.slice(1).map((line, index) => line.baseline - lines[index].baseline)) / fontSize
     : 1.2;
   const complex = lines.some(line => line.complex);
@@ -333,9 +366,11 @@ function createBlock(lines: DetectedLine[], pageNumber: number): TextBlock {
     // Never reuse a block ID across fresh detection after page organization.
     id: `block-${crypto.randomUUID()}`, pageNumber, lines,
     ...(lines[0].region ? { region: textRegionSource(lines[0].region) } : {}),
+    ...(frame ? { authoredLayout: true, fixedWrap: frame.fixedWrap ?? true } : {}),
     text: lines.map(line => line.text).join('\n'),
-    rect: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
-    style: { fontName, fontSize, alignment: estimateAlignment(lines), lineHeight },
+    rect: { x: frame ? lines[0].x - frame.xOffset : minX, y: rectY,
+      width: frame ? frame.width : maxX - minX, height: rectHeight },
+    style: { fontName, fontSize, alignment: frame?.alignment ?? estimateAlignment(lines), lineHeight },
     editable: !complex,
     ...(complex ? { unsupportedReason: COMPLEX_REGION_REASON } : {}),
   };

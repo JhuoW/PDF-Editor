@@ -25,6 +25,8 @@ export interface TextLine {
   width: number;
   height: number;
   baseline: number;
+  /** Exact whitespace removed at an editor-authored automatic row break. */
+  joinAfter?: string;
 }
 
 export interface TextRect { x: number; y: number; width: number; height: number }
@@ -58,6 +60,10 @@ export interface TextBlock {
   kind?: 'paragraph' | 'line';
   /** Editor-authored source region and its selected full font program. */
   region?: string;
+  /** A saved authored paragraph retains its logical wrap column after reopening. */
+  authoredLayout?: boolean;
+  /** Retain an authored multiline or explicitly sized paragraph's wrap width. */
+  fixedWrap?: boolean;
   fontPreference?: TextFontPreference;
   pageNumber: number;
   lines: TextLine[];
