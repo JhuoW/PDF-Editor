@@ -1,5 +1,9 @@
 export const en = {
+  "text.unmapped.readonly": "This text has no reliable character mapping in the PDF, so what it says cannot be read safely. Other text on this page can still be edited.",
   "text.type3.readonly": "This region uses a Type 3 drawing font that cannot be rewritten safely. Other text on this page can still be edited.",
+  "updates.glyphs.encoding": "Text export: preserve native Type 1 font programs and encodings to prevent garbled saved PDFs; retain Unicode mappings for ligatures and characters sharing an outline.",
+  "updates.glyphs.paragraphs": "Paragraph editing: keep rotated margin labels separate from body text and preserve literal hyphens through repeated edits, saves and reopening.",
+  "updates.glyphs.validation": "Verification: test Save and Export on a real arXiv NeurIPS paper, comparing rendered glyphs in PDF.js, MuPDF and Poppler, edited text and all untouched pages.",
   "updates.reflow.bounds": "Text saving: use painted glyph bounds instead of font boxes to avoid false conflicts near superscripts and tight rows. Preserve measured word gaps in mixed-font text, and respect the visible edges and clipping of page artwork.",
   "updates.reflow.anchors": "Paragraph flow: keep text across fixed figures, formulas and form fields in independent flow areas, and use available paragraph whitespace before reporting a conflict. Object edits keep their absolute positions.",
   "updates.reflow.feedback": "Editing: preserve source hyphen breaks, glyph baseline offsets and subpixel width precision; separate chart ticks and wrap columns, and identify unsupported Type 3 fonts early. Highlight real conflicts and consolidate repeated errors. Prevent object toolbars from intercepting double-clicks and late previews from resetting selected text. Add real-paper and editing-mode regression tests.",

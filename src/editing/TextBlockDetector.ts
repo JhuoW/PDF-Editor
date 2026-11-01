@@ -6,7 +6,7 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode, OPS } from 'pdfjs-dist';
 import type { TextItem, TextLine, TextBlock } from './types';
-import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON, TYPE3_TEXT_EDIT_REASON } from './types';
+import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON, TYPE3_TEXT_EDIT_REASON, UNMAPPED_TEXT_EDIT_REASON } from './types';
 import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
 import { textRegionFromTag, textRegionSource } from './TextRegionMarkers';
 
@@ -15,7 +15,7 @@ const COMPLEX_REGION_REASON = 'Some text regions contain superscripts, overlappi
 
 // Keep the original PDF font identity for grouping. Different embedded fonts can
 // all report the same generic CSS family (for example Computer Modern in papers).
-interface DetectedItem extends TextItem { fontKey: string; rotated: boolean; type3: boolean; region?: string }
+interface DetectedItem extends TextItem { fontKey: string; rotated: boolean; region?: string; unsupportedType3?: boolean }
 interface DetectedLine extends TextLine {
   items: DetectedItem[];
   fontKey: string;
@@ -64,7 +64,7 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
   // Convert text content items to our TextItem format
   // PDF.js returns TextItem | TextMarkedContent, we only want TextItem (which has 'str')
   const markedContent: { decoration: boolean; region?: string }[] = [], regions = new Map<object, string>();
-  const items: DetectedItem[] = textContent.items
+  let items: DetectedItem[] = textContent.items
     .filter((item): item is import('pdfjs-dist/types/src/display/api').TextItem => {
       if ('type' in item) {
         if (item.type === 'endMarkedContent') markedContent.pop();
@@ -90,8 +90,17 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
       const fontSize = Math.hypot(tx[2], tx[3]) * unit;
       const width = (item.width ?? 0) * unit;
       const height = item.height ? item.height * unit : fontSize;
-      const resolvedFont = page.commonObjs?.has(item.fontName) ? page.commonObjs.get(item.fontName) as { name?: string; isType3Font?: boolean } : undefined;
+      const resolvedFont = page.commonObjs?.has(item.fontName) ? page.commonObjs.get(item.fontName) as {
+        name?: string; isType3Font?: boolean; charProcOperatorList?: Record<string, { fnArray: number[] }>;
+      } : undefined;
       const fontName = typeof resolvedFont?.name === 'string' ? resolvedFont.name : undefined;
+      const programs = Object.values(resolvedFont?.charProcOperatorList ?? {});
+      // d1 glyphs are monochrome masks. A painted d0 glyph can contain arbitrary
+      // colored artwork whose ownership/outer paint cannot be recovered safely.
+      // An empty d0 space is harmless and must not lock an otherwise ordinary font.
+      const unsupportedType3 = resolvedFont?.isType3Font && (!programs.length || programs.some(program =>
+        program.fnArray.includes(OPS.setCharWidth) && program.fnArray.some(operator =>
+          ![OPS.setCharWidth, OPS.save, OPS.restore].includes(operator))));
 
       return {
         str: item.str,
@@ -103,9 +112,9 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
         // PDF producers may allocate a new subset/resource for each row.
         // Compare real face names when available, including weight and style.
         fontKey: fontName?.replace(/^[A-Z]{6}\+/, '') ?? item.fontName ?? 'unknown',
-        type3: resolvedFont?.isType3Font === true,
         region: regions.get(item),
         rotated: !!textContent.styles[item.fontName]?.vertical || Math.abs(tx[1]) > 0.01 || Math.abs(tx[2]) > 0.01 || tx[0] < 0,
+        unsupportedType3,
         fontSize,
         transform: tx,
       };
@@ -114,6 +123,15 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
   if (items.length === 0) {
     return [];
   }
+
+  // Render mode 2 written as a fill plus a stroke paints identical items twice;
+  // that is one source glyph run and must not lock the row as overlapping text.
+  const painted = new Set<string>();
+  items = items.filter(item => {
+    const key = `${item.str}|${item.x.toFixed(2)}|${item.y.toFixed(2)}|${item.fontKey}`;
+    if (painted.has(key)) return false;
+    painted.add(key); return true;
+  });
 
   // Sort by baseline, never by approximate top bounds. Sorting by top can put
   // smaller fragments of the same physical line into another reading row.
@@ -130,7 +148,19 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
     block.style.lineHeight = leading.get(line) ?? block.style.lineHeight;
     return block;
   }) : paragraphs;
-  for (const block of blocks) block.kind = kind;
+  for (const block of blocks) {
+    block.kind = kind;
+    if (block.lines.some(line => line.items.some(item => (item as DetectedItem).unsupportedType3))) {
+      block.editable = false;
+      block.unsupportedReason = TYPE3_TEXT_EDIT_REASON;
+    }
+    // Fonts without Unicode data extract as raw codes: the letters shown are not what is
+    // painted (a space often reads as U+0003), so accepting an edit would change the words.
+    if (block.editable && Array.from(block.text).some(character => (character.codePointAt(0)! < 32 && !'\n\t'.includes(character)) || character.codePointAt(0) === 127)) {
+      block.editable = false;
+      block.unsupportedReason = UNMAPPED_TEXT_EDIT_REASON;
+    }
+  }
 
   // Mixed visible/invisible items can be grouped into one block. Conservatively
   // lock the page: changing OCR glyphs would leave the scanned image underneath.
@@ -145,7 +175,12 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
 /** Cluster physical baselines first, then separate distant columns on each row. */
 function groupIntoLines(items: DetectedItem[]): DetectedLine[] {
   const rows: Array<{ items: DetectedItem[]; baseline: number; size: number }> = [];
+  const lines: DetectedLine[] = [];
   for (const item of items) {
+    // A rotated margin label has no horizontal baseline or width. Clustering it
+    // with body text can swallow several ordinary rows into a read-only region
+    // (for example the arXiv stamp beside a paper's abstract).
+    if (item.rotated) { lines.push(createLine([item])); continue; }
     const baseline = item.y + item.height;
     // Adjacent body lines are normally only 1.2 font sizes apart. They must not
     // share a row. Small superscripts/subscripts may overlap their main row, but
@@ -161,7 +196,6 @@ function groupIntoLines(items: DetectedItem[]): DetectedLine[] {
     } else rows.push({ items: [item], baseline, size: item.fontSize });
   }
 
-  const lines: DetectedLine[] = [];
   for (const row of rows) {
     row.items.sort((a, b) => a.x - b.x);
     let segment: DetectedItem[] = [], right = -Infinity;
@@ -207,7 +241,7 @@ function createLine(items: DetectedItem[]): DetectedLine {
   return {
     items, text: text.trim(), x: minX, y: minY, width: maxX - minX, height: maxY - minY,
     baseline, fontKey: fonts.join('|'), fontSize: size, mixedFonts: fonts.length > 1, region: items[0].region,
-    complex: overlapping || items.some(item => item.type3 || item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
+    complex: overlapping || items.some(item => item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
   };
 }
 
@@ -292,7 +326,7 @@ function createBlock(lines: DetectedLine[], pageNumber: number): TextBlock {
     rect: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
     style: { fontName, fontSize, alignment: estimateAlignment(lines), lineHeight },
     editable: !complex,
-    ...(complex ? { unsupportedReason: lines.some(line => line.items.some(item => item.type3)) ? TYPE3_TEXT_EDIT_REASON : COMPLEX_REGION_REASON } : {}),
+    ...(complex ? { unsupportedReason: COMPLEX_REGION_REASON } : {}),
   };
 }
 

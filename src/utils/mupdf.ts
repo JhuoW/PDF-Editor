@@ -41,6 +41,28 @@ function assertCompatiblePageBoxes(page: import('mupdf').PDFPage) {
   } finally { object.destroy(); }
 }
 
+/** A thin strip through a source text row, in MuPDF page space. MuPDF removes each glyph
+ * whose whole font box touches a redaction, and font boxes of neighboring rows overlap:
+ * a row's full height also deletes the row above. A strip inside the x-height reaches
+ * every glyph of its own row (punctuation included), and text outside the page too. */
+export function toMuPDFTextRowQuad(
+  mupdf: Awaited<ReturnType<typeof loadMuPDF>>,
+  page: import('mupdf').PDFPage,
+  row: { x: number; width: number; baseline: number; size: number },
+): import('mupdf').Quad {
+  assertCompatiblePageBoxes(page);
+  const transform = page.getTransform();
+  const crop = mupdf.Rect.transform(page.getBounds(), mupdf.Matrix.invert(transform));
+  const unit = Math.hypot(transform[0], transform[1]);
+  const top = row.baseline - row.size * .305, bottom = row.baseline - row.size * .295;
+  const point = (x: number, y: number) => {
+    const px = crop[0] + x / unit, py = crop[3] - y / unit;
+    return [px * transform[0] + py * transform[2] + transform[4], px * transform[1] + py * transform[3] + transform[5]];
+  };
+  const a = row.x, b = row.x + row.width;
+  return [...point(a, top), ...point(b, top), ...point(a, bottom), ...point(b, bottom)] as import('mupdf').Quad;
+}
+
 /** Map PDF.js scale=1, unrotated, CropBox-relative top-left coordinates to MuPDF page space. */
 export function toMuPDFPageRect(
   mupdf: Awaited<ReturnType<typeof loadMuPDF>>,

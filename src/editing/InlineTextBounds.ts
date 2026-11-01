@@ -23,8 +23,11 @@ export function inlineAvailableRect(block: TextBlock, blocks: TextBlock[], width
   // Preserve paragraph widths and centered/right-aligned text. A single left-
   // aligned line can use clear space on its right before wrapping.
   let right = block.lines.length === 1 && block.style.alignment === 'left' ? width - Math.min(source.x, 24) : source.x + source.width;
+  // A descender of the row above or an ascender below shares this row's box, yet
+  // only content level with its core actually blocks growing to the right.
+  const core = source.height * .25;
   for (const rect of obstacles) {
-    if (rect.x >= source.x + source.width - .1 && rect.y < source.y + source.height && rect.y + rect.height > source.y) right = Math.min(right, rect.x - gap);
+    if (rect.x >= source.x + source.width - .1 && rect.y < source.y + source.height - core && rect.y + rect.height > source.y + core) right = Math.min(right, rect.x - gap);
   }
   right = Math.max(source.x + source.width, right);
   let bottom = height - Math.min(source.y, 24);

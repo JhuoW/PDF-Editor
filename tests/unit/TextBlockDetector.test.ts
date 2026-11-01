@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { OPS } from 'pdfjs-dist';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { detectTextBlocks, getTextEditingRestriction } from '../../src/editing/TextBlockDetector';
-import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON, TYPE3_TEXT_EDIT_REASON } from '../../src/editing/types';
+import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON } from '../../src/editing/types';
 import { createWorkspace, remapWorkspacePages } from '../../src/store/workspaceSnapshot';
 
 vi.mock('pdfjs-dist', () => ({ AnnotationMode: { DISABLE: 0 }, OPS: {
   save: 10, restore: 11, beginText: 31, endText: 32, setTextRenderingMode: 38,
   showText: 44, showSpacedText: 45, nextLineShowText: 46, nextLineSetSpacingShowText: 47,
+  setCharWidth: 48, setCharWidthAndBounds: 49,
   paintFormXObjectBegin: 74, paintFormXObjectEnd: 75, beginGroup: 76, endGroup: 77,
 } }));
 
@@ -140,19 +141,20 @@ function paperPage(items: ReturnType<typeof textItem>[]): PDFPageProxy {
 }
 
 describe('paper text reading order and paragraph boundaries', () => {
-  it('keeps small graph tick labels out of an adjacent body paragraph and protects Type 3 fonts before typing', async () => {
+  it('keeps small graph tick labels out of an adjacent body paragraph and lets Type 3 labels be edited', async () => {
     const page = paperPage([
       textItem('Body paragraph first row', 30, 500, 200, 12),
       textItem('2.0', 240, 499, 10, 5, 'chart'),
       textItem('Body paragraph second row', 30, 485, 200, 12),
       textItem('1.5', 240, 484, 10, 5, 'chart'),
     ]);
-    Object.assign(page, { commonObjs: { has: () => true, get: (name: string) => ({ name, isType3Font: name === 'chart' }) } });
+    Object.assign(page, { commonObjs: { has: () => true, get: (name: string) => ({ name, isType3Font: name === 'chart',
+      charProcOperatorList: { tick: { fnArray: [OPS.setCharWidthAndBounds] } } }) } });
     const blocks = await detectTextBlocks(page);
     const body = blocks.find(block => block.text.startsWith('Body'))!;
     expect(body.text).toBe('Body paragraph first row\nBody paragraph second row');
     expect(body.rect.width).toBe(200); expect(body.editable).toBe(true);
-    expect(blocks.filter(block => block !== body).every(block => !block.editable && block.unsupportedReason === TYPE3_TEXT_EDIT_REASON)).toBe(true);
+    expect(blocks.filter(block => block !== body).every(block => block.editable)).toBe(true);
   });
   it('keeps a narrow wrap column and the full-width text below a figure in separate flow areas', async () => {
     const blocks = await detectTextBlocks(paperPage([
@@ -305,5 +307,20 @@ describe('paper text reading order and paragraph boundaries', () => {
     ]));
     expect(blocks).toHaveLength(2);
     expect(blocks.every(block => !block.editable)).toBe(true);
+  });
+
+  it('keeps a rotated arXiv margin stamp out of every row of the body paragraph', async () => {
+    const stamp = textItem('arXiv:1706.03762', 32, 488, 400, 20);
+    stamp.transform = [0, 20, -20, 0, 32, 488];
+    const items = [textItem('First abstract row', 140, 500, 300), stamp,
+      textItem('Second abstract row', 140, 488, 300), textItem('Third abstract row', 140, 476, 300)];
+    const paragraphs = await detectTextBlocks(paperPage(items));
+    const body = paragraphs.find(block => block.text.startsWith('First'))!;
+    expect(body.editable).toBe(true);
+    expect(body.lines).toHaveLength(3);
+    expect(body.text).not.toContain('arXiv');
+    expect(paragraphs.find(block => block.text.startsWith('arXiv'))?.editable).toBe(false);
+    const objects = await detectTextBlocks(paperPage(items), 'line');
+    expect(objects.filter(block => block.editable)).toHaveLength(3);
   });
 });

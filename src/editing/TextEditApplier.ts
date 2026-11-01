@@ -1,12 +1,15 @@
 import type { PDFDocument, PDFObject, PDFPage } from 'mupdf';
-import { loadMuPDF, toMuPDFPageRect } from '../utils/mupdf';
+import { loadMuPDF, toMuPDFTextRowQuad } from '../utils/mupdf';
 import type { ImageEditOperation, PDFImage, TextBlock, TextEditOperation, TextRect } from './types';
 import { assertTextEditSource } from './TextEditSource';
-import { standardTextFont, TextLayoutSession, type TextLayoutControl, type TextLayoutInput, type TextLayoutResult } from './TextLayout';
+import { hexColor, standardTextFont, TEXT_LAYOUT_LIMITS, TextLayoutSession, type TextLayoutControl, type TextLayoutInput, type TextLayoutLine, type TextLayoutResult } from './TextLayout';
 import { readInlineTextBounds, readInlineTextObstacles } from './InlineTextBounds';
 import { readTextSourceMetrics, replacementTextStyles } from './TextSourceMetrics';
 import { TextCheckError, type TextCheckIssue, type TextCheckReport, type TextFontInfo } from './TextCheckTypes';
 import { textRegionTag } from './TextRegionMarkers';
+import { placeTextAnchors, resolveTextAnchors } from './TextContentOrder';
+import { contentText } from './ImageEditApplier';
+import { isType3Font } from './NativeSourceFonts';
 import { belongsToTextBlock, readTextPageContent, type TextPageContent } from './TextPageContent';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
@@ -31,7 +34,8 @@ function assertReplaceableTextRendering(engine: Engine, page: PDFPage, pageNumbe
   let hasClippingText = false;
   const device = new engine.Device({
     ignoreText(text) {
-      try { text.walk({ showGlyph() { hasInvisibleText = true; } }); }
+      // A Type 3 space is an empty drawing: it paints nothing, but it is not hidden text.
+      try { text.walk({ showGlyph(font) { hasInvisibleText ||= !isType3Font(font); } }); }
       finally { text.destroy(); }
     },
     clipText(text) {
@@ -63,7 +67,7 @@ function pageGeometry(engine: Engine, page: PDFPage) {
   return { width: (crop[2] - crop[0]) * unit, height: (crop[3] - crop[1]) * unit, crop, unit };
 }
 
-function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: TextEditOperation, session: TextLayoutSession, control: TextLayoutControl, context?: { shiftY: number; peers: TextRect[]; content?: TextPageContent }): PreparedBlock {
+function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: TextEditOperation, session: TextLayoutSession, control: TextLayoutControl, context?: { shiftY: number; peers: TextRect[]; content?: TextPageContent; unchanged?: boolean }): PreparedBlock {
   cancelled(control);
   if (!block.editable) throw new Error(block.unsupportedReason ?? 'This text block is read-only.');
   if (block.lines.some(line => line.items.some(item => Math.abs(item.transform[1]) > 0.001 || Math.abs(item.transform[2]) > 0.001))) throw new Error(`Rotated or vertical text inside page ${block.pageNumber} cannot be replaced yet. Page rotation itself is supported.`);
@@ -75,7 +79,11 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,
     overrides.translate ? overrides.targetRect : undefined, overrides.fitToContent, context?.content);
   const rect = { ...(overrides.targetRect ?? block.rect) };
-  if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 || rect.x + rect.width > geometry.width + 0.01 || rect.y + rect.height > geometry.height + 0.01) throw new Error('The text layout region must be completely inside the visible page.');
+  // Source text may already extend past the page. It stays editable, and moving it
+  // never requires more overflow than it had; a new region must fit on the page.
+  const sourceRect = block.rect;
+  if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0 || rect.x < Math.min(0, sourceRect.x) || rect.y < Math.min(0, sourceRect.y)
+    || rect.x + rect.width > Math.max(geometry.width, sourceRect.x + sourceRect.width) + 0.01 || rect.y + rect.height > Math.max(geometry.height, sourceRect.y + sourceRect.height) + 0.01) throw new Error('The text layout region must be completely inside the visible page.');
   const input: TextLayoutInput = { text: edit.newText, rect, fontName: overrides.fontName ?? source?.fontName ?? standardTextFont(block.style.fontName), fontSize: overrides.fontSize ?? sourceSize,
     fontColor: overrides.fontColor ?? block.style.fontColor ?? source?.fontColor ?? '#000000',
     alignment: overrides.alignment ?? block.style.alignment, lineHeight: overrides.lineHeight ?? Math.min(5, Math.max(originalBaseline ? .25 : 1, Number.isFinite(block.style.lineHeight) ? block.style.lineHeight * block.style.fontSize / sourceSize : 1.2)), reflow: overrides.reflow };
@@ -84,7 +92,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
     input.sourceFontSize = sourceSize;
     input.sourceStyles = replacementTextStyles(source.source, input.text, !!overrides.reflow).map(style => ({ ...style,
       ...(overrides.fontName ? { fontKey: overrides.fontName, fontName: overrides.fontName } : {}),
-      ...(overrides.fontColor || block.style.fontColor ? { fontColor: input.fontColor } : {}),
+      ...(overrides.fontColor || block.style.fontColor ? { fontColor: input.fontColor, ...(style.paint?.strokeColor ? { paint: { ...style.paint, strokeColor: input.fontColor } } : {}) } : {}),
     }));
   }
   if (originalBaseline) input.legacyBaseline = (block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8)
@@ -98,6 +106,14 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
     ...(overrides.alignment === undefined ? { x: line.x + (overrides.translate ? rect.x - block.rect.x : 0) } : {}),
     ...(overrides.lineHeight === undefined ? { baseline: line.baseline + (overrides.translate ? rect.y - block.rect.y : 0) } : {}),
   }));
+  if (context?.unchanged && input.sourceRows) {
+    // Reflow only translates this neighbor. Its physical rows are already final:
+    // rounding between PDF.js and MuPDF widths must neither rewrap a word nor
+    // report a false overflow that blocks saving.
+    const frozen = session.layout({ ...input, rect: { ...rect, width: Math.max(rect.width, ...block.lines.map(line => line.width)) + input.fontSize * 2, height: TEXT_LAYOUT_LIMITS.dimension } }, control);
+    const fonts: TextFontInfo = { original: source?.fontNames ?? [block.style.fontName], used: session.usedFontNames(frozen), mode: 'original' };
+    return { block, input, layout: { ...frozen, fits: true, overflow: undefined, requiredHeight: block.rect.height }, page: { width: geometry.width, height: geometry.height }, availableRect, fonts };
+  }
   const flow = textFlow(block, edit);
   if (flow === 'paragraph' && ['left', 'justify'].includes(input.alignment) && block.lines.length > 1) {
     input.firstLineIndent = Math.max(0, block.lines[0].x - block.rect.x);
@@ -106,11 +122,19 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   // the edit. Save, preview, reload and Apply therefore use the same final area.
   const grow = overrides.fitToContent || overrides.autoGrow || (overrides.keepBaseline && overrides.reflow && !overrides.translate);
   if (grow && block.lines.length === 1 && input.alignment === 'left'
-    && (overrides.fitToContent || (flow === 'paragraph' && !overrides.targetRect))) {
-    const natural = session.layout({ ...input, rect: { ...input.rect, width: availableRect.width } }, control);
-    input.rect.width = Math.max(input.rect.width, Math.min(availableRect.width, Math.ceil(Math.max(0, ...natural.lines.map(line => line.width)) * 1000) / 1000 + .01));
+    && (overrides.fitToContent || flow === 'object' || (flow === 'paragraph' && !overrides.targetRect))) {
+    // A row that already runs past the page edge stays one row, rather than wrapping onto its neighbor.
+    const room = block.rect.x + block.rect.width > geometry.width + .01 && flow === 'object' ? TEXT_LAYOUT_LIMITS.dimension : availableRect.width;
+    const natural = session.layout({ ...input, rect: { ...input.rect, width: room } }, control);
+    input.rect.width = Math.max(input.rect.width, Math.min(room, Math.ceil(Math.max(0, ...natural.lines.map(line => line.width)) * 1000) / 1000 + .01));
   }
   let layout = session.layout(input, control);
+  if (grow && flow === 'object' && input.alignment === 'left') {
+    // A short label, such as a table number, can have no room for its next word.
+    // An unbreakable word still belongs to this object and must remain saveable.
+    const widest = Math.ceil(Math.max(0, ...layout.lines.map(line => line.width)) * 1000) / 1000 + .01;
+    if (widest > input.rect.width && input.rect.x + widest <= geometry.width + .01) { input.rect.width = widest; layout = session.layout(input, control); }
+  }
   if (grow && flow === 'paragraph' && block.lines.length === 1 && !overrides.targetRect && context) {
     // A one-row paragraph may use clear space to its right, but its new rows
     // must not grow across a neighboring column that starts farther down.
@@ -212,7 +236,7 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
       item = prepareBlock(engine, page, block, edit ?? {
         blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0,
         layout: { keepBaseline: true },
-      }, session, control, { shiftY: dy, content, peers: blocks.filter(peer => peer.id !== block.id).map(peer => positionedIds.has(peer.id)
+      }, session, control, { shiftY: dy, content, unchanged: !edit, peers: blocks.filter(peer => peer.id !== block.id).map(peer => positionedIds.has(peer.id)
         ? changes.get(peer.id)!.layout!.targetRect! : { ...peer.rect, y: peer.rect.y + shift(peer) }) });
     } catch (error) {
       if (!issues) throw error;
@@ -255,7 +279,9 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
     }
     const paragraph = edit && textFlow(block, edit) === 'paragraph';
     if (paragraph) {
-      const delta = item.layout.requiredHeight - block.rect.height;
+      // The same row count occupies the same space. A rounding difference between
+      // measured and source leading must not rewrite every paragraph below it.
+      const delta = item.layout.lines.length === block.lines.length ? 0 : item.layout.requiredHeight - block.rect.height;
       if (Math.abs(delta) >= FLOW_EPSILON) deltas.push({ rect: block.rect, delta });
     }
     // Validate the final page position, after all earlier paragraphs have
@@ -388,14 +414,111 @@ function copyDictionary(document: PDFDocument, source: PDFObject): PDFObject {
   return copy;
 }
 
-function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage, blocks: PreparedBlock[], session: TextLayoutSession) {
+/** Remove only the edited rows' glyphs in one pass. Text replacement is not a privacy
+ * redaction: links and fields over the text stay, although MuPDF would delete them. */
+function removeSourceText(engine: Engine, document: PDFDocument, page: PDFPage, blocks: TextBlock[]) {
+  const quads = blocks.flatMap(block => block.lines.map(line => toMuPDFTextRowQuad(engine, page, { x: line.x, width: line.width, baseline: line.baseline,
+    size: Math.max(0, ...line.items.map(item => item.fontSize)) || line.height || block.style.fontSize })));
+  if (!quads.length) return;
+  const pageObject = page.getObject(), annotations = pageObject.get('Annots');
+  const retained = annotations.isArray() ? document.newArray() : undefined;
+  try {
+    if (retained) annotations.forEach(annotation => { try { retained.push(annotation); } finally { annotation.destroy(); } });
+    const annotation = page.createAnnotation('Redact');
+    try {
+      annotation.setQuadPoints(quads);
+      annotation.applyRedaction(0, engine.PDFPage.REDACT_IMAGE_NONE, engine.PDFPage.REDACT_LINE_ART_NONE, engine.PDFPage.REDACT_TEXT_REMOVE);
+    } finally { annotation.destroy(); }
+    if (retained) pageObject.put('Annots', retained);
+  } finally { retained?.destroy(); annotations.destroy(); pageObject.destroy(); }
+}
+
+/** Split rows where the writer changes, keeping paint order equal to reading order. */
+function paintParts(lines: TextLayoutLine[], session: TextLayoutSession) {
+  const parts: { native: boolean; lines: TextLayoutLine[] }[] = [];
+  for (const line of lines) {
+    let row: TextLayoutLine | undefined;
+    for (const glyph of line.glyphs) {
+      const native = !!session.nativeFont(glyph.fontName), last = parts.at(-1);
+      // TeX fonts have no space glyph. Their measured gap already separates words,
+      // so a fallback space must not fragment every word into a separate form.
+      if (!native && last?.native && !glyph.inkBounds) continue;
+      if (!last || last.native !== native) { parts.push({ native, lines: [] }); row = undefined; }
+      if (!row) { row = { ...line, glyphs: [] }; parts.at(-1)!.lines.push(row); }
+      row.glyphs.push(glyph);
+    }
+  }
+  return parts;
+}
+
+/** Top-left layout coordinates become Form space here; the page matrix handles the rest. */
+function nativeTextContent(document: PDFDocument, session: TextLayoutSession, region: { input: TextLayoutInput; layout: TextLayoutResult }, height: number, fonts: PDFObject, states: PDFObject) {
+  const number = (value: number) => String(Number(value.toFixed(5)));
+  const resources = new Map<string, Array<{ name: string; object: PDFObject; mapping: Map<number, string> }>>();
+  const alphas = new Map<string, string>(), rows: string[] = [];
+  let resourceCount = 0;
+  let state = '', font = '';
+  try {
+    for (const line of region.layout.lines) for (const glyph of line.glyphs) {
+      const native = session.nativeFont(glyph.fontName)!, size = glyph.fontSize ?? region.layout.fontSize;
+      const code = native.codes.get(glyph.glyphId)!;
+      const identity = native.object.isIndirect() ? `ref:${native.object.asIndirect()}` : `direct:${native.object.pointer}`;
+      const versions = resources.get(identity) ?? [];
+      // PDF encodings can give one outline several meanings, such as a Latin a and
+      // Greek alpha. Keep its original painting code, but give every meaning its own
+      // ToUnicode entry. A conflicting code needs another small dictionary, not a
+      // duplicate font program or a mutation of the font used by untouched text.
+      let resource = versions.find(item => !item.mapping.has(code) || item.mapping.get(code) === glyph.character);
+      if (!resource) {
+        const dictionary = copyDictionary(document, native.object);
+        try { resource = { name: `F${resourceCount++}`, object: document.addObject(dictionary), mapping: new Map() }; }
+        finally { dictionary.destroy(); }
+        versions.push(resource); resources.set(identity, versions); fonts.put(resource.name, resource.object);
+      }
+      resource.mapping.set(code, glyph.character);
+      const name = resource.name;
+      const hex = glyph.fontColor ?? region.input.fontColor, paint = glyph.paint;
+      const key = `${hex}|${paint ? `${size}|${JSON.stringify(paint)}` : ''}`;
+      if (key !== state) {
+        const alpha = `${paint?.alpha ?? 1}/${paint?.strokeAlpha ?? 1}`;
+        if (alphas.size || alpha !== '1/1') {
+          if (!alphas.has(alpha)) {
+            const graphics = document.newDictionary(), label = `G${alphas.size}`;
+            try { graphics.put('ca', paint?.alpha ?? 1); graphics.put('CA', paint?.strokeAlpha ?? 1); states.put(label, graphics); } finally { graphics.destroy(); }
+            alphas.set(alpha, label);
+          }
+          rows.push(`/${alphas.get(alpha)} gs`);
+        }
+        rows.push(`${hexColor(hex).map(number).join(' ')} rg`);
+        if (paint?.strokeWidth !== undefined) rows.push(`${hexColor(paint.strokeColor ?? hex).map(number).join(' ')} RG ${number(paint.strokeWidth * size)} w ${paint.noFill ? 1 : 2} Tr`);
+        else if (state.includes('strokeWidth')) rows.push('0 Tr');
+        state = key;
+      }
+      if (name !== font) { font = name; rows.push(`/${name} 1 Tf`); }
+      rows.push(`${number(size * (glyph.horizontalScale ?? 1))} 0 0 ${number(size)} ${number(glyph.x)} ${number(height - glyph.baseline)} Tm <${code.toString(16).padStart(2, '0')}> Tj`);
+    }
+    for (const versions of resources.values()) for (const resource of versions) {
+      const pairs = [...resource.mapping].map(([code, text]) => `<${code.toString(16).padStart(2, '0')}> <${text.split('').map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('')}>`);
+      const chunks: string[] = [];
+      for (let offset = 0; offset < pairs.length; offset += 100) {
+        const group = pairs.slice(offset, offset + 100); chunks.push(`${group.length} beginbfchar\n${group.join('\n')}\nendbfchar`);
+      }
+      const cmap = document.addStream(`/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /PDFEditorNativeUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<00> <ff>\nendcodespacerange\n${chunks.join('\n')}\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend`, {});
+      try { resource.object.put('ToUnicode', cmap); } finally { cmap.destroy(); }
+    }
+    return `BT\n${rows.join('\n')}\nET`;
+  } finally { for (const versions of resources.values()) for (const resource of versions) resource.object.destroy(); }
+}
+
+function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage, blocks: PreparedBlock[], session: TextLayoutSession, anchors: Map<string, number>) {
   const regions = blocks.flatMap(prepared => {
     const groups: typeof prepared.layout.lines[] = [];
     for (const line of prepared.layout.lines) {
       if (!groups.length || (prepared.input.reflow && groups.at(-1)!.at(-1)!.paragraphEnd)) groups.push([]);
       groups.at(-1)!.push(line);
     }
-    return groups.filter(lines => lines.some(line => line.glyphs.length)).map((lines, regionIndex) => ({ ...prepared, regionIndex, layout: { ...prepared.layout, lines } }));
+    return groups.filter(lines => lines.some(line => line.glyphs.length)).flatMap((lines, regionIndex) =>
+      paintParts(lines, session).map(part => ({ ...prepared, regionIndex, native: part.native, layout: { ...prepared.layout, lines: part.lines } })));
   });
   if (!regions.length) return;
   const transform = page.getTransform();
@@ -409,49 +532,82 @@ function addReplacementText(engine: Engine, document: PDFDocument, page: PDFPage
   const handles: Array<{ destroy(): void }> = [];
   const keep = <T extends { destroy(): void }>(value: T): T => { handles.push(value); return value; };
   try {
-    for (const prepared of regions) {
+    const drawn = regions.filter(region => !region.native);
+    for (const prepared of drawn) {
       const device = writer.beginPage([0, 0, width, height]);
       try { session.draw(device, prepared.input, prepared.layout); device.close(); }
       finally { device.destroy(); }
       writer.endPage();
     }
-    writer.close();
-    overlay = new engine.PDFDocument(output);
+    // A writer without pages cannot be closed into a document.
+    if (drawn.length) { writer.close(); overlay = new engine.PDFDocument(output); }
     // Finish source-dictionary mutations before a graft map fixes its source
     // object range. Later ToUnicode streams would otherwise exceed that range.
-    const overlayResources = regions.map((_, index) => keep(keep(overlay!.findPage(index)).get('Resources')));
-    for (const resources of overlayResources) session.preserveUnicode(overlay, resources, blocks.map(block => block.layout));
+    const overlayResources = drawn.map((_, index) => keep(keep(overlay!.findPage(index)).get('Resources')));
+    for (const resources of overlayResources) session.preserveUnicode(overlay!, resources, blocks.map(block => block.layout));
     const graft = keep(document.newGraftMap());
     const pageObject = keep(page.getObject());
     const oldResources = keep(pageObject.getInheritable('Resources'));
     const newResources = keep(copyDictionary(document, oldResources));
     const oldXObjects = oldResources.isDictionary() ? keep(oldResources.get('XObject')) : oldResources;
     const xObjects = keep(copyDictionary(document, oldXObjects));
-    const draws: string[] = [];
-    for (const [index, prepared] of regions.entries()) {
-      const overlayPage = keep(overlay.findPage(index)), overlayContents = keep(overlayPage.get('Contents'));
-      const content = keep(overlayContents.readStream()), marked = keep(new engine.Buffer());
+    const draws: { blockId: string; draw: string }[] = [];
+    let overlayIndex = 0;
+    for (const prepared of regions) {
+      const marked = keep(new engine.Buffer());
       const tag = textRegionTag(prepared.block.kind ?? 'paragraph', prepared.block.id, prepared.regionIndex);
-      marked.write(`/${tag} BMC\n`); marked.writeBuffer(content); marked.write('\nEMC\n');
-      // Fonts can be shared by several regions. Every ToUnicode map must cover
-      // their union, and a single graft map keeps large CJK programs shared.
-      const resources = keep(graft.graftObject(overlayResources[index]));
+      marked.write(`/${tag} BMC\n`);
+      let resources: PDFObject;
+      if (prepared.native) {
+        const fonts = keep(document.newDictionary()), states = keep(document.newDictionary());
+        const spaces = keep(document.newDictionary());
+        marked.write(session.colors.apply(nativeTextContent(document, session, prepared, height, fonts, states), spaces, prepared.block.id));
+        resources = keep(document.newDictionary()); resources.put('Font', fonts); resources.put('ExtGState', states); resources.put('ColorSpace', spaces);
+      } else {
+        const index = overlayIndex++;
+        const overlayPage = keep(overlay!.findPage(index)), overlayContents = keep(overlayPage.get('Contents'));
+        const spaces = keep(document.newDictionary());
+        marked.write(session.colors.apply(contentText(keep(overlayContents.readStream()).asUint8Array()), spaces, prepared.block.id));
+        // Fonts can be shared by several regions. Every ToUnicode map must cover
+        // their union, and a single graft map keeps large CJK programs shared.
+        resources = keep(graft.graftObject(overlayResources[index]));
+        resources.put('ColorSpace', spaces);
+      }
+      marked.write('\nEMC\n');
       const form = keep(document.addStream(new Uint8Array(marked.asUint8Array()), { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, width, height], Resources: resources }));
       let name = 'PDFEditorText', suffix = 0;
       while (true) { const existing = xObjects.get(name); try { if (existing.isNull()) break; name = `PDFEditorText${++suffix}`; } finally { existing.destroy(); } }
-      xObjects.put(name, form); draws.push(`/${name} Do`);
+      xObjects.put(name, form); draws.push({ blockId: prepared.block.id, draw: `/${name} Do` });
     }
     newResources.put('XObject', xObjects);
+    // Replacement text inherits the state of wherever it is drawn. It carries its own paint.
+    const oldStates = oldResources.isDictionary() ? keep(oldResources.get('ExtGState')) : oldResources;
+    const states = keep(copyDictionary(document, oldStates)), reset = keep(document.newDictionary());
+    reset.put('ca', 1); reset.put('CA', 1); reset.put('BM', 'Normal'); reset.put('SMask', 'None'); reset.put('op', false); reset.put('OP', false);
+    states.put('PDFEditorTextState', reset);
+    newResources.put('ExtGState', states);
     pageObject.put('Resources', newResources);
 
     // Keep the original page and widgets. Append a vector Form XObject in native
     // PDF space; /Rotate and /UserUnit continue to apply to both old and new text.
+    // A row drawn where its source was keeps reading order and stacking; a moved row,
+    // or one with no safe place in the stream, goes on top as a whole page overlay.
+    const base: [number, number, number, number, number, number] = [1 / unit, 0, 0, 1 / unit, crop[0], crop[1]];
+    const anchored = new Map<number, string[]>();
+    for (const { blockId, draw } of draws) {
+      const anchor = anchors.get(blockId);
+      if (anchor !== undefined) anchored.set(anchor, [...anchored.get(anchor) ?? [], draw]);
+    }
+    const ordered = anchors.size ? resolveTextAnchors(pageObject, anchored, base) : undefined;
+    const placed = new Set([...anchors].filter(([, anchor]) => ordered?.placed.has(anchor)).map(([blockId]) => blockId));
+    const remaining = draws.filter(item => !placed.has(item.blockId)).map(item => item.draw);
     const contents = keep(document.newArray());
     contents.push(keep(document.addStream('q\n', {})));
     const previous = keep(pageObject.get('Contents'));
-    if (previous.isArray()) previous.forEach(value => { try { contents.push(value); } finally { value.destroy(); } });
+    if (ordered?.content) contents.push(keep(document.addStream(ordered.content, {})));
+    else if (previous.isArray()) previous.forEach(value => { try { contents.push(value); } finally { value.destroy(); } });
     else if (!previous.isNull()) contents.push(previous);
-    contents.push(keep(document.addStream(`Q\nq\n${1 / unit} 0 0 ${1 / unit} ${crop[0]} ${crop[1]} cm\n${draws.join('\n')}\nQ\n`, {})));
+    contents.push(keep(document.addStream(`Q\nq\n${1 / unit} 0 0 ${1 / unit} ${crop[0]} ${crop[1]} cm\n${remaining.join('\n')}\nQ\n`, {})));
     pageObject.put('Contents', contents);
   } finally {
     for (const handle of handles.reverse()) handle.destroy();
@@ -534,16 +690,12 @@ async function writeTextEdits(data: ArrayBuffer, blocks: Map<number, TextBlock[]
       try {
         cancelled(control);
         const prepared = preparedPages.get(pageNumber)!;
-        for (const { block } of prepared) {
-          const annotation = page.createAnnotation('Redact');
-          try {
-            annotation.setRect(toMuPDFPageRect(engine, page, block.rect));
-            annotation.applyRedaction(0, engine.PDFPage.REDACT_IMAGE_NONE, engine.PDFPage.REDACT_LINE_ART_NONE, engine.PDFPage.REDACT_TEXT_REMOVE);
-          } finally {
-            annotation.destroy();
-          }
-        }
-        addReplacementText(engine, document, page, prepared, session);
+        // A moved row belongs where it now is, and on top of what it was moved over.
+        const moved = new Set(perPage.get(pageNumber)!.filter(({ edit }) => edit.layout?.translate || edit.layout?.targetRect).map(({ block }) => block.id));
+        const anchors = placeTextAnchors(engine, document, page, prepared.filter(item => !moved.has(item.block.id) && item.layout.lines.some(line => line.glyphs.length)).map(item => ({ id: item.block.id,
+          rows: item.block.lines.map(line => ({ x: line.x, width: line.width, baseline: line.baseline, size: line.height || item.block.style.fontSize })) })));
+        removeSourceText(engine, document, page, prepared.map(item => item.block));
+        addReplacementText(engine, document, page, prepared, session, anchors);
       } finally {
         page.destroy();
       }

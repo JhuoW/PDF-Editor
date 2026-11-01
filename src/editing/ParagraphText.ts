@@ -8,3 +8,8 @@ export function originalParagraphText(text: string): string {
     return joined ? '' : ' ';
   });
 }
+
+/** Only an explicit discretionary hyphen may disappear during reflow. A line-end
+ * '-' can also belong to a compound (state-of-the-art); guessing silently changes
+ * the text the user just confirmed, especially after saving and reopening it. */
+export function isSoftHyphenBreak(row: string): boolean { return row.endsWith('\u00ad'); }

@@ -55,7 +55,8 @@ function commands(text: string): Command[] {
       while (!delimiter(text[offset])) offset++;
       kind = 'name';
     } else {
-      if (c === ']' || c === '>') throw new Error('Unexpected PDF delimiter');
+      // Viewers skip a stray delimiter; so must this scan, or the page cannot be edited.
+      if (c === ']' || c === '>') return token();
       while (!delimiter(text[offset])) offset++;
       const value = text.slice(start, offset);
       kind = /^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(value) ? 'number' : ['true', 'false', 'null'].includes(value) ? 'object' : 'word';
@@ -71,9 +72,13 @@ function commands(text: string): Command[] {
     result.push({ start: operands[0]?.start ?? item.start, end: item.end, operator: item.value, operands });
     operands = [];
   }
-  if (operands.length) throw new Error('Incomplete PDF content command');
+  // Trailing operands without an operator draw nothing and stay byte-for-byte.
   return result;
 }
+export const contentCommands = commands;
+export type ContentCommand = Command;
+export function contentText(bytes: Uint8Array): string { return bytesToText(bytes); }
+export function contentBytes(text: string): Uint8Array { return textToBytes(text); }
 function bytesToText(bytes: Uint8Array): string {
   let result = '';
   for (let index = 0; index < bytes.length; index += 8192) result += String.fromCharCode(...bytes.subarray(index, index + 8192));
@@ -135,9 +140,8 @@ class Editor {
       } else if (marker?.crop) marker.commands.push(command);
       if (command.operator === 'q') stack.push([...matrix]);
       else if (command.operator === 'Q') {
-        const previous = stack.pop();
-        if (!previous) throw new Error('Unbalanced PDF graphics state');
-        matrix = previous;
+        // Viewers ignore an unmatched Q and an unclosed q, and real PDFs contain both.
+        matrix = stack.pop() ?? matrix;
       } else if (command.operator === 'cm') {
         if (args.length !== 6 || args.some(arg => arg.kind !== 'number')) throw new Error('Invalid PDF transform');
         matrix = multiplyMatrix(matrix, args.map(arg => Number(arg.value)));
@@ -166,7 +170,6 @@ class Editor {
         node.draws.push(draw);
       }
     }
-    if (stack.length) throw new Error('Unbalanced PDF graphics state');
     return node;
   }
   private validate(draw: Draw, pending: Pending) {

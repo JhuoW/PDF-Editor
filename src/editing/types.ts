@@ -81,6 +81,7 @@ export interface TextBlock {
 
 export const INVISIBLE_TEXT_EDIT_REASON = 'This page contains an invisible OCR text layer. Editing scanned text is not supported; use search or copy instead.';
 export const CLIPPING_TEXT_EDIT_REASON = 'This page uses text as a clipping path. Editing this text is not supported safely; use search or copy instead.';
+export const UNMAPPED_TEXT_EDIT_REASON = 'This text has no reliable character mapping in the PDF, so what it says cannot be read safely. Other text on this page can still be edited.';
 export const TYPE3_TEXT_EDIT_REASON = 'This region uses a Type 3 drawing font that cannot be rewritten safely. Other text on this page can still be edited.';
 
 export interface TextEditOperation {

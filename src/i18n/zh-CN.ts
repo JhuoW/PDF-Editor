@@ -1,6 +1,10 @@
 import type { en } from "./en";
 export const zhCN: Record<keyof typeof en, string> = {
+  "text.unmapped.readonly": "这段文字在 PDF 中没有可靠的字符映射，无法安全读取其内容。同页的其他文字仍可编辑。",
   "text.type3.readonly": "此区域使用暂不支持安全改写的 Type 3 图形字体。同页的其他文字仍可编辑。",
+  "updates.glyphs.encoding": "文字导出：保留原始 Type 1 字体程序与字符编码，修复保存后乱码；保留连字及共用字形字符的 Unicode 映射。",
+  "updates.glyphs.paragraphs": "段落编辑：分离侧边竖排标记与正文，修复段落误识别；连续编辑、保存和重新打开时保留普通连字符，避免文字丢失。",
+  "updates.glyphs.validation": "严格验证：使用 arXiv 上真实 NeurIPS 论文测试保存与导出，通过 PDF.js、MuPDF、Poppler 检查实际字形，并核对编辑内容及所有未修改页面。",
   "updates.reflow.bounds": "文字保存：以实际字形边界代替字体度量框，修复上标和紧密行距附近的误报，纠正混合字体下重复计算的字间距；正确识别页面图形的可见边缘及裁切范围。",
   "updates.reflow.anchors": "段落重排：固定图片、公式和表单两侧分别计算文字流，避免跨区域误移动；发生冲突时先利用段间可用空白，对象编辑保持指定位置。",
   "updates.reflow.feedback": "文字编辑：保留原文连字符换行、字形基线偏移和亚像素宽度精度，分离图表刻度与不同宽度的文字栏，提前识别不支持的 Type 3 字体；输入时标出真实冲突并合并重复报错。修复对象工具栏拦截双击、误触删除，以及迟到的预览重置文字选区的问题，补充真实论文及两种编辑模式的回归测试。",

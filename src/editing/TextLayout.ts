@@ -1,14 +1,25 @@
 import { cffGlyphCIDs, cffTableData } from '../fonts/cffCharset';
-import type { Device, Font, PDFDocument, PDFObject, StrokeState } from 'mupdf';
+import type { Device, Font, PDFDocument, PDFObject, PDFPage, StrokeState } from 'mupdf';
 import { loadMuPDF } from '../utils/mupdf';
 import { isImportedFont, validateFontData, type FontAsset } from '../fonts/fontAsset';
-import type { TextRect } from './types';
+import { SourceColorCatalog } from './SourceColors';
+import { isType3Font, NativeSourceFontCatalog, type NativeSourceFont } from './NativeSourceFonts';
+import { TYPE3_TEXT_EDIT_REASON, type TextRect } from './types';
 
 export const TEXT_LAYOUT_FONTS = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique',
   'Times-Roman', 'Times-Bold', 'Times-Italic', 'Times-BoldItalic', 'Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique'] as const;
 export type StandardTextFont = typeof TEXT_LAYOUT_FONTS[number];
 export const TEXT_LAYOUT_LIMITS = { characters: 20_000, fontSize: 500, dimension: 14_400, lineHeight: 5 };
+/** How a source glyph was painted, beyond its opaque fill color. */
+export interface TextGlyphPaint {
+  alpha?: number; noFill?: boolean;
+  /** Stroke width is relative to the font size, like the other glyph metrics. */
+  strokeColor?: string; strokeWidth?: number; strokeAlpha?: number;
+}
 export interface TextGlyphStyle {
+  paint?: TextGlyphPaint;
+  /** A row-end hyphen that only exists because the word broke there. */
+  softHyphen?: boolean;
   fontKey: string; fontName: string; fontSize: number; horizontalScale: number; tracking: number; fontColor: string;
   wordSpacing?: number;
   /** Measured space inserted by extraction between separately positioned words. */
@@ -47,7 +58,7 @@ export interface TextLayoutGlyph {
   x: number; baseline: number; advance: number;
   /** Painted glyph bounds, excluding advance spaces and interline whitespace. */
   inkBounds?: TextRect;
-  fontSize?: number; horizontalScale?: number; fontColor?: string;
+  fontSize?: number; horizontalScale?: number; fontColor?: string; paint?: TextGlyphPaint;
 }
 export interface TextLayoutLine {
   text: string; x: number; baseline: number; width: number; paragraphEnd: boolean; glyphs: TextLayoutGlyph[];
@@ -60,7 +71,7 @@ export interface TextLayoutResult {
 }
 export interface TextLayoutControl { signal?: AbortSignal }
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
-interface MeasuredGlyph { character: string; fontName: string; glyphId: number; advance: number; left: number; right: number; inkLeft?: number; inkRight?: number; ascent: number; descent: number; ink: boolean; sizeRatio?: number; horizontalScale?: number; fontColor?: string; naturalSpaceAdvance?: number; baselineOffset?: number }
+interface MeasuredGlyph { character: string; fontName: string; glyphId: number; advance: number; left: number; right: number; inkLeft?: number; inkRight?: number; ascent: number; descent: number; ink: boolean; sizeRatio?: number; horizontalScale?: number; fontColor?: string; paint?: TextGlyphPaint; softHyphen?: boolean; naturalSpaceAdvance?: number; sourceSpaceAdvance?: number; baselineOffset?: number }
 interface WrappedLine { glyphs: MeasuredGlyph[]; paragraphEnd: boolean }
 const check = (control: TextLayoutControl) => { if (control.signal?.aborted) throw new DOMException('Text layout cancelled.', 'AbortError'); };
 const cjk = (value: string) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value);
@@ -85,7 +96,6 @@ function normalize(input: TextLayoutInput) {
   if (/\p{M}/u.test(text) || Array.from(text).some(character => complex.some(([a, b]) => character.codePointAt(0)! >= a && character.codePointAt(0)! <= b))) {
     throw new Error('This text requires complex-script or bidirectional layout, which is not supported yet. No characters were omitted or reordered.');
   }
-  if (Array.from(text).some(character => (character.codePointAt(0)! < 32 && character !== '\n') || character.codePointAt(0) === 127)) throw new Error('Replacement text contains an unsupported control character.');
   if (!(TEXT_LAYOUT_FONTS as readonly string[]).includes(input.fontName) && input.fontName !== 'zh-Hans' && !isImportedFont(input.fontName)) throw new Error('Choose one of the supported standard text fonts.');
   if (!/^#[0-9a-f]{6}$/i.test(input.fontColor)) throw new Error('Text colors must use six-digit hexadecimal notation, such as #336699.');
   if (!['left', 'center', 'right', 'justify'].includes(input.alignment)) throw new Error('Choose a supported paragraph alignment.');
@@ -142,6 +152,10 @@ function wrap(glyphs: MeasuredGlyph[], width: number, firstWidth = width, tolera
   return lines;
 }
 
+export const hexColor = (hex: string) => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255) as [number, number, number];
+const glyphPaintKey = (glyph: TextLayoutGlyph, input: TextLayoutInput, layout: TextLayoutResult) =>
+  `${glyph.fontColor ?? input.fontColor}|${glyph.paint ? `${glyph.fontSize ?? layout.fontSize}|${JSON.stringify(glyph.paint)}` : ''}`;
+
 /** The same measured glyph positions drive the preview and the PDF writer. */
 export class TextLayoutSession {
   private readonly fonts = new Map<string, Font>();
@@ -152,9 +166,13 @@ export class TextLayoutSession {
   private readonly fallbacks = new Map<string, string>();
   private readonly sourceGlyphs = new Map<string, Map<string, number>>();
   private readonly sourceClusters = new Map<string, string[][]>();
+  private readonly nativeFonts = new Map<string, NativeSourceFont>();
+  private catalog?: NativeSourceFontCatalog;
+  /** Print colors of the source glyphs, reapplied to whatever writes the replacement. */
+  readonly colors: SourceColorCatalog;
   private stroke?: StrokeState;
   private readonly engine: Engine;
-  constructor(engine: Engine) { this.engine = engine; }
+  constructor(engine: Engine) { this.engine = engine; this.colors = new SourceColorCatalog(engine); }
   useImportedFont(asset: FontAsset) {
     if (!isImportedFont(asset.id)) throw new Error('The selected font data is missing. Import and select the font again.');
     if (this.fonts.has(asset.id)) return;
@@ -169,11 +187,16 @@ export class TextLayoutSession {
   usedFontNames(layout: TextLayoutResult): string[] {
     return [...new Set(layout.lines.flatMap(line => line.glyphs).map(glyph => this.fontLabels.get(glyph.fontName) ?? this.font(glyph.fontName).getName()))];
   }
-  useSourceFont(key: string, font: Font, fallback: string) {
+  useSourceFont(key: string, font: Font, fallback: string, page?: PDFPage) {
     if (this.fonts.has(key)) { font.destroy(); return; }
     this.fonts.set(key, font);
     this.fallbacks.set(key, fallback);
+    const native = page && (this.catalog ??= new NativeSourceFontCatalog(this.engine)).find(page, font);
+    if (native) this.nativeFonts.set(key, native);
+    else if (isType3Font(font)) throw new Error(TYPE3_TEXT_EDIT_REASON);
   }
+  /** Set when this glyph must be written through the page's own font dictionary. */
+  nativeFont(name: string) { return this.nativeFonts.get(name); }
   useSourceGlyph(key: string, character: string, glyph: number) {
     const map = this.sourceGlyphs.get(key) ?? new Map<string, number>();
     map.set(character, glyph); this.sourceGlyphs.set(key, map);
@@ -188,10 +211,19 @@ export class TextLayoutSession {
   private glyph(character: string, primary: string): MeasuredGlyph {
     const cache = `${primary}:${character}`, cached = this.measured.get(cache); if (cached) return cached;
     const unicode = character.codePointAt(0)!;
-    let fontName = primary, font = this.font(primary), glyphId = this.sourceGlyphs.get(primary)?.get(character) ?? font.encodeCharacter(unicode);
-    if (!glyphId && this.fallbacks.has(primary)) { fontName = this.fallbacks.get(primary)!; font = this.font(fontName); glyphId = font.encodeCharacter(unicode); }
-    if (!glyphId) { fontName = 'zh-Hans'; font = this.font(fontName); glyphId = font.encodeCharacter(unicode); }
-    if (!glyphId) throw new Error(`The replacement font does not support ${JSON.stringify(character)} (U+${character.codePointAt(0)!.toString(16).toUpperCase()}).`);
+    // A PDF without usable Unicode data can extract its glyphs as control characters.
+    // Those keep their source glyph, so such a row can still be moved or partly edited.
+    if ((unicode < 32 || unicode === 127) && this.sourceGlyphs.get(primary)?.get(character) === undefined) throw new Error('Replacement text contains an unsupported control character.');
+    // A simple font can only paint glyphs its own encoding reaches. A Type 3 font has
+    // no character map, so only the letters already seen on the page are known to it.
+    const native = this.nativeFonts.get(primary);
+    let fontName = primary, font = this.font(primary), glyphId = this.sourceGlyphs.get(primary)?.get(character) ?? (native?.type3 ? -1 : font.encodeCharacter(unicode));
+    // Type 3 code zero can paint a real glyph, but an unseen letter must never
+    // claim that glyph. Use a distinct missing sentinel throughout fallback.
+    if ((glyphId === 0 && !native?.type3) || (native && !native.codes.has(glyphId))) glyphId = -1;
+    if (glyphId < 0 && this.fallbacks.has(primary)) { fontName = this.fallbacks.get(primary)!; font = this.font(fontName); glyphId = font.encodeCharacter(unicode) || -1; }
+    if (glyphId < 0) { fontName = 'zh-Hans'; font = this.font(fontName); glyphId = font.encodeCharacter(unicode) || -1; }
+    if (glyphId < 0) throw new Error(`The replacement font does not support ${JSON.stringify(character)} (U+${character.codePointAt(0)!.toString(16).toUpperCase()}).`);
     const text = new this.engine.Text();
     try {
       text.showGlyph(font, [100, 0, 0, -100, 0, 0], glyphId, character.codePointAt(0)!);
@@ -229,9 +261,10 @@ export class TextLayoutSession {
         const sizeRatio = style.fontSize / (input.sourceFontSize ?? input.fontSize), horizontalScale = style.horizontalScale;
         const justifiedSpace = space(character) && input.reflow && input.alignment === 'justify';
         const naturalSpace = style.reflowSpaceAdvance ?? glyph.advance * horizontalScale + style.tracking;
-        glyphs.push({ ...glyph, sizeRatio, horizontalScale, fontColor: style.fontColor,
+        glyphs.push({ ...glyph, sizeRatio, horizontalScale, fontColor: style.fontColor, ...(style.paint ? { paint: style.paint } : {}), ...(style.softHyphen ? { softHyphen: true } : {}),
           baselineOffset: (style.baselineOffset ?? 0) * sizeRatio,
           naturalSpaceAdvance: justifiedSpace ? naturalSpace * sizeRatio : undefined,
+          sourceSpaceAdvance: space(character) && style.spaceAdvance !== undefined ? style.spaceAdvance * sizeRatio : undefined,
           advance: (justifiedSpace ? Math.min(naturalSpace, style.minimumSpaceAdvance ?? naturalSpace)
             : space(character) && style.spaceAdvance !== undefined ? style.spaceAdvance
             : glyph.advance * horizontalScale + style.tracking + (space(character) ? style.wordSpacing ?? 0 : 0)) * sizeRatio,
@@ -263,6 +296,8 @@ export class TextLayoutSession {
       // Keep this tolerance in physical points, independent of font size.
       const widthTolerance = useLegacy ? .01 : .001;
       const wrapped = paragraphs.flatMap(paragraph => wrap(useLegacy ? paragraph.map(glyph => ({ ...glyph, inkLeft: glyph.left, inkRight: glyph.right, left: 0, right: glyph.advance })) : paragraph, input.rect.width / size, Math.max(.001, input.rect.width - indent) / size, widthTolerance / size));
+      // A word no longer split by this break needs no hyphen; one still split keeps it.
+      if (input.reflow) for (const row of wrapped) row.glyphs = row.glyphs.filter((glyph, position) => !glyph.softHyphen || position === row.glyphs.length - 1);
       const lineAdvance = (useLegacy ? input.lineHeight : Math.max(input.lineHeight, ascent + descent)) * size;
       const legacyHeight = Math.max(emHeight, (input.sourceRowHeight ?? 0) / (input.sourceFontSize ?? input.fontSize));
       const requiredHeight = (useLegacy ? legacyHeight : ascent + descent) * size + Math.max(0, wrapped.length - 1) * lineAdvance;
@@ -270,7 +305,12 @@ export class TextLayoutSession {
       const lines = wrapped.map((row, index): TextLayoutLine => {
         const inset = index === 0 || wrapped[index - 1].paragraphEnd ? indent : 0;
         const rowWidth = input.rect.width - inset;
-        if (row.paragraphEnd && row.glyphs.some(glyph => glyph.naturalSpaceAdvance !== undefined)) {
+        const original = input.sourceRows?.[index];
+        // Editing one word must not disturb the rows it did not change: a row that
+        // still wraps to its source wording keeps that row's position and spacing.
+        const unchanged = original?.text === row.glyphs.map(glyph => glyph.character).join('') ? original : undefined;
+        if (input.reflow && unchanged) row.glyphs = row.glyphs.map(glyph => glyph.sourceSpaceAdvance === undefined ? glyph : { ...glyph, advance: glyph.sourceSpaceAdvance, ...(useLegacy ? { right: glyph.sourceSpaceAdvance } : {}) });
+        else if (row.paragraphEnd && row.glyphs.some(glyph => glyph.naturalSpaceAdvance !== undefined)) {
           // TeX justification permits word spaces to tighten as well as stretch.
           // Break using the source's measured minimum, then use normal spacing
           // on the final row whenever it fits. Font sizes never change.
@@ -278,21 +318,21 @@ export class TextLayoutSession {
           if (lineMetrics(natural).width * size <= rowWidth + .001) row.glyphs = natural;
         }
         const metric = lineMetrics(row.glyphs), gaps = new Set<number>();
-        if (input.alignment === 'justify' && !row.paragraphEnd) {
+        if (input.alignment === 'justify' && !row.paragraphEnd && !(input.reflow && unchanged)) {
           row.glyphs.forEach((glyph, position) => { if (position > 0 && position < row.glyphs.length - 1 && space(glyph.character)) gaps.add(position); });
           if (!gaps.size) row.glyphs.forEach((glyph, position) => { const next = row.glyphs[position + 1]; if (next && (cjk(glyph.character) || cjk(next.character)) && canBreak(glyph, next)) gaps.add(position); });
         }
         const extra = gaps.size ? Math.max(0, rowWidth - metric.width * size) / gaps.size : 0;
         const width = metric.width * size + extra * gaps.size; widest = Math.max(widest, width + inset);
         const offset = input.alignment === 'right' ? rowWidth - width : input.alignment === 'center' ? (rowWidth - width) / 2 : 0;
-        const sourceRow = !input.reflow && input.sourceRows?.[index]?.text === row.glyphs.map(glyph => glyph.character).join('') ? input.sourceRows[index] : undefined;
+        const sourceRow = unchanged;
         let x = (sourceRow?.x ?? input.rect.x + inset + offset) - metric.left * size;
         const baseline = sourceRow?.baseline ?? (useLegacy ? input.legacyBaseline! : input.rect.y + ascent * size) + index * lineAdvance, start = x;
         const glyphs = row.glyphs.map((glyph, position) => {
           const advance = glyph.advance * size + (gaps.has(position) ? extra : 0);
           const glyphBaseline = baseline + (glyph.baselineOffset ?? 0) * size;
           const placed: TextLayoutGlyph = { character: glyph.character, fontName: glyph.fontName, glyphId: glyph.glyphId, x, baseline: glyphBaseline, advance,
-            fontSize: size * (glyph.sizeRatio ?? 1), horizontalScale: glyph.horizontalScale ?? 1, fontColor: glyph.fontColor ?? input.fontColor };
+            fontSize: size * (glyph.sizeRatio ?? 1), horizontalScale: glyph.horizontalScale ?? 1, fontColor: glyph.fontColor ?? input.fontColor, ...(glyph.paint ? { paint: glyph.paint } : {}) };
           if (glyph.ink) {
             const bounds: [number, number, number, number] = [x + (glyph.inkLeft ?? glyph.left) * size, glyphBaseline - glyph.ascent * size, x + (glyph.inkRight ?? glyph.right) * size, glyphBaseline + glyph.descent * size];
             placed.inkBounds = { x: bounds[0], y: bounds[1], width: bounds[2] - bounds[0], height: bounds[3] - bounds[1] };
@@ -326,18 +366,23 @@ export class TextLayoutSession {
   draw(device: Device, input: TextLayoutInput, layout: TextLayoutResult) {
     for (const line of layout.lines) {
       if (!line.glyphs.length) continue;
-      // Preserve color changes within a source line as well as font and weight.
+      // Preserve color and paint changes within a source line as well as font and weight.
       for (let start = 0; start < line.glyphs.length;) {
-        const hex = line.glyphs[start].fontColor ?? input.fontColor;
-        const color = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255) as [number, number, number];
+        const first = line.glyphs[start], hex = first.fontColor ?? input.fontColor, paint = first.paint, size = first.fontSize ?? layout.fontSize;
+        const key = glyphPaintKey(first, input, layout);
         const text = new this.engine.Text();
         try {
           do {
             const glyph = line.glyphs[start++], size = glyph.fontSize ?? layout.fontSize;
             const characters = Array.from(glyph.character);
             characters.forEach((character, index) => text.showGlyph(this.font(glyph.fontName), [size * (glyph.horizontalScale ?? 1), 0, 0, -size, glyph.x, glyph.baseline], index === 0 ? glyph.glyphId : -1, character.codePointAt(0)!));
-          } while (start < line.glyphs.length && (line.glyphs[start].fontColor ?? input.fontColor) === hex);
-          device.fillText(text, this.engine.Matrix.identity, this.engine.ColorSpace.DeviceRGB, color, 1);
+          } while (start < line.glyphs.length && glyphPaintKey(line.glyphs[start], input, layout) === key);
+          if (!paint?.noFill) device.fillText(text, this.engine.Matrix.identity, this.engine.ColorSpace.DeviceRGB, hexColor(hex), paint?.alpha ?? 1);
+          if (paint?.strokeWidth !== undefined) {
+            const stroke = new this.engine.StrokeState({ lineCap: 'Butt', lineJoin: 'Miter', lineWidth: paint.strokeWidth * size, miterLimit: 10 });
+            try { device.strokeText(text, stroke, this.engine.Matrix.identity, this.engine.ColorSpace.DeviceRGB, hexColor(paint.strokeColor ?? hex), paint.strokeAlpha ?? 1); }
+            finally { stroke.destroy(); }
+          }
         } finally { text.destroy(); }
       }
     }
@@ -348,6 +393,7 @@ export class TextLayoutSession {
   preserveUnicode(document: PDFDocument, resources: PDFObject, layouts: TextLayoutResult[]) {
     const mappings = new Map<string, Map<number, string>>(), programs = new Map<string, Font>();
     for (const layout of layouts) for (const line of layout.lines) for (const glyph of line.glyphs) {
+      if (this.nativeFonts.has(glyph.fontName)) continue;
       let name = this.font(glyph.fontName).getName();
       // Base-14 substitutes are embedded under their actual program name.
       if ((TEXT_LAYOUT_FONTS as readonly string[]).includes(name)) name = this.font(name).getName();
@@ -355,8 +401,29 @@ export class TextLayoutSession {
       const mapping = mappings.get(name) ?? new Map<number, string>();
       mapping.set(glyph.glyphId, glyph.character); mappings.set(name, mapping);
     }
+    // The writer shares one font object between identical programs and keeps the first
+    // name it saw, while a re-read Base-14 program reports its PostScript name. A name
+    // that no written font carries belongs to the same-program font that replaced it.
+    const written = new Set<string>();
     const fonts = resources.get('Font');
     try {
+      fonts.forEach(font => {
+        const base = font.get('BaseFont');
+        try { written.add(base.asName()); } finally { base.destroy(); font.destroy(); }
+      });
+      for (const [name, renamed] of mappings) {
+        if (written.has(name)) continue;
+        const program = programs.get(name)!, gids = [...renamed.keys()];
+        const target = [...written].find(base => {
+          const other = programs.get(base) ?? ((TEXT_LAYOUT_FONTS as readonly string[]).includes(base) ? this.font(base) : undefined);
+          return other && gids.every(gid => other.advanceGlyph(gid) === program.advanceGlyph(gid));
+        });
+        if (!target) continue;
+        const mapping = mappings.get(target) ?? new Map<number, string>();
+        for (const [gid, text] of renamed) mapping.set(gid, text);
+        mappings.set(target, mapping);
+        if (!programs.has(target)) programs.set(target, program);
+      }
       fonts.forEach(font => {
         const base = font.get('BaseFont'), encoding = font.get('Encoding');
         try {
@@ -404,7 +471,7 @@ export class TextLayoutSession {
       });
     } finally { fonts.destroy(); }
   }
-  destroy() { for (const font of this.fonts.values()) font.destroy(); this.fonts.clear(); this.fontLabels.clear(); this.fontCIDs.clear(); this.fontCFF.clear(); this.measured.clear(); this.sourceGlyphs.clear(); this.sourceClusters.clear(); this.stroke?.destroy(); this.stroke = undefined; }
+  destroy() { this.colors.destroy(); this.catalog?.destroy(); this.catalog = undefined; this.nativeFonts.clear(); for (const font of this.fonts.values()) font.destroy(); this.fonts.clear(); this.fontLabels.clear(); this.fontCIDs.clear(); this.fontCFF.clear(); this.measured.clear(); this.sourceGlyphs.clear(); this.sourceClusters.clear(); this.stroke?.destroy(); this.stroke = undefined; }
 }
 
 export async function layoutText(input: TextLayoutInput, control: TextLayoutControl = {}): Promise<TextLayoutResult> {
