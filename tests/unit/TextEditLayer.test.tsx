@@ -55,6 +55,22 @@ afterEach(async () => {
 });
 
 describe('text editing interaction', () => {
+  it('keeps a native select-all range when late geometry arrives before the replacement input event', async () => {
+    useEditingStore.getState().setTextBlocks(1, [block]);
+    await render(page());
+    act(() => container.querySelector<HTMLElement>('.text-block')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 40, clientY: 25 })));
+    const textarea = container.querySelector('textarea')!;
+    // Browser select-all/paste and accessibility input may change the native
+    // range before a selection event or the PDF worker result is delivered.
+    textarea.setSelectionRange(0, textarea.value.length);
+    act(() => useEditingStore.getState().setTextBlocks(1, [{ ...block, rect: { ...block.rect, width: 110 } }]));
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([0, block.text.length]);
+    act(() => {
+      textarea.setRangeText('Replacement', textarea.selectionStart, textarea.selectionEnd, 'end');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(useEditingStore.getState().textEdits.at(-1)?.newText).toBe('Replacement');
+  });
   it('positions the caret on the clicked CJK row and preserves End and vertical navigation at soft wraps', async () => {
     const lines = ['中文', '测试'].map((text, index) => ({ text, x: 10, y: 20 + index * 12, width: 20, height: 10, baseline: 28 + index * 12,
       items: [{ str: text, x: 10, y: 20 + index * 12, width: 20, height: 10, fontName: 'Helvetica', fontSize: 10, transform: [10, 0, 0, 10, 10, 20 + index * 12] }] }));

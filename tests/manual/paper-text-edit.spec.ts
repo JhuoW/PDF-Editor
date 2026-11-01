@@ -76,6 +76,60 @@ async function exported(page: Page, name: string) {
 }
 async function noErrors(page: Page) { await expect(page.getByRole('alert')).toHaveCount(0); }
 
+for (const [pageNumber, prefix] of [[8, '784 (28 × 28 grayscale)'], [9, 'done with networks of many different'], [18, 'The results of these experiments are'], [25, 'This section describes the network architectures']] as const) {
+  test(`preserves neighboring plots and source glyph offsets when editing paper page ${pageNumber}`, async ({ page }) => {
+    await openPaper(page, pageNumber);
+    const block = page.locator('.text-block').filter({ hasText: prefix });
+    const rect = await sourceRect(block);
+    if (pageNumber === 9 || pageNumber === 18) expect(rect.x + rect.width).toBeLessThan(305);
+    await block.click({ position: { x: 20, y: 6 } });
+    const editor = page.getByRole('textbox', { name: `Edit text on page ${pageNumber}`, exact: true });
+    const replacement = (await editor.inputValue()).replace('a', 'e');
+    await editor.fill(replacement);
+    await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', replacement);
+    await noErrors(page);
+    const output = await exported(page, `page-${pageNumber}-fidelity.pdf`);
+    expect(normalized(documentText(output)[pageNumber - 1])).toContain(normalized(replacement));
+    unchangedOutside(output, pageNumber, rect);
+  });
+}
+
+test('replaces page-three body text above mathematical superscripts without a false obstacle error', async ({ page }) => {
+  await openPaper(page, 3);
+  const block = page.locator('.text-block').filter({ hasText: 'Applying dropout to a neural network' });
+  const rect = await sourceRect(block), original = await block.textContent();
+  expect(original).toBeTruthy();
+  await block.click({ position: { x: 20, y: 6 } });
+  const editor = page.getByRole('textbox', { name: 'Edit text on page 3', exact: true });
+  const replacement = (await editor.inputValue()).replace('Applying', 'Testing');
+  await editor.fill(replacement);
+  await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', replacement);
+  await noErrors(page);
+  const output = await exported(page, 'page-three-superscripts.pdf');
+  const text = documentText(output);
+  expect(normalized(text[2])).toContain(normalized(replacement));
+  expect(normalized(text[2])).not.toContain('Applyingdropouttoaneuralnetwork');
+  unchangedOutside(output, 3, rect);
+  await page.screenshot({ path: test.info().outputPath('page-three-superscripts.png'), fullPage: true });
+});
+
+test('adds a caption row on page three using existing whitespace without pushing body text into formulas', async ({ page }) => {
+  await openPaper(page, 3);
+  const caption = page.locator('.text-block').filter({ hasText: 'Figure 2: Left:' });
+  await caption.click({ position: { x: 20, y: 6 } });
+  const editor = page.getByRole('textbox', { name: 'Edit text on page 3', exact: true });
+  const replacement = (await editor.inputValue()) + ' Additional text.';
+  await editor.fill(replacement);
+  await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', replacement);
+  await noErrors(page);
+  const output = await exported(page, 'page-three-caption-grown.pdf'), text = documentText(output);
+  expect(normalized(text[2])).toContain(normalized(replacement));
+  expect(text[2]).toContain('thinned networks');
+  expect(text[2]).toContain('At test time, it is not feasible');
+  for (let index = 0; index < text.length; index++) if (index !== 2) expect(text[index]).toBe(originalText[index]);
+  await page.screenshot({ path: test.info().outputPath('page-three-caption-grown.png'), fullPage: true });
+});
+
 test('moves one physical row of the real abstract while preserving all other rows, artwork and pages', async ({ page }) => {
   await openPaper(page);
   const block = page.locator('.text-block').filter({ hasText: 'Deep neural nets' });

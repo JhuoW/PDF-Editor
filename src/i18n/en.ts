@@ -1,4 +1,8 @@
 export const en = {
+  "text.type3.readonly": "This region uses a Type 3 drawing font that cannot be rewritten safely. Other text on this page can still be edited.",
+  "updates.reflow.bounds": "Text saving: use painted glyph bounds instead of font boxes to avoid false conflicts near superscripts and tight rows. Respect the visible edges and clipping of page artwork.",
+  "updates.reflow.anchors": "Paragraph flow: keep text across fixed figures, formulas and form fields in independent flow areas, and use available paragraph whitespace before reporting a conflict. Object edits keep their absolute positions.",
+  "updates.reflow.feedback": "Editing: preserve source hyphen breaks, glyph baseline offsets and subpixel width precision; separate chart ticks and wrap columns, and identify unsupported Type 3 fonts early. Highlight real conflicts and consolidate repeated errors. Prevent object toolbars from intercepting double-clicks and late previews from resetting selected text. Add real-paper and editing-mode regression tests.",
   "updates.debug.layout": "Text layout: fix false overflow after multiple paragraph edits, cross-column overlap and spacing on repeated rows. Advanced layout, preview, checks and export account for page edits, watermarks and image changes consistently.",
   "updates.debug.objects": "Object editing: fix saving when wrapped text is moved immediately, unexpected movement of clipped images and out-of-page marquee selection. Explicitly positioned text retains its chosen coordinates.",
   "updates.debug.input": "Editing interactions: fix caret placement at Chinese soft wraps, stale previews after undo, stale typing sessions after tool changes and repeated mode-switch requests.",

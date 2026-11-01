@@ -10,6 +10,7 @@
 .text-block-content { display: block; width: 100%; height: 100%; overflow: hidden; color: transparent; white-space: pre-wrap; user-select: none; pointer-events: none; }
 .text-block.readonly { cursor: default; }
 .text-block.readonly:hover { outline-color: transparent; }
+.text-block.overflow { outline: 2px solid var(--red-9, #d13438); outline-offset: 2px; }
 /* Native input is for keyboard/IME/clipboard only. All visible letters are PDF output. */
 .pdf-text-input { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; margin: 0; border: 0; opacity: 0; overflow: hidden; resize: none; font-size: 16px; pointer-events: none; }
 .pdf-text-caret { position: absolute; z-index: 26; background: #1d4ed8; pointer-events: none; animation: pdf-caret-blink 1.1s step-end infinite; }

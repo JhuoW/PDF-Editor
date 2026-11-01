@@ -1,7 +1,7 @@
 import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useLocale, t, translateError } from "../../i18n";
 /** Direct PDF text editing: the PDF paints the letters, an input handles typing. */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useEditingStore } from '../../store/editingStore';
@@ -45,6 +45,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const focusedBlock = useRef<string | null>(null);
   const preferredColumn = useRef<number | null>(null);
   const pendingPoint = useRef<{ x: number; y: number; detail: number } | null>(null);
+  const placedRange = useRef({ start: 0, end: 0 });
   const pageBlocks = textBlocks.get(pageNumber) ?? EMPTY, hasBlocks = textBlocks.has(pageNumber);
   const pageEdits = useMemo(() => textEdits.filter(edit => pageBlocks.some(block => block.id === edit.blockId)), [textEdits, pageBlocks]);
   const layouts = useMemo(() => new Map(pageEdits.map(edit => [edit.blockId, edit.layout])), [pageEdits]);
@@ -91,17 +92,24 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     if (!textInteraction || (editingBlockId && !pageBlocks.some(block => block.id === editingBlockId))) finish();
   }, [textInteraction, editingBlockId, pageBlocks, finish]);
   const setRange = useCallback((start: number, end = start, affinity: InlineCaretAffinity = 'downstream') => {
-    input.current?.setSelectionRange(Math.min(start, end), Math.max(start, end), end < start ? 'backward' : 'forward');
     const first = Math.min(start, end), last = Math.max(start, end);
+    placedRange.current = { start: first, end: last };
+    input.current?.setSelectionRange(first, last, end < start ? 'backward' : 'forward');
     setSelection(previous => previous.start === first && previous.end === last && previous.affinity === affinity
       ? previous : { start: first, end: last, affinity });
   }, []);
-  useEffect(() => {
-    if (activeId) { input.current?.focus({ preventScroll: true }); input.current?.setSelectionRange(0, 0); }
+  useLayoutEffect(() => {
+    if (activeId) { input.current?.focus({ preventScroll: true }); setRange(0); }
   }, [activeId, setRange]);
   useEffect(() => {
     const point = pendingPoint.current;
     if (!point || !prepared || prepared.input.text !== editText) return;
+    // A native select-all/paste may precede React's selection event. A late PDF
+    // preview must not collapse that range back to the initial click position.
+    const native = input.current, placed = placedRange.current;
+    if (native && (native.selectionStart !== placed.start || native.selectionEnd !== placed.end)) {
+      pendingPoint.current = null; return;
+    }
     if (preview?.activeId === activeId && preview.prepared) pendingPoint.current = null;
     const position = inlinePositionAt(prepared, point.x, point.y);
     let start = position.offset, end = start;
@@ -134,6 +142,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
       pointer.current = { id: event.pointerId, anchor: inlineOffsetAt(cached?.input.text === text ? cached : sourceGeometry(block, text, previous), point.x, point.y) };
       layer.current?.setPointerCapture?.(event.pointerId);
     } else if (prepared) {
+      pendingPoint.current = null;
       const position = inlinePositionAt(prepared, point.x, point.y), offset = position.offset;
       const element = input.current;
       const anchor = element?.selectionDirection === 'backward' ? element.selectionEnd : element?.selectionStart ?? selection.start;
@@ -209,6 +218,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   const caret = activeId && prepared ? rectStyle(inlineCaret(prepared, selection.end, selection.affinity)) : null;
   const regions = activeId && prepared ? inlineSelection(prepared, selection.start, selection.end).map(rectStyle) : [];
   const layoutIssue = preview?.issues?.[0];
+  const layoutIssues = new Map(preview?.issues?.map(issue => [issue.blockId, issue.message]));
   const toolbarHost = window.document.getElementById('pdf-text-edit-controls');
   const editActions = selectedBlock && selectedRect && <div ref={actions} className={`text-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { left: Math.max(0, Math.min(selectedRect.left, (viewport.width || 500) - 270)), top: Math.max(0, selectedRect.top - 40) }}>
     {activeId && !toolbarHost && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); setMode('none'); }}>{t("m.done.e9b450")}</button>}
@@ -240,7 +250,7 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     {textInteraction && <>
       {!hasBlocks && analysisError?.page !== page && <div className="text-edit-loading" role="status">{t("m.analyzing.text.297d65")}</div>}
       {analysisError?.page === page && <div className="text-edit-loading" role="alert"><ErrorMessage error={analysisError.message} /></div>}
-      {pageBlocks.filter(block => mode === 'text' || block.id === activeId).map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''}`} aria-disabled={!block.editable || undefined} title={translateError(block.unsupportedReason)} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
+      {pageBlocks.filter(block => mode === 'text' || block.id === activeId).map(block => <div key={block.id} className={`text-block ${!block.editable ? 'readonly' : ''} ${selectedBlockId === block.id ? 'selected' : ''} ${activeId === block.id ? 'editing' : ''} ${layoutIssues.has(block.id) ? 'overflow' : ''}`} aria-disabled={!block.editable || undefined} title={translateError(layoutIssues.get(block.id) ?? block.unsupportedReason)} style={blockStyle(block)} onPointerDown={event => begin(block, event)}>
         <span className="text-block-content">{block.text}</span>
       </div>)}
       {activeId && <>

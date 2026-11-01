@@ -27,6 +27,24 @@ function inspect(data: Uint8Array) {
   } finally { text.destroy(); page.destroy(); pdf.destroy(); }
 }
 describe('source text metrics and export fidelity', () => {
+  it('retains a lowered source tilde that extraction combined into a normal-baseline text item', async () => {
+    const pdf = await PDFDocument.create(), page = pdf.addPage([400, 400]), font = await pdf.embedFont(StandardFonts.Courier);
+    const text = 'alpha ~ beta', size = 12;
+    [...text].forEach((character, index) => page.drawText(character, { x: 40 + index * 7.2, y: 300 - (character === '~' ? 2.4 : 0), font, size }));
+    const block: TextBlock = { id: 'lowered-tilde', kind: 'paragraph', pageNumber: 1, text, editable: true,
+      rect: { x: 40, y: 88, width: text.length * 7.2, height: 12 },
+      style: { fontName: 'Courier', fontSize: 12, alignment: 'left', lineHeight: 1.2 },
+      lines: [{ text, items: [], x: 40, y: 88, width: text.length * 7.2, height: 12, baseline: 100 }] };
+    const data = new Uint8Array(await pdf.save()).buffer;
+    const edit: TextEditOperation = { blockId: block.id, originalText: text, newText: 'alpha ~ next', timestamp: 1,
+      layout: { keepBaseline: true, reflow: true, autoGrow: true, flow: 'paragraph' } };
+    const prepared = await prepareTextEditLayout(data, block, edit, {}, { blocks: [block], edits: [edit] });
+    expect(prepared.layout.fits).toBe(true); expect(prepared.layout.requiredHeight).toBe(12);
+    const after = inspect(await applyTextEdits(data, new Map([[1, [block]]]), [edit]));
+    const tilde = after.find(g => g.c === '~')!, before = inspect(new Uint8Array(data)).find(g => g.c === '~')!;
+    expect(tilde.y).toBeCloseTo(before.y, 3); expect(tilde.x).toBeCloseTo(before.x, 3); expect(tilde.size).toBe(12);
+    expect(after.map(g => g.c).join('')).toBe(edit.newText);
+  });
   it('reflows justified text using the original spacing range, without double justification or reducing the font', async () => {
     const pdf = await PDFDocument.create(), page = pdf.addPage([500, 600]), font = await pdf.embedFont(StandardFonts.Courier);
     const rows = ['alpha beta gamma', 'long words', 'one two'], gaps = [2.4, 40.8, 7.2], widths = [105.6, 105.6, 50.4];

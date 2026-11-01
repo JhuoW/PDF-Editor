@@ -9,6 +9,7 @@ describe('original PDF paragraph text', () => {
   it('joins Chinese rows and retains original hyphens and actual paragraph boundaries', () => {
     expect(originalParagraphText('第一行文字\n第二行文字\n第三行文字')).toBe('第一行文字第二行文字第三行文字');
     expect(originalParagraphText('well-\nknown')).toBe('well-known');
+    expect(originalParagraphText('well\u2010\nknown')).toBe('well\u2010known');
     expect(originalParagraphText('First paragraph\n\nSecond paragraph')).toBe('First paragraph\n\nSecond paragraph');
   });
 });

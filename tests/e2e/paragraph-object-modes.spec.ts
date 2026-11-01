@@ -24,8 +24,8 @@ async function save(page: Page) {
   const download = page.waitForEvent('download'); await page.keyboard.press('Control+s');
   return readFile((await (await download).path())!);
 }
-function inspect(data: Uint8Array) {
-  const document = new mupdf.PDFDocument(data), sheet = document.loadPage(0), text = sheet.toStructuredText('');
+function inspect(data: Uint8Array, pageNumber = 1) {
+  const document = new mupdf.PDFDocument(data), sheet = document.loadPage(pageNumber - 1), text = sheet.toStructuredText('');
   const rows: { text: string; y: number }[] = [], glyphs: { character: string; x: number; y: number; font: string; size: number; color: number[] }[] = [];
   let row = { text: '', y: 0 };
   try {
@@ -39,6 +39,68 @@ const paragraph = (page: Page) => page.locator('.text-block').filter({ hasText: 
 const input = (page: Page) => page.getByRole('textbox', { name: 'Edit text on page 1', exact: true });
 const mode = (page: Page, name: 'text' | 'objects') => page.locator(`.workspace-ribbon [data-command="edit-${name}"]`).click();
 const replacement = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';
+
+test('saves a page-three text replacement next to a superscript and reopens it in object mode', async ({ page }) => {
+  const pdf = await PDFDocument.create(); pdf.addPage([400, 400]); pdf.addPage([400, 400]);
+  const sheet = pdf.addPage([400, 400]), font = await pdf.embedFont(StandardFonts.TimesRoman);
+  sheet.drawText('Hanging ggg', { x: 40, y: 300, font, size: 12 });
+  sheet.drawText('formula', { x: 40, y: 286, font, size: 12 });
+  sheet.drawText('n', { x: 85, y: 290.9, font, size: 8 });
+  const original = Buffer.from(await pdf.save());
+  await page.addInitScript(() => { Reflect.deleteProperty(window, 'showSaveFilePicker'); });
+  await page.goto('./');
+  await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'superscript-page-three.pdf', mimeType: 'application/pdf', buffer: original });
+  const navigate = async () => { const number = page.getByRole('spinbutton', { name: 'Page number', exact: true }); await number.fill('3'); await number.press('Enter'); };
+  await expect(page.locator('canvas.page-canvas')).toBeVisible(); await navigate(); await mode(page, 'text');
+  await page.locator('.text-block').filter({ hasText: 'Hanging ggg' }).click();
+  const editor = page.getByRole('textbox', { name: 'Edit text on page 3', exact: true });
+  await editor.fill('Changed ggg');
+  await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', 'Changed ggg');
+  await expect(page.locator('.text-block.overflow')).toHaveCount(0);
+  const bytes = await save(page), output = inspect(bytes, 3);
+  expect(output.text).toContain('Changed ggg'); expect(output.text).not.toContain('Hanging');
+  expect(output.glyphs.filter(glyph => glyph.y > 105)).toEqual(inspect(original, 3).glyphs.filter(glyph => glyph.y > 105));
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'saved-superscript.pdf', mimeType: 'application/pdf', buffer: bytes });
+  await expect(page.getByRole('spinbutton', { name: 'Page number', exact: true })).toHaveValue('1');
+  await expect(page.locator('.page-wrapper[data-page="1"] canvas.page-canvas')).toBeVisible();
+  await navigate(); await mode(page, 'objects');
+  await page.getByRole('button', { name: 'Select text object 1', exact: true }).dblclick();
+  await expect(editor).toHaveValue('Changed ggg');
+  await editor.fill('Changed ggg\nObject second row');
+  const objectOutput = inspect(await save(page), 3);
+  expect(objectOutput.text.replace(/\s/g, '')).toContain('Objectsecondrow');
+  expect(objectOutput.glyphs.filter(glyph => glyph.size === 8)).toEqual(inspect(original, 3).glyphs.filter(glyph => glyph.size === 8));
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('keeps text below fixed artwork in place and shows a real collision during typing before save', async ({ page }) => {
+  const pdf = await PDFDocument.create(), sheet = pdf.addPage([400, 400]), font = await pdf.embedFont(StandardFonts.TimesRoman);
+  sheet.drawText('Upper row one', { x: 40, y: 338, font, size: 12 });
+  sheet.drawText('Upper row two', { x: 40, y: 322, font, size: 12 });
+  sheet.drawRectangle({ x: 30, y: 270, width: 200, height: 25, color: rgb(.3, .4, .5) });
+  sheet.drawText('After the figure', { x: 40, y: 251, font, size: 12 });
+  await page.addInitScript(() => { Reflect.deleteProperty(window, 'showSaveFilePicker'); });
+  await page.goto('./');
+  await page.locator('.main-toolbar input[type=file]').setInputFiles({ name: 'fixed-flow-area.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) });
+  await expect(page.locator('canvas.page-canvas')).toBeVisible(); await mode(page, 'text');
+  const upper = () => page.locator('.text-block').filter({ hasText: 'Upper row one' });
+  await upper().click({ position: { x: 5, y: 5 } }); await input(page).fill('Upper row one');
+  expect(inspect(await save(page)).rows.find(row => row.text === 'After the figure')?.y).toBeCloseTo(149, 2);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.workspace-history > button').first().click(); await mode(page, 'text');
+  await upper().click({ position: { x: 5, y: 5 } });
+  const longer = 'Upper row one\nUpper row two\nThird row\nFourth row';
+  await input(page).fill(longer);
+  await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', longer);
+  await expect(page.locator('.text-block.overflow')).toHaveCount(1);
+  await expect(page.locator('.text-edit-notice')).toContainText('Paragraph reflow needs more space');
+  await input(page).press('Escape');
+  await expect(page.locator('.text-block.overflow')).toHaveCount(0);
+  const saved = inspect(await save(page));
+  expect(saved.text).toContain('Upper row two'); expect(saved.text).not.toContain('Fourth row');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
 
 test('text mode selects the complete mixed-font paragraph and reflows following paragraphs when saving', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));

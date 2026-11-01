@@ -28,6 +28,23 @@ describe('shared measured paragraph layout', () => {
     expect(result.fits).toBe(true); expect(result.requiredHeight).toBe(20);
     expect(result.lines.map(line => line.baseline)).toEqual([80, 89]);
   });
+  it.each([12, 80])('does not add a row for subpixel source width rounding at %spt', async fontSize => {
+    const value = input({ text: 'alpha beta alpha beta', fontName: 'Courier', fontSize,
+      rect: { x: 0, y: 0, width: 6 * fontSize - .008, height: 2 * fontSize }, legacyBaseline: fontSize, lineHeight: 1 });
+    const result = await layoutText(value);
+    expect(result.lines.map(line => line.text)).toEqual(['alpha beta', 'alpha beta']);
+    expect(result.fits).toBe(true); expect(result.fontSize).toBe(fontSize);
+    const narrower = await layoutText({ ...value, rect: { ...value.rect, width: 6 * fontSize - .1 } });
+    expect(narrower.lines.length).toBeGreaterThan(2); expect(narrower.fits).toBe(false);
+  });
+  it('reuses visible source hyphens as wrap points without dropping characters or adding rows', async () => {
+    const value = input({ text: 'alpha beta-characters end', fontName: 'Courier', fontSize: 10,
+      rect: { x: 40, y: 70, width: 66, height: 34 }, legacyBaseline: 80, lineHeight: 1.2 });
+    const result = await layoutText(value);
+    expect(result.lines.map(line => line.text)).toEqual(['alpha beta-', 'characters', 'end']);
+    expect(result.fits).toBe(true);
+    expect(compact(result.lines.map(line => line.text).join(''))).toBe(compact(value.text));
+  });
   it('preserves compressed word spacing in an unchanged source row instead of wrapping it again', async () => {
     const text = 'Original justified source row';
     const natural = await layoutText(input({ text, rect: { x: 0, y: 0, width: 600, height: 100 } }));

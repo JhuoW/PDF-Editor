@@ -7,6 +7,13 @@ import { prepareTextEditLayout } from '../../src/editing/TextEditApplier';
 import { TextCheckError } from '../../src/editing/TextCheckTypes';
 import type { TextBlock } from '../../src/editing/types';
 
+it('summarizes repeated page failures once while retaining every affected block for locating', () => {
+  const issues = [1, 2, 3, 4].map(index => ({ blockId: `block-${index}`, pageNumber: 3, kind: 'overflow' as const, message: 'Not enough space.', blocking: true }));
+  const error = new TextCheckError(issues);
+  expect(error.message).toBe('Page 3: Not enough space.');
+  expect(error.issues).toEqual(issues);
+});
+
 async function fixture() {
   const pdf = await PDFDocument.create(), font = await pdf.embedFont(StandardFonts.TimesRoman), workspace = createWorkspace();
   for (const pageNumber of [1, 2]) {

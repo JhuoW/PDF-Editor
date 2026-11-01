@@ -55,6 +55,7 @@ export function translateMessage(value: unknown): string {
 }
 export function translateError(value: unknown): string {
   const source = value instanceof Error ? value.message : String(value ?? '');
+  if (source.includes('\n')) return source.split('\n').map(line => translateError(line)).join('\n');
   const translated = translateMessage(source);
   if (useLocaleStore.getState().locale === 'zh-CN' && /[A-Za-z]{3}/.test(translated) && translated === source) {
     return t('An unexpected error occurred. Please try again.');

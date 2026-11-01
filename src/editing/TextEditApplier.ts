@@ -7,6 +7,7 @@ import { readInlineTextBounds, readInlineTextObstacles } from './InlineTextBound
 import { readTextSourceMetrics, replacementTextStyles } from './TextSourceMetrics';
 import { TextCheckError, type TextCheckIssue, type TextCheckReport, type TextFontInfo } from './TextCheckTypes';
 import { textRegionTag } from './TextRegionMarkers';
+import { belongsToTextBlock, readTextPageContent, type TextPageContent } from './TextPageContent';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
 export interface PreparedTextEditLayout { input: TextLayoutInput; layout: TextLayoutResult; page: { width: number; height: number }; availableRect?: import('./types').TextRect; fonts?: TextFontInfo }
@@ -21,8 +22,8 @@ function cancelled(control: TextLayoutControl) { if (control.signal?.aborted) th
 function textFlow(block: TextBlock, edit: TextEditOperation) {
   const layout = edit.layout;
   // Upgrade pre-mode-separation inline drafts without discarding their text.
-  return layout?.flow ?? (layout?.keepBaseline && layout.reflow && layout.autoGrow
-    ? block.kind === 'line' || layout.translate ? 'object' : 'paragraph' : undefined);
+  return layout?.flow ?? (block.kind === 'line' || layout?.translate ? 'object'
+    : layout?.keepBaseline && layout.reflow && layout.autoGrow ? 'paragraph' : undefined);
 }
 
 function assertReplaceableTextRendering(engine: Engine, page: PDFPage, pageNumber: number) {
@@ -62,7 +63,7 @@ function pageGeometry(engine: Engine, page: PDFPage) {
   return { width: (crop[2] - crop[0]) * unit, height: (crop[3] - crop[1]) * unit, crop, unit };
 }
 
-function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: TextEditOperation, session: TextLayoutSession, control: TextLayoutControl, context?: { shiftY: number; peers: TextRect[] }): PreparedBlock {
+function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: TextEditOperation, session: TextLayoutSession, control: TextLayoutControl, context?: { shiftY: number; peers: TextRect[]; content?: TextPageContent }): PreparedBlock {
   cancelled(control);
   if (!block.editable) throw new Error(block.unsupportedReason ?? 'This text block is read-only.');
   if (block.lines.some(line => line.items.some(item => Math.abs(item.transform[1]) > 0.001 || Math.abs(item.transform[2]) > 0.001))) throw new Error(`Rotated or vertical text inside page ${block.pageNumber} cannot be replaced yet. Page rotation itself is supported.`);
@@ -72,7 +73,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   const sourceSize = source?.fontSize ?? block.style.fontSize;
   const originalBaseline = overrides.keepBaseline || !Object.values(overrides).some(value => value !== undefined);
   const availableRect = readInlineTextBounds(engine, page, block, geometry.width, geometry.height,
-    overrides.translate ? overrides.targetRect : undefined, overrides.fitToContent);
+    overrides.translate ? overrides.targetRect : undefined, overrides.fitToContent, context?.content);
   const rect = { ...(overrides.targetRect ?? block.rect) };
   if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.x < 0 || rect.y < 0 || rect.width <= 0 || rect.height <= 0 || rect.x + rect.width > geometry.width + 0.01 || rect.y + rect.height > geometry.height + 0.01) throw new Error('The text layout region must be completely inside the visible page.');
   const input: TextLayoutInput = { text: edit.newText, rect, fontName: overrides.fontName ?? source?.fontName ?? standardTextFont(block.style.fontName), fontSize: overrides.fontSize ?? sourceSize,
@@ -88,6 +89,11 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
   }
   if (originalBaseline) input.legacyBaseline = (block.lines[0]?.baseline ?? block.rect.y + input.fontSize * 0.8)
     + (overrides.translate ? rect.y - block.rect.y : 0);
+  if (originalBaseline && block.lines.length) {
+    const sourceHeight = Math.max(...block.lines.map(line => line.y + line.height)) - Math.min(...block.lines.map(line => line.y));
+    input.sourceRowHeight = Math.max(sourceSize,
+      sourceHeight - Math.max(0, block.lines.length - 1) * block.style.lineHeight * block.style.fontSize);
+  }
   if (input.sourceFontKey && input.legacyBaseline !== undefined && input.fontSize === sourceSize) input.sourceRows = block.lines.map(line => ({ text: line.text, width: line.width,
     ...(overrides.alignment === undefined ? { x: line.x + (overrides.translate ? rect.x - block.rect.x : 0) } : {}),
     ...(overrides.lineHeight === undefined ? { baseline: line.baseline + (overrides.translate ? rect.y - block.rect.y : 0) } : {}),
@@ -148,6 +154,7 @@ function prepareBlock(engine: Engine, page: PDFPage, block: TextBlock, edit: Tex
 const overlaps = (a: TextRect, b: TextRect) => a.x < b.x + b.width - .05 && b.x < a.x + a.width - .05
   && a.y < b.y + b.height - .05 && b.y < a.y + a.height - .05;
 const sharesColumn = (a: TextRect, b: TextRect) => Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > Math.min(a.width, b.width) * .3;
+const FLOW_EPSILON = .01;
 
 function shiftPrepared(prepared: PreparedBlock, dy: number) {
   prepared.input.rect.y += dy;
@@ -155,7 +162,10 @@ function shiftPrepared(prepared: PreparedBlock, dy: number) {
   if (prepared.layout.inkBounds) prepared.layout.inkBounds.y += dy;
   for (const line of prepared.layout.lines) {
     line.baseline += dy;
-    for (const glyph of line.glyphs) glyph.baseline += dy;
+    for (const glyph of line.glyphs) {
+      glyph.baseline += dy;
+      if (glyph.inkBounds) glyph.inkBounds.y += dy;
+    }
   }
 }
 
@@ -176,24 +186,33 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
     && !(block.lines.length === 1 && /^\s*\d{1,6}\s*$/u.test(block.lines[0].text)
       && block.rect.width < geometry.width * .25 && block.rect.y > geometry.height * .9));
   const movableIds = new Set(movable.map(block => block.id));
+  const content = readTextPageContent(engine, page);
   const obstacles = flow ? [
-    ...readInlineTextObstacles(engine, page, [...movable, ...positioned].map(block => block.rect)),
+    ...readInlineTextObstacles(engine, page, [...movable, ...positioned], content),
     ...positioned.filter(block => changes.get(block.id)!.newText !== '').map(block => changes.get(block.id)!.layout!.targetRect!),
   ] : [];
   const deltas: { rect: TextRect; delta: number }[] = [];
+  const separated = (before: TextRect, after: TextRect) => obstacles.some(obstacle =>
+    obstacle.y >= before.y + before.height - .05 && obstacle.y + obstacle.height <= after.y + .05
+    && obstacle.x < Math.min(before.x + before.width, after.x + after.width) - .05
+    && obstacle.x + obstacle.width > Math.max(before.x, after.x) + .05);
   const shift = (block: TextBlock) => flow && movableIds.has(block.id)
-    ? deltas.filter(item => item.rect.y + item.rect.height <= block.rect.y + .1 && sharesColumn(item.rect, block.rect)).reduce((sum, item) => sum + item.delta, 0) : 0;
+    // Fixed artwork, fields and unsupported rows anchor independent flow areas.
+    // Never carry an upper deletion across a figure/equation and pull unrelated
+    // lower text into it (nor push lower text off-page after an upper insertion).
+    ? deltas.filter(item => item.rect.y + item.rect.height <= block.rect.y + .1 && sharesColumn(item.rect, block.rect)
+      && !separated(item.rect, block.rect)).reduce((sum, item) => sum + item.delta, 0) : 0;
   for (const block of [...blocks].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x)) {
     cancelled(control);
     const edit = changes.get(block.id);
     const dy = shift(block);
-    if (!edit && Math.abs(dy) < .001) continue;
+    if (!edit && Math.abs(dy) < FLOW_EPSILON) continue;
     let item: PreparedBlock;
     try {
       item = prepareBlock(engine, page, block, edit ?? {
         blockId: block.id, originalText: block.text, newText: block.text, timestamp: 0,
         layout: { keepBaseline: true },
-      }, session, control, { shiftY: dy, peers: blocks.filter(peer => peer.id !== block.id).map(peer => positionedIds.has(peer.id)
+      }, session, control, { shiftY: dy, content, peers: blocks.filter(peer => peer.id !== block.id).map(peer => positionedIds.has(peer.id)
         ? changes.get(peer.id)!.layout!.targetRect! : { ...peer.rect, y: peer.rect.y + shift(peer) }) });
     } catch (error) {
       if (!issues) throw error;
@@ -201,24 +220,58 @@ function preparePageTextEdits(engine: Engine, page: PDFPage, blocks: TextBlock[]
       issues.push({ blockId: block.id, pageNumber: block.pageNumber, kind: 'unsupported', message: error instanceof Error ? error.message : String(error), blocking: true });
       continue;
     }
-    if (Math.abs(dy) >= .001) shiftPrepared(item, dy);
+    if (Math.abs(dy) >= FLOW_EPSILON) shiftPrepared(item, dy);
+    const sourceInk = content.glyphs.filter(glyph => belongsToTextBlock(glyph, block)).map(glyph => glyph.rect);
+    const conflicts = () => {
+      const ink = item.layout.inkBounds;
+      if (!ink) return [];
+      const newInk = item.layout.lines.flatMap(line => line.glyphs.flatMap(glyph => glyph.inkBounds ? [glyph.inkBounds] : []));
+      return obstacles.filter(obstacle => overlaps(ink, obstacle)
+        && newInk.some(rect => overlaps(rect, obstacle))
+        && !sourceInk.some(rect => overlaps(rect, obstacle)));
+    };
+    if (dy > FLOW_EPSILON && item.layout.inkBounds) {
+      // Preserve normal paragraph spacing first. If that would hit a fixed
+      // object or page edge, consume spare whitespace above this paragraph
+      // before declaring the page full. Its font and rows stay unchanged.
+      const ink = item.layout.inkBounds;
+      const needed = Math.max(0, ink.y + ink.height - item.page.height, item.input.rect.y + item.layout.requiredHeight - item.page.height,
+        ...conflicts().map(obstacle => ink.y + ink.height - obstacle.y + .1));
+      if (needed > 0) {
+        const floor = Math.max(block.rect.y, ...blocks.filter(previous => previous.id !== block.id
+          && previous.rect.y + previous.rect.height <= block.rect.y + .1 && sharesColumn(previous.rect, block.rect)).map(previous => {
+          const placed = prepared.get(previous.id);
+          const bottom = placed ? placed.input.rect.y + placed.layout.requiredHeight
+            : previous.rect.y + previous.rect.height;
+          const gap = Math.max(0, block.rect.y - previous.rect.y - previous.rect.height);
+          return bottom + Math.min(gap, Math.min(block.style.fontSize, previous.style.fontSize) * .25);
+        }));
+        const up = Math.min(needed, Math.max(0, item.input.rect.y - floor));
+        if (up >= FLOW_EPSILON) {
+          shiftPrepared(item, -up);
+          deltas.push({ rect: block.rect, delta: -up });
+        }
+      }
+    }
     const paragraph = edit && textFlow(block, edit) === 'paragraph';
     if (paragraph) {
       const delta = item.layout.requiredHeight - block.rect.height;
-      if (Math.abs(delta) >= .001) deltas.push({ rect: block.rect, delta });
+      if (Math.abs(delta) >= FLOW_EPSILON) deltas.push({ rect: block.rect, delta });
     }
     // Validate the final page position, after all earlier paragraphs have
     // released or consumed space. Testing the old y coordinate first leaves a
     // false overflow behind when a preceding deletion pulls this edit upwards.
-    if (flow && (paragraph || Math.abs(dy) >= .001)) {
+    if (flow && (paragraph || Math.abs(dy) >= FLOW_EPSILON)) {
       const ink = item.layout.inkBounds;
       if (item.input.rect.y < 0 || item.input.rect.y + item.layout.requiredHeight > item.page.height + .001
         || (ink && ink.y + ink.height > item.page.height + .001)) {
         item.layout.fits = false;
         item.layout.overflow = 'The reflowed paragraphs extend beyond the bottom of the page. Move the region or split the paragraph before saving; all text has been kept.';
-      } else if (ink && obstacles.some(obstacle => overlaps(ink, obstacle) && !overlaps(block.rect, obstacle))) {
-        item.layout.fits = false;
-        item.layout.overflow = 'Paragraph reflow needs more space before an image, drawing, form field, or read-only text. Move that content or adjust the paragraph before saving; all text has been kept.';
+      } else if (ink) {
+        if (conflicts().length) {
+          item.layout.fits = false;
+          item.layout.overflow = 'Paragraph reflow needs more space before an image, drawing, form field, or read-only text. Move that content or adjust the paragraph before saving; all text has been kept.';
+        }
       }
     }
     prepared.set(block.id, item);

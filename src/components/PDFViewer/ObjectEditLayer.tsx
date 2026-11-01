@@ -205,12 +205,16 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
   const toolbarHost = selected.length && !placement ? window.document.getElementById('pdf-text-edit-controls') : null;
   useLayoutEffect(() => {
     if (!actions.current || !selected.length || mode !== 'object') return;
-    const observer = new ResizeObserver(entries => {
-      const size = entries[0]?.borderBoxSize?.[0];
-      if (size) setToolbarSize(previous => Math.abs(previous.width - size.inlineSize) < .1 && Math.abs(previous.height - size.blockSize) < .1 ? previous : { width: size.inlineSize, height: size.blockSize });
-    });
+    const measure = () => {
+      const size = actions.current?.getBoundingClientRect();
+      if (size) setToolbarSize(previous => Math.abs(previous.width - size.width) < .1 && Math.abs(previous.height - size.height) < .1 ? previous : { width: size.width, height: size.height });
+    };
+    // Wrapped/localized actions can be taller than the initial estimate. Place
+    // them before paint so the second click of a double-click cannot hit Delete.
+    measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(actions.current); return () => observer.disconnect();
-  }, [selected.length, toolbarHost, mode]);
+  }, [selected.length, selectedObjectIds, selectedBlockId, selectedImageId, toolbarHost, mode, pendingTextEditId]);
   if (mode !== 'object' || pendingTextEditId) return null;
   const one = selected.length === 1 ? selected[0] : undefined;
   const unsupported = one?.item.unsupportedReason ?? (one?.kind === 'image' && one.item.source?.insideForm ? t('objects.unsupported.move') : undefined);

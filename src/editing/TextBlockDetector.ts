@@ -6,7 +6,7 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode, OPS } from 'pdfjs-dist';
 import type { TextItem, TextLine, TextBlock } from './types';
-import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON } from './types';
+import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON, TYPE3_TEXT_EDIT_REASON } from './types';
 import { decorationInstanceFromTag } from '../core/PageDecorationMarkers';
 import { textRegionFromTag, textRegionSource } from './TextRegionMarkers';
 
@@ -15,7 +15,7 @@ const COMPLEX_REGION_REASON = 'Some text regions contain superscripts, overlappi
 
 // Keep the original PDF font identity for grouping. Different embedded fonts can
 // all report the same generic CSS family (for example Computer Modern in papers).
-interface DetectedItem extends TextItem { fontKey: string; rotated: boolean; region?: string }
+interface DetectedItem extends TextItem { fontKey: string; rotated: boolean; type3: boolean; region?: string }
 interface DetectedLine extends TextLine {
   items: DetectedItem[];
   fontKey: string;
@@ -90,7 +90,7 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
       const fontSize = Math.hypot(tx[2], tx[3]) * unit;
       const width = (item.width ?? 0) * unit;
       const height = item.height ? item.height * unit : fontSize;
-      const resolvedFont = page.commonObjs?.has(item.fontName) ? page.commonObjs.get(item.fontName) as { name?: string } : undefined;
+      const resolvedFont = page.commonObjs?.has(item.fontName) ? page.commonObjs.get(item.fontName) as { name?: string; isType3Font?: boolean } : undefined;
       const fontName = typeof resolvedFont?.name === 'string' ? resolvedFont.name : undefined;
 
       return {
@@ -103,6 +103,7 @@ export async function detectTextBlocks(page: PDFPageProxy, kind: 'paragraph' | '
         // PDF producers may allocate a new subset/resource for each row.
         // Compare real face names when available, including weight and style.
         fontKey: fontName?.replace(/^[A-Z]{6}\+/, '') ?? item.fontName ?? 'unknown',
+        type3: resolvedFont?.isType3Font === true,
         region: regions.get(item),
         rotated: !!textContent.styles[item.fontName]?.vertical || Math.abs(tx[1]) > 0.01 || Math.abs(tx[2]) > 0.01 || tx[0] < 0,
         fontSize,
@@ -166,7 +167,13 @@ function groupIntoLines(items: DetectedItem[]): DetectedLine[] {
     let segment: DetectedItem[] = [], right = -Infinity;
     for (const item of row.items) {
       const gap = item.x - right;
-      if (segment.length && (gap > Math.max(12, row.size * 1.8) || segment[0].region !== item.region)) {
+      const previous = segment.at(-1);
+      // Small chart ticks beside a body column are not inline emphasis or
+      // superscripts. A gap plus a strong size change separates these objects
+      // even when their baselines happen to fall in the same row cluster.
+      const separateSize = previous && Math.min(previous.fontSize, item.fontSize) < Math.max(previous.fontSize, item.fontSize) * .6
+        && gap > Math.max(previous.fontSize, item.fontSize) * .75;
+      if (segment.length && (gap > Math.max(12, row.size * 1.8) || separateSize || segment[0].region !== item.region)) {
         lines.push(createLine(segment)); segment = [];
       }
       segment.push(item); right = Math.max(segment.length === 1 ? -Infinity : right, item.x + item.width);
@@ -200,7 +207,7 @@ function createLine(items: DetectedItem[]): DetectedLine {
   return {
     items, text: text.trim(), x: minX, y: minY, width: maxX - minX, height: maxY - minY,
     baseline, fontKey: fonts.join('|'), fontSize: size, mixedFonts: fonts.length > 1, region: items[0].region,
-    complex: overlapping || items.some(item => item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
+    complex: overlapping || items.some(item => item.type3 || item.rotated || Math.abs(item.y + item.height - baseline) > Math.max(0.75, size * 0.2)),
   };
 }
 
@@ -244,6 +251,12 @@ function groupIntoBlocks(lines: DetectedLine[], pageNumber: number): TextBlock[]
       const overlap = Math.min(line.x + line.width, previous.x + previous.width) - Math.max(line.x, previous.x);
       if (overlap <= Math.min(line.width, previous.width) * 0.3) continue;
       const left = Math.min(...group.map(part => part.x));
+      const right = Math.max(...group.map(part => part.x + part.width));
+      // A wrap column beside a figure must not become a page-wide region when
+      // text continues below the figure. Likewise, a short fragment after an
+      // equation does not own the blank space occupied by that equation.
+      if (group.length > 1 && line.x + line.width > right + Math.max(line.fontSize * 2, (right - left) * .25)) continue;
+      if (group.length === 1 && previous.x - line.x > line.fontSize * 3 && previous.width < line.width * .6) continue;
       const centered = Math.abs(line.x + line.width / 2 - previous.x - previous.width / 2) < line.fontSize * 0.25;
       // An indented first line starts a new paragraph even when leading is unchanged.
       if (line.x - left > line.fontSize * 0.65 && !centered) continue;
@@ -279,7 +292,7 @@ function createBlock(lines: DetectedLine[], pageNumber: number): TextBlock {
     rect: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
     style: { fontName, fontSize, alignment: estimateAlignment(lines), lineHeight },
     editable: !complex,
-    ...(complex ? { unsupportedReason: COMPLEX_REGION_REASON } : {}),
+    ...(complex ? { unsupportedReason: lines.some(line => line.items.some(item => item.type3)) ? TYPE3_TEXT_EDIT_REASON : COMPLEX_REGION_REASON } : {}),
   };
 }
 

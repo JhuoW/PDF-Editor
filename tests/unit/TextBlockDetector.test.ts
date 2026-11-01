@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { OPS } from 'pdfjs-dist';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { detectTextBlocks, getTextEditingRestriction } from '../../src/editing/TextBlockDetector';
-import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON } from '../../src/editing/types';
+import { CLIPPING_TEXT_EDIT_REASON, INVISIBLE_TEXT_EDIT_REASON, TYPE3_TEXT_EDIT_REASON } from '../../src/editing/types';
 import { createWorkspace, remapWorkspacePages } from '../../src/store/workspaceSnapshot';
 
 vi.mock('pdfjs-dist', () => ({ AnnotationMode: { DISABLE: 0 }, OPS: {
@@ -140,6 +140,38 @@ function paperPage(items: ReturnType<typeof textItem>[]): PDFPageProxy {
 }
 
 describe('paper text reading order and paragraph boundaries', () => {
+  it('keeps small graph tick labels out of an adjacent body paragraph and protects Type 3 fonts before typing', async () => {
+    const page = paperPage([
+      textItem('Body paragraph first row', 30, 500, 200, 12),
+      textItem('2.0', 240, 499, 10, 5, 'chart'),
+      textItem('Body paragraph second row', 30, 485, 200, 12),
+      textItem('1.5', 240, 484, 10, 5, 'chart'),
+    ]);
+    Object.assign(page, { commonObjs: { has: () => true, get: (name: string) => ({ name, isType3Font: name === 'chart' }) } });
+    const blocks = await detectTextBlocks(page);
+    const body = blocks.find(block => block.text.startsWith('Body'))!;
+    expect(body.text).toBe('Body paragraph first row\nBody paragraph second row');
+    expect(body.rect.width).toBe(200); expect(body.editable).toBe(true);
+    expect(blocks.filter(block => block !== body).every(block => !block.editable && block.unsupportedReason === TYPE3_TEXT_EDIT_REASON)).toBe(true);
+  });
+  it('keeps a narrow wrap column and the full-width text below a figure in separate flow areas', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('Narrow column first row', 30, 500, 200),
+      textItem('Narrow column second row', 30, 488, 200),
+      textItem('Full-width continuation below the figure', 30, 476, 430),
+      textItem('Full-width second row', 30, 464, 430),
+    ]));
+    expect(blocks.map(block => block.lines.length)).toEqual([2, 2]);
+    expect(blocks.map(block => block.rect.width)).toEqual([200, 430]);
+  });
+  it('does not reflow a short fragment after an equation across the equation on its left', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('is independent', 340, 500, 90),
+      textItem('The full-width following row', 30, 488, 400),
+    ]));
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].rect.x).toBe(340);
+  });
   it('keeps tightly spaced body baselines distinct and derives their real leading', async () => {
     // Like the JMLR sample: one line is only 1.2 font sizes below the previous.
     // Items deliberately arrive out of order and the second row has a smaller x.
@@ -253,6 +285,16 @@ describe('paper text reading order and paragraph boundaries', () => {
     expect(blocks.map(block => block.editable)).toEqual([true, false, true]);
     expect(blocks[1].unsupportedReason).toContain('Ordinary text blocks can still be edited');
     expect(blocks[1].rect.height).toBeGreaterThan(10);
+  });
+  it('keeps a small, spaced superscript with its source line rather than treating it as a chart tick', async () => {
+    const blocks = await detectTextBlocks(paperPage([
+      textItem('A cited statement', 30, 500, 100, 12),
+      textItem('1', 134, 505, 3, 5, 'footnote'),
+      textItem('Ordinary body text', 30, 470, 200, 12),
+    ]));
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].text).toContain('1'); expect(blocks[0].editable).toBe(false);
+    expect(blocks[1].editable).toBe(true);
   });
 
   it('protects overlapping and rotated glyphs rather than interpreting them as horizontal prose', async () => {

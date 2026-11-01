@@ -111,6 +111,20 @@ describe('paragraph reflow shared by live preview, checks and save', () => {
     expect(prepared.input.rect.y).toBe(blocks[1].rect.y - blocks[0].rect.height);
     expect(prepared.layout.lines.map(line => line.text)).toEqual(blocks[1].lines.map(line => line.text));
   });
+  it('uses the destination of a legacy translated row object as its fixed anchor, not the vacated source', async () => {
+    const { data, blocks } = await fixture();
+    const object = { ...blocks[1], kind: 'line' as const };
+    const source = new Map([[1, [blocks[0], object, ...blocks.slice(2)]]]);
+    const move: TextEditOperation = { blockId: object.id, originalText: object.text, newText: object.text, timestamp: 1,
+      layout: { keepBaseline: true, translate: true, autoGrow: false, targetRect: { ...object.rect, y: 68 } } };
+    const edits = [operation(blocks[0], ''), move], layouts = new Map<string, PreparedTextEditLayout>();
+    const preview = await previewInlineTextEdits(data, source, edits, undefined, layouts);
+    expect(layouts.get(object.id)!.input.rect.y).toBe(68);
+    expect(layouts.get('last')!.input.rect.y).toBe(118);
+    const saved = await applyTextEdits(data, source, edits);
+    expect(inspect(saved)).toEqual(inspect(preview));
+    expect(inspect(saved).find(row => row.text === 'Following paragraph')?.y).toBe(82);
+  });
   it('grows at the same font size, moves subsequent paragraphs and leaves the other column unchanged', async () => {
     const { data, blocks } = await fixture(), source = new Map([[1, blocks]]);
     const text = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';

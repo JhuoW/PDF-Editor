@@ -3,9 +3,10 @@ import type { loadMuPDF } from '../utils/mupdf';
 import type { TextBlock } from './types';
 import { originalParagraphText } from './ParagraphText';
 import { normalizeReplacementText, standardTextFont, type TextGlyphStyle, type TextLayoutSession } from './TextLayout';
+import { sourceTextRow } from './TextPageContent';
 
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
-interface SourceGlyph { character: string; glyphId: number; x: number; y: number; style: TextGlyphStyle; naturalAdvance: number }
+interface SourceGlyph { character: string; glyphId: number; x: number; y: number; row: TextBlock['lines'][number]; style: TextGlyphStyle; naturalAdvance: number }
 const median = (values: number[]) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
 const colorHex = (color: number[]) => {
   const rgb = color.length === 1 ? [color[0], color[0], color[0]] : color.length === 4
@@ -46,8 +47,7 @@ export function readTextSourceMetrics(engine: Engine, page: PDFPage, block: Text
           previous = undefined;
           const matrix = engine.Matrix.concat(engine.Matrix.concat(engine.Matrix.concat(trm, ctm), inverse), viewport);
           const [x, y] = matrix.slice(4), size = Math.hypot(matrix[2], matrix[3]);
-          const row = block.lines.find(line => Math.abs(line.baseline - y) < Math.max(1, size * .15)
-            && x >= line.x - .5 && x < line.x + line.width + .5);
+          const row = sourceTextRow(block, x, y, size);
           if (!row || !size) return;
           const naturalAdvance = font.advanceGlyph(gid), horizontalScale = Math.hypot(matrix[0], matrix[1]) / size;
           const { key, name } = register(font);
@@ -55,8 +55,9 @@ export function readTextSourceMetrics(engine: Engine, page: PDFPage, block: Text
           const position = `${character}:${x.toFixed(2)}:${y.toFixed(2)}`;
           if (seen.has(position)) return;
           seen.add(position);
-          previous = { character, glyphId: gid, x, y, naturalAdvance,
-            style: { fontKey: key, fontName: name, fontSize: size, horizontalScale, tracking: 0, fontColor: colorHex(color) } };
+          previous = { character, glyphId: gid, x, y, row, naturalAdvance,
+            style: { fontKey: key, fontName: name, fontSize: size, horizontalScale, tracking: 0, fontColor: colorHex(color),
+              ...(Math.abs(y - row.baseline) > .01 ? { baselineOffset: (y - row.baseline) / size } : {}) } };
           glyphs.push(previous);
       } });
     } finally { text.destroy(); }
@@ -77,7 +78,7 @@ export function readTextSourceMetrics(engine: Engine, page: PDFPage, block: Text
   }
   const source: Array<{ character: string; style: TextGlyphStyle }> = [];
   for (const [index, line] of block.lines.entries()) {
-    const row = glyphs.filter(glyph => Math.abs(glyph.y - line.baseline) < Math.max(1, glyph.style.fontSize * .15)).sort((a, b) => a.x - b.x);
+    const row = glyphs.filter(glyph => glyph.row === line).sort((a, b) => a.x - b.x);
     const lineText = line.text.normalize('NFC');
     let logicalOffset = 0;
     const positions = row.map(glyph => {

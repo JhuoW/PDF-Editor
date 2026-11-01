@@ -16,6 +16,17 @@ describe('translation boundary regressions', () => {
     const values = Object.create({ v0: 'Hidden prototype value' });
     expect(t('Loading stamp {v0}…', values)).toBe('Loading stamp {v0}…');
   });
+  it('translates each page of a multi-line export failure without collapsing its explanations', () => {
+    const message = 'Paragraph reflow needs more space before an image, drawing, form field, or read-only text. Move that content or adjust the paragraph before saving; all text has been kept.';
+    const error = `Failed to export PDF: Page 3: ${message}\nPage 4: ${message}`;
+    useLocaleStore.getState().setLocale('zh-CN');
+    expect(translateError(error).split('\n')).toEqual([
+      translateError(`Failed to export PDF: Page 3: ${message}`), translateError(`Page 4: ${message}`),
+    ]);
+    expect(translateError(error)).toContain('段落重排');
+    useLocaleStore.getState().setLocale('en');
+    expect(translateError(error)).toBe(error);
+  });
   it('keeps cleanup progress and complete validation errors localizable in either direction', () => {
     useLocaleStore.getState().setLocale('zh-CN');
     for (const phase of ['Checking document', 'Removing selected items', 'Verifying cleanup', 'Rewriting PDF']) {

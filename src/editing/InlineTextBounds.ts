@@ -1,55 +1,15 @@
 import type { TextBlock, TextRect } from './types';
-import type { PDFPage, Rect } from 'mupdf';
+import type { PDFPage } from 'mupdf';
 import type { loadMuPDF } from '../utils/mupdf';
+import { belongsToTextBlock, readTextPageContent, type TextPageContent } from './TextPageContent';
 
 /** Read painted content so automatic growth also respects images and vectors. */
-export function readInlineTextObstacles(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, sources: TextRect[]): TextRect[] {
-  const obstacles: TextRect[] = [], inverse = engine.Matrix.invert(page.getTransform());
-  const crop = engine.Rect.transform(page.getBounds(), inverse), unit = Math.hypot(...page.getTransform().slice(0, 2));
-  const convert = (bounds: Rect): TextRect => {
-    const rect = engine.Rect.transform(bounds, inverse);
-    return { x: (rect[0] - crop[0]) * unit, y: (crop[3] - rect[3]) * unit, width: (rect[2] - rect[0]) * unit, height: (rect[3] - rect[1]) * unit };
-  };
-  const structured = page.toStructuredText('');
-  try {
-    structured.walk({ onChar(_character, _origin, font, _size, quad) {
-      try {
-        const rect = convert([Math.min(quad[0], quad[2], quad[4], quad[6]), Math.min(quad[1], quad[3], quad[5], quad[7]), Math.max(quad[0], quad[2], quad[4], quad[6]), Math.max(quad[1], quad[3], quad[5], quad[7])]);
-        const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
-        if (!sources.some(source => x >= source.x && x <= source.x + source.width && y >= source.y && y <= source.y + source.height)) obstacles.push(rect);
-      } finally { font.destroy(); }
-    } });
-  } finally { structured.destroy(); }
-  const stroke = new engine.StrokeState({ lineWidth: 0, lineCap: 'Butt', lineJoin: 'Miter', miterLimit: 1 });
-  const collect = (bounds: Rect) => { obstacles.push(convert(bounds)); };
-  const device = new engine.Device({
-    fillPath(path, _odd, matrix, color) { try { collect(path.getBounds(stroke, matrix)); } finally { path.destroy(); color.destroy(); } },
-    strokePath(path, pen, matrix, color) { try { collect(path.getBounds(pen, matrix)); } finally { path.destroy(); pen.destroy(); color.destroy(); } },
-    fillImage(image, matrix) { try { collect(engine.Rect.transform([0, 0, 1, 1], matrix)); } finally { image.destroy(); } },
-    fillImageMask(image, matrix, color) { try { collect(engine.Rect.transform([0, 0, 1, 1], matrix)); } finally { image.destroy(); color.destroy(); } },
-    fillShade(shade, matrix) { try { collect(engine.Rect.transform(shade.getBounds(), matrix)); } finally { shade.destroy(); } },
-  });
-  try { page.runPageContents(device, engine.Matrix.identity); device.close(); }
-  finally { device.destroy(); stroke.destroy(); }
-  // Read widget rectangles directly: MuPDF caches getWidgets() wrappers on the
-  // page, so destroying those borrowed objects breaks the next edited block.
-  const object = page.getObject(), annotations = object.get('Annots');
-  try {
-    if (annotations.isArray()) annotations.forEach(annotation => {
-      const subtype = annotation.get('Subtype'), bounds = annotation.get('Rect'), flags = annotation.get('F');
-      try {
-        const rect = bounds.asJS();
-        if (subtype.asName() === 'Widget' && !(flags.asNumber() & 35) && Array.isArray(rect) && rect.length === 4 && rect.every(Number.isFinite)) {
-          obstacles.push({ x: (rect[0] - crop[0]) * unit, y: (crop[3] - rect[3]) * unit, width: (rect[2] - rect[0]) * unit, height: (rect[3] - rect[1]) * unit });
-        }
-      } finally { subtype.destroy(); bounds.destroy(); flags.destroy(); annotation.destroy(); }
-    });
-  } finally { annotations.destroy(); object.destroy(); }
-  return obstacles;
+export function readInlineTextObstacles(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, sources: TextBlock[], content = readTextPageContent(engine, page)): TextRect[] {
+  return [...content.glyphs.filter(glyph => !sources.some(block => belongsToTextBlock(glyph, block))).map(glyph => glyph.rect), ...content.artwork];
 }
 
-export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, block: TextBlock, width: number, height: number, targetRect?: TextRect, growWidth = false): TextRect {
-  const obstacles = readInlineTextObstacles(engine, page, [block.rect]);
+export function readInlineTextBounds(engine: Awaited<ReturnType<typeof loadMuPDF>>, page: PDFPage, block: TextBlock, width: number, height: number, targetRect?: TextRect, growWidth = false, content?: TextPageContent): TextRect {
+  const obstacles = readInlineTextObstacles(engine, page, [block], content);
   // The source glyphs will be removed from block.rect, but growth after a move
   // must be measured around the destination rather than the old paragraph.
   const destination = targetRect ? { ...block, rect: targetRect } : block;

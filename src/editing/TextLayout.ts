@@ -17,6 +17,8 @@ export interface TextGlyphStyle {
   reflowSpaceAdvance?: number;
   /** Smallest word space actually used by the source paragraph's justification. */
   minimumSpaceAdvance?: number;
+  /** Source glyph's baseline displacement, relative to its own font size. */
+  baselineOffset?: number;
 }
 export interface TextLayoutInput {
   text: string;
@@ -37,10 +39,14 @@ export interface TextLayoutInput {
   /** Per-character source styles, already mapped through the current replacement. */
   sourceStyles?: TextGlyphStyle[];
   sourceFontSize?: number;
+  /** Original logical row footprint, including mixed-size source items. */
+  sourceRowHeight?: number;
 }
 export interface TextLayoutGlyph {
   character: string; fontName: string; glyphId: number;
   x: number; baseline: number; advance: number;
+  /** Painted glyph bounds, excluding advance spaces and interline whitespace. */
+  inkBounds?: TextRect;
   fontSize?: number; horizontalScale?: number; fontColor?: string;
 }
 export interface TextLayoutLine {
@@ -54,7 +60,7 @@ export interface TextLayoutResult {
 }
 export interface TextLayoutControl { signal?: AbortSignal }
 type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
-interface MeasuredGlyph { character: string; fontName: string; glyphId: number; advance: number; left: number; right: number; ascent: number; descent: number; ink: boolean; sizeRatio?: number; horizontalScale?: number; fontColor?: string; naturalSpaceAdvance?: number }
+interface MeasuredGlyph { character: string; fontName: string; glyphId: number; advance: number; left: number; right: number; inkLeft?: number; inkRight?: number; ascent: number; descent: number; ink: boolean; sizeRatio?: number; horizontalScale?: number; fontColor?: string; naturalSpaceAdvance?: number; baselineOffset?: number }
 interface WrappedLine { glyphs: MeasuredGlyph[]; paragraphEnd: boolean }
 const check = (control: TextLayoutControl) => { if (control.signal?.aborted) throw new DOMException('Text layout cancelled.', 'AbortError'); };
 const cjk = (value: string) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value);
@@ -100,9 +106,10 @@ function canBreak(left: MeasuredGlyph, right: MeasuredGlyph) {
   if (noLineEnd.has(left.character) || noLineStart.has(right.character)) return false;
   // A word that exactly fills the row fits even when the following space does
   // not. Breaking only *after* that space needlessly moved the whole word down.
-  return space(left.character) || space(right.character) || cjk(left.character) || cjk(right.character);
+  return space(left.character) || space(right.character) || left.character === '-' || left.character === '\u2010'
+    || cjk(left.character) || cjk(right.character);
 }
-function wrap(glyphs: MeasuredGlyph[], width: number, firstWidth = width): WrappedLine[] {
+function wrap(glyphs: MeasuredGlyph[], width: number, firstWidth = width, tolerance = .0001): WrappedLine[] {
   if (!glyphs.length) return [{ glyphs: [], paragraphEnd: true }];
   const lines: WrappedLine[] = [];
   let start = 0;
@@ -111,10 +118,10 @@ function wrap(glyphs: MeasuredGlyph[], width: number, firstWidth = width): Wrapp
     let end = start, lastBreak = -1, advance = 0, left = 0, right = 0;
     while (end < glyphs.length) {
       const glyph = glyphs[end], nextLeft = Math.min(left, advance + glyph.left), nextRight = Math.max(right, advance + glyph.right, advance + glyph.advance);
-      if (end > start && nextRight - nextLeft > limit + 0.0001) break;
+      if (end > start && nextRight - nextLeft > limit + tolerance) break;
       advance += glyph.advance; left = nextLeft; right = nextRight; end++;
       if (end < glyphs.length && canBreak(glyphs[end - 1], glyphs[end])) lastBreak = end;
-      if (right - left > limit + 0.0001) break; // Keep an oversized glyph, then report overflow; never truncate it.
+      if (right - left > limit + tolerance) break; // Keep an oversized glyph, then report overflow; never truncate it.
     }
     if (end < glyphs.length && lastBreak > start) end = lastBreak;
     // Avoid placing closing punctuation at a line start or opening punctuation at
@@ -223,6 +230,7 @@ export class TextLayoutSession {
         const justifiedSpace = space(character) && input.reflow && input.alignment === 'justify';
         const naturalSpace = style.reflowSpaceAdvance ?? glyph.advance * horizontalScale + style.tracking;
         glyphs.push({ ...glyph, sizeRatio, horizontalScale, fontColor: style.fontColor,
+          baselineOffset: (style.baselineOffset ?? 0) * sizeRatio,
           naturalSpaceAdvance: justifiedSpace ? naturalSpace * sizeRatio : undefined,
           advance: (justifiedSpace ? Math.min(naturalSpace, style.minimumSpaceAdvance ?? naturalSpace)
             : space(character) && style.spaceAdvance !== undefined ? style.spaceAdvance
@@ -246,13 +254,18 @@ export class TextLayoutSession {
       return glyphs.map(glyph => space(glyph.character) ? { ...glyph, advance: glyph.advance + delta } : glyph);
     });
     let ascent = 0.8, descent = 0.2, emHeight = 1;
-    for (const paragraph of paragraphs) for (const glyph of paragraph) { ascent = Math.max(ascent, glyph.ascent); descent = Math.max(descent, glyph.descent); emHeight = Math.max(emHeight, glyph.sizeRatio ?? 1); }
+    for (const paragraph of paragraphs) for (const glyph of paragraph) { ascent = Math.max(ascent, glyph.ascent - (glyph.baselineOffset ?? 0)); descent = Math.max(descent, glyph.descent + (glyph.baselineOffset ?? 0)); emHeight = Math.max(emHeight, glyph.sizeRatio ?? 1); }
     const assemble = (size: number, useLegacy = legacy): TextLayoutResult => {
       check(control);
       const indent = Math.max(0, input.firstLineIndent ?? 0);
-      const wrapped = paragraphs.flatMap(paragraph => wrap(useLegacy ? paragraph.map(glyph => ({ ...glyph, left: 0, right: glyph.advance })) : paragraph, input.rect.width / size, Math.max(.001, input.rect.width - indent) / size));
+      // PDF.js extraction and MuPDF font advances can differ by hundredths of
+      // a point. A subpixel rounding difference must not move an entire word.
+      // Keep this tolerance in physical points, independent of font size.
+      const widthTolerance = useLegacy ? .01 : .001;
+      const wrapped = paragraphs.flatMap(paragraph => wrap(useLegacy ? paragraph.map(glyph => ({ ...glyph, inkLeft: glyph.left, inkRight: glyph.right, left: 0, right: glyph.advance })) : paragraph, input.rect.width / size, Math.max(.001, input.rect.width - indent) / size, widthTolerance / size));
       const lineAdvance = (useLegacy ? input.lineHeight : Math.max(input.lineHeight, ascent + descent)) * size;
-      const requiredHeight = (useLegacy ? emHeight : ascent + descent) * size + Math.max(0, wrapped.length - 1) * lineAdvance;
+      const legacyHeight = Math.max(emHeight, (input.sourceRowHeight ?? 0) / (input.sourceFontSize ?? input.fontSize));
+      const requiredHeight = (useLegacy ? legacyHeight : ascent + descent) * size + Math.max(0, wrapped.length - 1) * lineAdvance;
       let widest = 0, ink: [number, number, number, number] | undefined;
       const lines = wrapped.map((row, index): TextLayoutLine => {
         const inset = index === 0 || wrapped[index - 1].paragraphEnd ? indent : 0;
@@ -277,18 +290,20 @@ export class TextLayoutSession {
         const baseline = sourceRow?.baseline ?? (useLegacy ? input.legacyBaseline! : input.rect.y + ascent * size) + index * lineAdvance, start = x;
         const glyphs = row.glyphs.map((glyph, position) => {
           const advance = glyph.advance * size + (gaps.has(position) ? extra : 0);
-          const placed = { character: glyph.character, fontName: glyph.fontName, glyphId: glyph.glyphId, x, baseline, advance,
+          const glyphBaseline = baseline + (glyph.baselineOffset ?? 0) * size;
+          const placed: TextLayoutGlyph = { character: glyph.character, fontName: glyph.fontName, glyphId: glyph.glyphId, x, baseline: glyphBaseline, advance,
             fontSize: size * (glyph.sizeRatio ?? 1), horizontalScale: glyph.horizontalScale ?? 1, fontColor: glyph.fontColor ?? input.fontColor };
           if (glyph.ink) {
-            const bounds: [number, number, number, number] = [x + glyph.left * size, baseline - glyph.ascent * size, x + glyph.right * size, baseline + glyph.descent * size];
+            const bounds: [number, number, number, number] = [x + (glyph.inkLeft ?? glyph.left) * size, glyphBaseline - glyph.ascent * size, x + (glyph.inkRight ?? glyph.right) * size, glyphBaseline + glyph.descent * size];
+            placed.inkBounds = { x: bounds[0], y: bounds[1], width: bounds[2] - bounds[0], height: bounds[3] - bounds[1] };
             ink = ink ? [Math.min(ink[0], bounds[0]), Math.min(ink[1], bounds[1]), Math.max(ink[2], bounds[2]), Math.max(ink[3], bounds[3])] : bounds;
           }
           x += advance; return placed;
         });
         return { text: row.glyphs.map(glyph => glyph.character).join(''), x: start, baseline, width, paragraphEnd: row.paragraphEnd, glyphs };
       });
-      const fits = requiredHeight <= input.rect.height + 0.001 && widest <= input.rect.width + 0.001;
-      const overflow = fits ? undefined : widest > input.rect.width + 0.001
+      const fits = requiredHeight <= input.rect.height + 0.001 && widest <= input.rect.width + widthTolerance;
+      const overflow = fits ? undefined : widest > input.rect.width + widthTolerance
         ? `A character or punctuation group is wider than the text region (${Math.ceil(widest)} points). Enlarge the region or reduce the font size; no text was truncated.`
         : `Replacement text needs ${Math.ceil(requiredHeight)} points of height, but the region has ${Math.floor(input.rect.height)}. Enlarge the region or reduce the font size; no text was truncated.`;
       return { fits, requiredHeight: Math.ceil(requiredHeight * 1000) / 1000, overflow, lines, fontSize: size, lineAdvance,
