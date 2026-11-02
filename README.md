@@ -9,7 +9,7 @@
 **PDF-Editor** is a free, open-source PDF editor for your browser. View, edit, annotate, and organize PDFs locally without uploading your files. Switch between English and Chinese instantly.
 
 <p align="center">
-  <a href="docs/imgs/new_example_1.png"><img src="docs/imgs/new_example_1.png" width="100%" alt="PDF-Editor workspace overview" /></a>
+  <a href="docs/imgs/promotion_2.png"><img src="docs/imgs/promotion_2.png" width="100%" alt="PDF-Editor workspace overview" /></a>
 </p>
 
 <p align="center">

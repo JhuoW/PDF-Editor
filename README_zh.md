@@ -9,7 +9,7 @@
 **PDF-Editor** 是免费、开源的浏览器端 PDF 编辑器，可在本地阅读、编辑、批注和整理 PDF，无需上传文件，支持即时中英文切换。
 
 <p align="center">
-  <a href="docs/imgs/new_example_1.png"><img src="docs/imgs/new_example_1.png" width="100%" alt="PDF-Editor 主界面概览" /></a>
+  <a href="docs/imgs/promotion_2.png"><img src="docs/imgs/promotion_2.png" width="100%" alt="PDF-Editor 主界面概览" /></a>
 </p>
 
 <p align="center">
