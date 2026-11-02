@@ -1,4 +1,8 @@
-![branding](docs/imgs/logo.png)
+<p align="center">
+  <a href="https://wei2hu0.github.io/PDF-Editor/" target="_blank" rel="noopener noreferrer">
+    <img src="docs/imgs/promotion-cn.png" width="100%" alt="PDF-Editor — 打开在线编辑器" />
+  </a>
+</p>
 
 [English](README.md)
 
