@@ -5,7 +5,7 @@ import type { ImageEditOperation, PDFImage, TextBlock, TextEditOperation, TextRe
 
 export type ObjectTarget = { kind: 'text'; item: TextBlock } | { kind: 'image'; item: PDFImage };
 export function canTransformObject(target: ObjectTarget) {
-  return target.kind === 'text' ? target.item.editable : !!target.item.source && !target.item.unsupportedReason && !target.item.source.insideForm;
+  return target.kind === 'text' ? target.item.editable : !!target.item.source && !target.item.unsupportedReason;
 }
 export function objectRect(target: ObjectTarget): TextRect {
   const state = useEditingStore.getState();

@@ -220,7 +220,7 @@ export function ObjectEditLayer({ page, pageNumber, scale, rotation, onTextLayou
   }, [selected.length, selectedObjectIds, selectedBlockId, selectedImageId, toolbarHost, mode, pendingTextEditId]);
   if (mode !== 'object' || pendingTextEditId) return null;
   const one = selected.length === 1 ? selected[0] : undefined;
-  const unsupported = one?.item.unsupportedReason ?? (one?.kind === 'image' && one.item.source?.insideForm ? t('objects.unsupported.move') : undefined);
+  const unsupported = one?.item.unsupportedReason;
   const editActions = selected.length > 0 && <div ref={actions} className={`object-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { ...(placement ?? { left: 8, top: -toolbarSize.height - 12 }), maxWidth: Math.max(0, visibleArea.right - visibleArea.left - 16) }} onPointerDown={event => event.stopPropagation()}>
     {one?.kind === 'text' && <><button type="button" disabled={!one.item.editable} onClick={() => editText(one)}>{t('objects.edit.text')}</button>{onTextLayout && <button type="button" disabled={!one.item.editable} onClick={() => { finish(); onTextLayout(one.item.id); }}>{t('objects.layout')}</button>}</>}
     {one?.kind === 'image' && <button type="button" onClick={() => { finish(); useEditingStore.getState().setMode('image'); useEditingStore.getState().selectImage(one.item.id); }}>{t('objects.image.options')}</button>}

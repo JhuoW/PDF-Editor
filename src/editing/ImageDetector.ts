@@ -41,7 +41,7 @@ export async function detectImages(page: PDFPageProxy): Promise<PDFImage[]> {
     if (fn === OPS.beginMarkedContent || fn === OPS.beginMarkedContentProps) { markedContent.push(decorationInstanceFromTag(args[0])); crops.push(imageCropFromTag(args[0])); }
     else if (fn === OPS.endMarkedContent) { markedContent.pop(); crops.pop(); }
     else if (fn === OPS.save) stack.push([...transform]);
-    else if (fn === OPS.restore) transform = stack.pop() ?? identityMatrix();
+    else if (fn === OPS.restore) transform = stack.pop() ?? transform;
     else if (fn === OPS.transform) transform = multiplyMatrix(transform, args as number[]);
     else if (fn === OPS.paintFormXObjectBegin) {
       stack.push([...transform]);

@@ -91,7 +91,7 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
             <button className="image-btn" disabled={editsFor(selected).length === 0} onClick={() => resetImageEdits(selected.id)}>{t("m.reset.image.edits.5e69da")}</button>
             <button className="image-btn" onClick={() => useUIStore.getState().setInspectorOpen(true)}>{t('image.appearance')}</button>
           </div>
-          {unsupported ? <p role="status">{translateMessage(unsupported)}</p> : selected.source?.insideForm ? <p>{t("m.images.inside.pdf.forms.support.replace.and.dele.567f73")}</p> : (
+          {unsupported ? <p role="status">{translateMessage(unsupported)}</p> : (
             <form key={`${selected.id}-${JSON.stringify(effectiveRect(selected))}`} className="image-geometry" onSubmit={event => {
               event.preventDefault();
               const values = new FormData(event.currentTarget);

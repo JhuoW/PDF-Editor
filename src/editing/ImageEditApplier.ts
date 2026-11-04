@@ -10,6 +10,7 @@ interface Token { start: number; end: number; value: string; kind: 'name' | 'num
 interface Command { start: number; end: number; operator: string; operands: Token[] }
 interface Draw { command: Command; name: string; object: PDFObject; matrix: ImageMatrix; contextMatrix?: ImageMatrix; occurrence?: number; form?: ContentNode }
 interface ContentNode { text: string; resources: PDFObject; object?: PDFObject; draws: Draw[]; inheritsResources: boolean }
+interface Lifted { object: PDFObject; matrix: ImageMatrix; crop: ImageAppearance['crop'] }
 interface Pending { image: PDFImage; deleted: boolean; replacement?: ArrayBuffer; rect?: PDFImage['rect']; appearance: ImageAppearance; transformed?: boolean }
 
 const isWhite = (c: string) => ['\0', '\t', '\n', '\f', '\r', ' '].includes(c);
@@ -185,11 +186,20 @@ class Editor {
       throw new Error('The selected image no longer matches the page coordinates. Reopen the document and select it again.');
     }
   }
-  rewrite(node: ContentNode): { stream: PDFObject; resources: PDFObject } | null {
+  /** A transformed image must not stay in a Form: the Form's clip and other uses are not its own. */
+  private imageDraw(name: string, transform: ImageMatrix, cropRect: ImageAppearance['crop']) {
+    const crop = imageCropUV(cropRect);
+    const cropped = crop.x !== 0 || crop.y !== 0 || crop.width !== 1 || crop.height !== 1;
+    const clipping = cropped ? `${[crop.x, crop.y, crop.width, crop.height].map(value => Number(value.toFixed(10))).join(' ')} re W n\n` : '';
+    const value = `q\n${transform.map(value => Number(value.toFixed(10))).join(' ')} cm\n${clipping}${pdfName(name)} Do\nQ`;
+    return cropped ? `/${imageCropTag(cropRect)} BMC\n${value}\nEMC` : value;
+  }
+  rewrite(node: ContentNode): { stream: PDFObject; resources: PDFObject; lifted: Lifted[] } | null {
     const edits: { start: number; end: number; value: string }[] = [];
     const resources = this.copy(node.resources);
     const xObjects = this.copy(this.get(node.resources, 'XObject'));
     resources.put('XObject', xObjects);
+    const lifted: Lifted[] = [];
     let suffix = 0;
     const add = (object: PDFObject) => {
       let name: string;
@@ -200,38 +210,41 @@ class Editor {
     for (const draw of node.draws) {
       if (draw.form) {
         const rewritten = this.rewrite(draw.form);
-        if (rewritten) edits.push({ ...draw.command, value: `${pdfName(add(rewritten.stream))} Do` });
+        if (rewritten) {
+          let value = `${pdfName(add(rewritten.stream))} Do`;
+          if (node.object) lifted.push(...rewritten.lifted);
+          else for (const item of rewritten.lifted) value += `\n${this.imageDraw(add(item.object), multiplyMatrix(inverseMatrix(draw.matrix), item.matrix), item.crop)}`;
+          edits.push({ ...draw.command, value });
+        }
       } else if (draw.occurrence !== undefined && this.pending.has(draw.occurrence)) {
         const pending = this.pending.get(draw.occurrence)!;
         this.validate(draw, pending);
         this.applied.add(draw.occurrence);
         let value = '';
         if (!pending.deleted) {
-          let name = draw.name;
+          let name = draw.name, object = draw.object;
           if (pending.replacement) {
             const image = this.own(new this.engine.Image(pending.replacement));
-            name = add(this.own(this.document.addImage(image)));
+            object = this.own(this.document.addImage(image));
+            name = add(object);
           }
-          let transform = identityMatrix();
+          let absolute: ImageMatrix | undefined;
           if (pending.transformed) {
-            if (node.object) throw new Error('Moving or resizing images inside Form XObjects is not supported yet. Replace and Delete are supported.');
             const base = multiplyMatrix(this.pageToTopLeft, draw.matrix);
-            const final = imageAppearanceMatrix(pending.image, pending.appearance, base);
-            transform = multiplyMatrix(inverseMatrix(draw.contextMatrix ?? draw.matrix), multiplyMatrix(inverseMatrix(this.pageToTopLeft), final));
+            absolute = multiplyMatrix(inverseMatrix(this.pageToTopLeft), imageAppearanceMatrix(pending.image, pending.appearance, base));
           } else if (pending.rect) {
-            if (node.object) throw new Error('Moving or resizing images inside Form XObjects is not supported yet. Replace and Delete are supported.');
             const old = pending.image.originalRect, next = pending.rect;
             if (![next.x, next.y, next.width, next.height].every(Number.isFinite) || next.width <= 0 || next.height <= 0 || old.width <= 0 || old.height <= 0) throw new Error('Invalid image position or dimensions');
             const sx = next.width / old.width, sy = next.height / old.height;
             const viewportDelta: ImageMatrix = [sx, 0, 0, sy, next.x - old.x * sx, next.y - old.y * sy];
-            const pdfDelta = multiplyMatrix(inverseMatrix(this.pageToTopLeft), multiplyMatrix(viewportDelta, this.pageToTopLeft));
-            transform = multiplyMatrix(inverseMatrix(draw.matrix), multiplyMatrix(pdfDelta, draw.matrix));
+            absolute = multiplyMatrix(multiplyMatrix(inverseMatrix(this.pageToTopLeft), multiplyMatrix(viewportDelta, this.pageToTopLeft)), draw.matrix);
           }
-          const crop = imageCropUV(pending.appearance.crop);
-          const cropped = crop.x !== 0 || crop.y !== 0 || crop.width !== 1 || crop.height !== 1;
-          const clipping = cropped ? `${[crop.x, crop.y, crop.width, crop.height].map(value => Number(value.toFixed(10))).join(' ')} re W n\n` : '';
-          value = `q\n${transform.map(value => Number(value.toFixed(10))).join(' ')} cm\n${clipping}${pdfName(name)} Do\nQ`;
-          if (cropped) value = `/${imageCropTag(pending.appearance.crop)} BMC\n${value}\nEMC`;
+          // Only this occurrence leaves its Form: any other use of the Form is rewritten separately.
+          if (absolute && node.object) lifted.push({ object, matrix: absolute, crop: pending.appearance.crop });
+          else {
+            const transform = absolute ? multiplyMatrix(inverseMatrix(draw.contextMatrix ?? draw.matrix), absolute) : identityMatrix();
+            value = this.imageDraw(name, transform, pending.appearance.crop);
+          }
         }
         edits.push({ ...draw.command, value });
       }
@@ -250,7 +263,7 @@ class Editor {
     const dictionary = node.object ? this.copy(node.object) : this.own(this.document.newDictionary());
     for (const key of ['Length', 'Filter', 'DecodeParms']) dictionary.delete(key);
     if (node.object) dictionary.put('Resources', resources);
-    return { stream: this.own(this.document.addStream(textToBytes(text), dictionary)), resources };
+    return { stream: this.own(this.document.addStream(textToBytes(text), dictionary)), resources, lifted };
   }
   apply(pageIndex: number) {
     const page = this.own(this.document.loadPage(pageIndex));

@@ -15,7 +15,7 @@ export function NativeImageProperties({ image }: { image: PDFImage }) {
   const viewRotation = useDocumentStore(store => store.navigation.rotation);
   const swapped = !!page && getEffectiveRotation(page, viewRotation) % 180 !== 0;
   const horizontal = swapped ? 'flipY' : 'flipX', vertical = swapped ? 'flipX' : 'flipY';
-  const disabled = !image.source || !!image.unsupportedReason || image.source.insideForm || state.deleted || !page;
+  const disabled = !image.source || !!image.unsupportedReason || state.deleted || !page;
   const change = (patch: Partial<Pick<ImageAppearance, 'rotation' | 'flipX' | 'flipY'>>) => {
     if (disabled || !page) return;
     commitPendingEditors();
@@ -38,7 +38,7 @@ export function NativeImageProperties({ image }: { image: PDFImage }) {
       <button type="button" disabled={disabled} aria-pressed={state[horizontal]} onClick={() => change({ [horizontal]: !state[horizontal] })}>{t('image.flip.horizontal')}</button>
       <button type="button" disabled={disabled} aria-pressed={state[vertical]} onClick={() => change({ [vertical]: !state[vertical] })}>{t('image.flip.vertical')}</button>
     </div>
-    {disabled ? <p>{translateError(image.unsupportedReason) || t(image.source?.insideForm ? 'objects.unsupported.move' : 'image.appearance.unavailable')}</p>
+    {disabled ? <p>{translateError(image.unsupportedReason) || t('image.appearance.unavailable')}</p>
       : <CropSettings key={`${image.id}:${JSON.stringify(state)}`} image={image} state={state} />}
     <button type="button" className="inspector-link" onClick={() => { editing.setMode('image'); editing.selectImage(image.id); }}>{t('objects.image.options')}</button>
   </section>;

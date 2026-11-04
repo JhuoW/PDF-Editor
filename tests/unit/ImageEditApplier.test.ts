@@ -105,7 +105,25 @@ describe('applyImageEdits', () => {
     expect(inspect(output).count).toBe(1);
     expect(inspect(output).text.match(/FORM_TEXT/g)).toHaveLength(2);
     expect(pixel(inspect(output), 220, 170)).toEqual([255, 0, 0]);
-    await expect(applyImageEdits(data, images, [operation('move', { newRect: { x: 100, y: 100, width: 30, height: 30 } })])).rejects.toThrow('Form XObjects');
+  });
+  it('lifts a moved image out of its shared Form, keeping the other invocation and the text', async () => {
+    const source = await PDFDocument.create();
+    const sourcePage = source.addPage([100, 100]);
+    sourcePage.drawText('FORM_TEXT', { x: 10, y: 80, size: 8 });
+    sourcePage.drawImage(await source.embedPng(red), { x: 10, y: 10, width: 30, height: 30 });
+    const document = await PDFDocument.create();
+    const [form] = await document.embedPdf(await source.save(), [0]);
+    const page = document.addPage([400, 600]);
+    page.drawPage(form, { x: 20, y: 400, width: 100, height: 100 });
+    page.drawPage(form, { x: 200, y: 400, width: 100, height: 100 });
+    const images = new Map([[1, [image([30, 0, 0, 30, 30, 410], 0, 1, undefined, true)]]]);
+    const output = await applyImageEdits(new Uint8Array(await document.save()).buffer, images, [operation('move', { newRect: { x: 100, y: 300, width: 30, height: 30 } })]);
+    const result = inspect(output);
+    expect(result.count).toBe(2);
+    expect(result.text.match(/FORM_TEXT/g)).toHaveLength(2);
+    expect(pixel(result, 115, 315)).toEqual([255, 0, 0]); // moved outside the Form's own box
+    expect(pixel(result, 40, 170)).toEqual([255, 255, 255]); // gone from its old place
+    expect(pixel(result, 220, 170)).toEqual([255, 0, 0]); // the other invocation is untouched
   });
   it('preserves occurrence identity after pages are copied and object numbers change', async () => {
     const { data, images } = await fixture();
