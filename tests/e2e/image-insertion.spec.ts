@@ -4,13 +4,13 @@ import { expect, test } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import * as mupdf from 'mupdf';
 function outputImage(bytes: Uint8Array) {
-  const pdf = new mupdf.PDFDocument(bytes), page = pdf.loadPage(0), text = page.toStructuredText('preserve-images'), areas: number[][] = [];
+  const pdf = new mupdf.PDFDocument(bytes), page = pdf.loadPage(0), display = page.toDisplayList(true), text = display.toStructuredText('preserve-images'), areas: number[][] = [];
   try {
     text.walk({ onImageBlock(rect) { areas.push([...rect]); } });
     const bitmap = page.toPixmap([1, 0, 0, 1, 0, 0], mupdf.ColorSpace.DeviceRGB, false);
     try { const pixels = new Uint8Array(bitmap.getPixels()), width = bitmap.getWidth(); return { areas, sample: (x: number, y: number) => Array.from(pixels.slice((Math.floor(y) * width + Math.floor(x)) * 3, (Math.floor(y) * width + Math.floor(x)) * 3 + 3)) }; }
     finally { bitmap.destroy(); }
-  } finally { text.destroy(); page.destroy(); pdf.destroy(); }
+  } finally { text.destroy(); display.destroy(); page.destroy(); pdf.destroy(); }
 }
 for (const format of ['webp', 'svg', 'oriented-jpeg'] as const) test(`inserts ${format} with matching preview, placement and actual PDF export`, async ({ page }) => {
   await page.addInitScript(() => { Reflect.deleteProperty(window, 'showSaveFilePicker'); });

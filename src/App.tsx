@@ -1,7 +1,7 @@
 import { FontManagerHost } from './components/Fonts/FontManagerHost';
 import { useSearchDocument } from './hooks/useSearchDocument';
 import { SearchDocumentContext } from './utils/searchDocumentContext';
-import { ErrorMessage } from './components/Feedback/ErrorMessage';
+import { WorkspaceErrorPanel } from './components/Feedback/WorkspaceErrorPanel';
 import { isAbortError } from './utils/cancellation';
 import { useLocale, translateMessage, t } from "./i18n";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -68,7 +68,7 @@ import { applySecureRedactions } from './editing/SecureRedaction';
 import './App.css';
 import './workspace.css';
 import { WorkspaceInspector } from './components/Workspace/WorkspaceInspector';
-import { FileUp, FilePenLine, Highlighter, Files, ImagePlus, ShieldCheck, History } from 'lucide-react';
+import { FileUp, FilePenLine, Highlighter, Files, ImagePlus, History } from 'lucide-react';
 import type { OCRDialogProgress, OCRRunOptions } from './components/Dialogs/OCRDialog';
 import type { OCRPageResult } from './ocr/recognizePDF';
 import type { FormDesignOperation } from './forms/FormDesignerTypes';
@@ -140,6 +140,12 @@ function App() {
   const fileHandle = useRef<PDFFileHandle | undefined>(undefined);
   const [outputFileName, setOutputFileName] = useState<string>();
   const [isSaving, setIsSaving] = useState(false);
+  const [fileFeedback, setFileFeedback] = useState<{ sessionId?: string; kind: 'saved' | 'downloaded'; fileName: string } | null>(null);
+  useEffect(() => {
+    if (!fileFeedback) return;
+    const timer = setTimeout(() => setFileFeedback(null), 6000);
+    return () => clearTimeout(timer);
+  }, [fileFeedback]);
   const saving = useRef(false);
   const [pendingOpen, setPendingOpen] = useState<{ file: File; handle?: PDFFileHandle; generated?: boolean } | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
@@ -195,7 +201,15 @@ function App() {
   useDocumentSaveTracking();
   const hasUnsavedChanges = useDocumentSaveStore(state => state.isDirty);
 
-  const { sidebarOpen: desktopSidebarOpen, searchOpen, toggleSidebar: toggleDesktopSidebar, toggleSearch } = useUIStore();
+  const { sidebarOpen: desktopSidebarOpen, searchOpen, toggleSidebar: toggleDesktopSidebar, toggleSearch: toggleSearchPanel } = useUIStore();
+  const toggleSearch = useCallback(() => {
+    if (!useUIStore.getState().searchOpen) {
+      commitPendingEditors();
+      useEditingStore.getState().setMode('none');
+      useAnnotationStore.getState().setCurrentTool('select');
+    }
+    toggleSearchPanel();
+  }, [toggleSearchPanel]);
   const sidebarOpen = narrowViewport ? mobileSidebarOpen : desktopSidebarOpen;
   const toggleSidebar = useCallback(() => {
     if (narrowViewport) setMobileSidebarOpen(open => !open);
@@ -818,6 +832,7 @@ function App() {
     try {
       const { data, fileName } = await prepareExport();
       await downloadPDF(data, fileName);
+      setFileFeedback({ sessionId: useDocumentSessionStore.getState().active?.sessionId, kind: 'downloaded', fileName });
     } catch (err) {
       if (isAbortError(err)) return;
       useDocumentStore.getState().setError(`Failed to export PDF: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -850,6 +865,7 @@ function App() {
       fileHandle.current = result.handle; setOutputFileName(result.fileName);
       const savedPoint = await point;
       if (savedPoint) markDocumentSaved(savedPoint);
+      setFileFeedback({ sessionId, kind: result.handle ? 'saved' : 'downloaded', fileName: result.fileName });
       return true;
     } catch (cause) {
       if (isAbortError(cause)) return false;
@@ -1168,6 +1184,28 @@ function App() {
     window.addEventListener('keydown', save, true);
     return () => window.removeEventListener('keydown', save, true);
   }, [document, isLoading, handleSave, handleSaveAs]);
+
+  // File/search commands belong to the document even while a text editor has
+  // focus. Capture them before native/TipTap handlers stop keyboard bubbling.
+  useEffect(() => {
+    const command = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing || event.keyCode === 229
+        || hasOpenModal() || isLoading || !document) return;
+      const key = event.key.toLowerCase();
+      if (key !== 's' && key !== 'f') return;
+      event.preventDefault(); event.stopPropagation();
+      if (key === 's') {
+        // Property controls commit on blur, just as they do when clicking Save.
+        const focused = window.document.activeElement;
+        if (focused instanceof HTMLElement && isTextInput(focused)) focused.blur();
+        if (event.shiftKey) void handleSaveAs(); else void handleSave();
+      }
+      else if (useUIStore.getState().searchOpen) window.document.querySelector<HTMLInputElement>('.search-input')?.focus();
+      else toggleSearch();
+    };
+    window.addEventListener('keydown', command, true);
+    return () => window.removeEventListener('keydown', command, true);
+  }, [document, isLoading, handleSave, handleSaveAs, toggleSearch]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1669,17 +1707,10 @@ function App() {
             )}
 
             {/* Error state */}
-            {error && (
-              <div className="error-state" role="alert">
-                <span className="error-icon">⚠</span>
-                <span>{t("m.error.787aa1")}{' '}<ErrorMessage error={error} /></span>
-                {document && <button type="button" onClick={() => { commitPendingEditors(); setTextCheckOpen(true); }}>{t('text.check.title')}</button>}
-                <button className="toolbar-btn" onClick={() => useDocumentStore.getState().setError(null)}>{t("m.dismiss.70afe9")}</button>
-              </div>
-            )}
+            {error && <WorkspaceErrorPanel error={error} hasDocument={!!document} onCheckText={() => { commitPendingEditors(); setTextCheckOpen(true); }} />}
 
             {!document && !isLoading && !error && <div className="welcome-workspace">
-              <div className="welcome-heading"><span className="welcome-eyebrow"><ShieldCheck size={14} />{t("m.local.processing.32deec")}</span><h1>{t("m.your.pdf.your.workspace.98dfd1")}</h1><p>{t("m.create.edit.and.organize.pdfs.in.your.browser.d34a81")}</p></div>
+              <div className="welcome-heading"><h1>{t("m.your.pdf.your.workspace.98dfd1")}</h1><p>{t("m.create.edit.and.organize.pdfs.in.your.browser.d34a81")}</p></div>
               <div className="drop-zone" role="region" aria-label={t("m.open.pdf.40fdbd")}><div className="drop-icon"><FileUp size={34} strokeWidth={1.5} /></div><h2>{t("m.open.a.pdf.24d206")}</h2><p>{t("m.drag.and.drop.a.pdf.file.here.or.click.to.select.78d499")}</p><button className="welcome-open" onClick={() => window.document.querySelector<HTMLInputElement>('.main-toolbar input[type=file]')?.click()}><FileUp size={16} />{t("m.select.file.5c0c87")}</button><p className="keyboard-hint">{t("m.press.ea683a")}{' '}<kbd>{t("m.ctrl.dd6a02")}</kbd>+<kbd>{t("m.o.08a914")}</kbd> {' '}{t("m.to.open.e2c7f6")}</p></div>
               <div className="welcome-cards">{[{ icon: FilePenLine, title: 'Edit original content', detail: 'Update text and images directly on the page.' }, { icon: Highlighter, title: 'Review and annotate', detail: 'Highlight, draw, add notes and sign.' }, { icon: Files, title: 'Organize pages', detail: 'Merge, split, reorder and rotate.' }].map(({ icon: Icon, title, detail }) => <div key={title}><Icon size={22} /><h3>{translateMessage(title)}</h3><p>{translateMessage(detail)}</p></div>)}</div>
               <button className="welcome-create" onClick={() => setCreatePDFOpen(true)}><ImagePlus size={17} />{t("m.create.pdfs.from.images.4f6979")}</button>
@@ -1719,6 +1750,7 @@ function App() {
           {document && <WorkspaceInspector onTextLayout={setTextLayoutBlockId} onProperties={() => setPropertiesOpen(true)} isBusy={isLoading} />}
         </div>
         <footer className="document-statusbar">
+          {document && fileFeedback && fileFeedback.sessionId === useDocumentSessionStore.getState().active?.sessionId && <span className="file-action-status" role="status">{t(`workspace.file.${fileFeedback.kind}`, { fileName: fileFeedback.fileName })}</span>}
           {document && historyLimited && <span className="history-budget-note" title={t('history.budget.help')}>{t('history.budget.limited')}</span>}
         {document && (
           <div className={`session-save-status status-${persistence.status}`} role="status" aria-live="polite">

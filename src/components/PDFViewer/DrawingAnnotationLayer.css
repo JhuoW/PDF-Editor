@@ -126,3 +126,11 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   pointer-events: auto;
 }
+
+/* Touch scrolling stays native outside drawing surfaces and annotation hits. */
+.drawing-annotation-layer.drawing-mode,
+.annotation-hit-regions [pointer-events="all"],
+.annotation-hit-regions [pointer-events="stroke"] { touch-action: none; }
+.drawing-annotation-layer .freetext-editor-container { touch-action: manipulation; }
+
+.freetext-preview-notice { position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 20; padding: 7px 10px; background: #fff8e6; color: #704500; border: 1px solid #d8b45a; border-radius: 5px; font-size: 12px; pointer-events: auto; }

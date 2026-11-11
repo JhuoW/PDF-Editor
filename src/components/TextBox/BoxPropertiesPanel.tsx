@@ -1,9 +1,11 @@
 import { useLocale, t } from "../../i18n";
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useId } from 'react';
 import type { FreeTextAnnotation, BoxStyle } from '../../annotations/types';
 import { DEFAULT_BOX_STYLE } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
+import { Link, Unlink } from 'lucide-react';
+import { PropertyNumberInput, PropertyColorInput } from '../Workspace/PropertyInput';
 import './BoxPropertiesPanel.css';
 
 interface BoxPropertiesPanelProps {
@@ -22,6 +24,7 @@ const BORDER_STYLES: BoxStyle['borderStyle'][] = ['solid', 'dashed', 'dotted', '
 
 export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelProps) {
   useLocale();
+  const id = useId();
   const { updateAnnotation } = useAnnotationStore();
   const { recordUpdate } = useAnnotationHistoryStore();
 
@@ -112,7 +115,7 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
       <div className="panel-header">
         <h3>{t("m.box.properties.77bf66")}</h3>
         {onClose && (
-          <button className="close-btn" onClick={onClose} title={t("m.close.bbfa77")}>
+          <button className="close-btn" onClick={onClose} title={t("m.close.bbfa77")} aria-label={t("m.close.bbfa77")}>
             &times;
           </button>
         )}
@@ -124,32 +127,20 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
           <div className="section-title">{t("m.position.cf1c85")}</div>
           <div className="position-grid">
             <div className="position-field">
-              <label>{t("m.x.c032ad")}</label>
-              <input
-                type="number"
-                value={x.toFixed(1)}
+              <label htmlFor={`${id}-x`}>{t("m.x.c032ad")}</label>
+              <PropertyNumberInput id={`${id}-x`} aria-label={t("m.x.c032ad")}
+                value={x}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val)) {
-                    handleRectChange([val, y, width, height]);
-                  }
-                }}
+                onCommit={value => handleRectChange([value, y, width, height])}
               />
               <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
             <div className="position-field">
-              <label>{t("m.y.23eb4d")}</label>
-              <input
-                type="number"
-                value={y.toFixed(1)}
+              <label htmlFor={`${id}-y`}>{t("m.y.23eb4d")}</label>
+              <PropertyNumberInput id={`${id}-y`} aria-label={t("m.y.23eb4d")}
+                value={y}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val)) {
-                    handleRectChange([x, val, width, height]);
-                  }
-                }}
+                onCommit={value => handleRectChange([x, value, width, height])}
               />
               <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
@@ -161,34 +152,22 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
           <div className="section-title">{t("m.size.b71523")}</div>
           <div className="size-grid">
             <div className="size-field">
-              <label>{t("m.w.e2415c")}</label>
-              <input
-                type="number"
-                value={width.toFixed(1)}
+              <label htmlFor={`${id}-width`}>{t("m.w.e2415c")}</label>
+              <PropertyNumberInput id={`${id}-width`} aria-label={t("m.w.e2415c")}
+                value={width}
                 min={20}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 20) {
-                    handleDimensionChange('width', val);
-                  }
-                }}
+                onCommit={value => handleDimensionChange('width', value)}
               />
               <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
             <div className="size-field">
-              <label>{t("m.h.7cf184")}</label>
-              <input
-                type="number"
-                value={height.toFixed(1)}
+              <label htmlFor={`${id}-height`}>{t("m.h.7cf184")}</label>
+              <PropertyNumberInput id={`${id}-height`} aria-label={t("m.h.7cf184")}
+                value={height}
                 min={20}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 20) {
-                    handleDimensionChange('height', val);
-                  }
-                }}
+                onCommit={value => handleDimensionChange('height', value)}
               />
               <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
@@ -206,25 +185,19 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
         <div className="property-section">
           <div className="section-title">{t("m.rotation.906fe5")}</div>
           <div className="rotation-field">
-            <input
-              type="number"
+            <PropertyNumberInput id={`${id}-rotation`} aria-label={t("m.rotation.906fe5")}
               value={rotation}
               min={0}
               max={360}
               step={1}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val)) {
-                  handleRotationChange(((val % 360) + 360) % 360);
-                }
-              }}
+              onCommit={value => handleRotationChange(((value % 360) + 360) % 360)}
             />
             <span className="unit">°</span>
             <div className="rotation-presets">
-              <button onClick={() => handleRotationChange(0)} title="0°">0</button>
-              <button onClick={() => handleRotationChange(90)} title="90°">90</button>
-              <button onClick={() => handleRotationChange(180)} title="180°">180</button>
-              <button onClick={() => handleRotationChange(270)} title="270°">270</button>
+              <button aria-pressed={rotation === 0} onClick={() => handleRotationChange(0)} title="0°">0</button>
+              <button aria-pressed={rotation === 90} onClick={() => handleRotationChange(90)} title="90°">90</button>
+              <button aria-pressed={rotation === 180} onClick={() => handleRotationChange(180)} title="180°">180</button>
+              <button aria-pressed={rotation === 270} onClick={() => handleRotationChange(270)} title="270°">270</button>
             </div>
           </div>
         </div>
@@ -233,11 +206,11 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
         <div className="property-section">
           <div className="section-title">{t("m.background.64dd60")}</div>
           <div className="color-row">
-            <label>{t("m.color.1d0c83")}</label>
+            <label htmlFor={`${id}-background-color`}>{t("m.color.1d0c83")}</label>
             <div className="color-input-group">
               {boxStyle.backgroundColor !== 'transparent' ? (
                 <input
-                  type="color"
+                  type="color" aria-label={t("properties.backgroundColor")}
                   value={boxStyle.backgroundColor}
                   onChange={(e) => handleBoxStyleChange({ backgroundColor: e.target.value })}
                   className="color-input"
@@ -245,10 +218,9 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
               ) : (
                 <div className="transparent-indicator" title={t("m.transparent.0491f7")} />
               )}
-              <input
-                type="text"
+              <PropertyColorInput id={`${id}-background-color`} allowTransparent aria-label={t("properties.backgroundColor")}
                 value={boxStyle.backgroundColor}
-                onChange={(e) => handleBoxStyleChange({ backgroundColor: e.target.value })}
+                onCommit={backgroundColor => handleBoxStyleChange({ backgroundColor })}
                 className="color-text"
               />
             </div>
@@ -260,14 +232,15 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
                 className={`color-preset ${color === boxStyle.backgroundColor ? 'active' : ''} ${color === 'transparent' ? 'transparent' : ''}`}
                 style={{ backgroundColor: color === 'transparent' ? 'white' : color }}
                 onClick={() => handleBoxStyleChange({ backgroundColor: color })}
-                title={color}
+                title={color === 'transparent' ? t('m.transparent.0491f7') : color}
+                aria-pressed={color === boxStyle.backgroundColor}
               />
             ))}
           </div>
           <div className="opacity-row">
-            <label>{t("m.opacity.f0fa69")}</label>
+            <label htmlFor={`${id}-background-opacity`}>{t("m.opacity.f0fa69")}</label>
             <input
-              type="range"
+              id={`${id}-background-opacity`} type="range" aria-label={t("m.opacity.f0fa69")}
               min={0}
               max={1}
               step={0.01}
@@ -285,43 +258,36 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
         <div className="property-section">
           <div className="section-title">{t("m.border.5d10d3")}</div>
           <div className="border-row">
-            <label>{t("m.color.1d0c83")}</label>
+            <label htmlFor={`${id}-border-color`}>{t("m.color.1d0c83")}</label>
             <div className="color-input-group">
               <input
-                type="color"
+                id={`${id}-border-color`} type="color" aria-label={t("properties.borderColor")}
                 value={boxStyle.borderColor || '#000000'}
                 onChange={(e) => handleBoxStyleChange({ borderColor: e.target.value })}
                 className="color-input"
               />
-              <input
-                type="text"
+              <PropertyColorInput aria-label={t("properties.borderColor")}
                 value={boxStyle.borderColor || '#000000'}
-                onChange={(e) => handleBoxStyleChange({ borderColor: e.target.value })}
+                onCommit={borderColor => handleBoxStyleChange({ borderColor })}
                 className="color-text"
               />
             </div>
           </div>
           <div className="border-grid">
             <div className="border-field">
-              <label>{t("m.width.a58ddf")}</label>
-              <input
-                type="number"
+              <label htmlFor={`${id}-border-width`}>{t("m.width.a58ddf")}</label>
+              <PropertyNumberInput id={`${id}-border-width`} aria-label={t("m.width.a58ddf")}
                 value={boxStyle.borderWidth ?? 1}
                 min={0}
                 max={20}
                 step={0.5}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 0 && val <= 20) {
-                    handleBoxStyleChange({ borderWidth: val });
-                  }
-                }}
+                onCommit={borderWidth => handleBoxStyleChange({ borderWidth })}
               />
               <span className="unit">{t("m.pt.bc8112")}</span>
             </div>
             <div className="border-field">
-              <label>{t("m.style.99a0ef")}</label>
-              <select
+              <label htmlFor={`${id}-border-style`}>{t("m.style.99a0ef")}</label>
+              <select id={`${id}-border-style`} aria-label={t("m.style.99a0ef")}
                 value={boxStyle.borderStyle || 'solid'}
                 onChange={(e) =>
                   handleBoxStyleChange({ borderStyle: e.target.value as BoxStyle['borderStyle'] })
@@ -329,27 +295,21 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
               >
                 {BORDER_STYLES.map((style) => (
                   <option key={style} value={style}>
-                    {style.charAt(0).toUpperCase() + style.slice(1)}
+                    {t({ solid: 'm.solid.d00635', dashed: 'm.dashed.7b0a09', dotted: 'm.dotted.149492', none: 'properties.noBorder' }[style])}
                   </option>
                 ))}
               </select>
             </div>
           </div>
           <div className="border-radius-row">
-            <label>{t("m.radius.e5aaea")}</label>
-            <input
-              type="number"
+            <label htmlFor={`${id}-border-radius`}>{t("m.radius.e5aaea")}</label>
+            <PropertyNumberInput id={`${id}-border-radius`} aria-label={t("m.radius.e5aaea")}
               value={boxStyle.borderRadius ?? 0}
               min={0}
               max={100}
               step={1}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val) && val >= 0 && val <= 100) {
-                  handleBoxStyleChange({ borderRadius: val });
-                }
-              }}
-            />
+                onCommit={borderRadius => handleBoxStyleChange({ borderRadius })}
+              />
             <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
         </div>
@@ -358,76 +318,53 @@ export function BoxPropertiesPanel({ annotation, onClose }: BoxPropertiesPanelPr
         <div className="property-section">
           <div className="section-title">
             {t("m.padding.9c47ca")}<button
+              aria-pressed={linkPadding}
               className={`link-btn ${linkPadding ? 'active' : ''}`}
               onClick={() => setLinkPadding(!linkPadding)}
               title={linkPadding ? t("m.unlink.sides.eb2450") : t("m.link.all.sides.4548de")}
             >
-              {linkPadding ? '🔗' : '⛓️‍💥'}
+              <>{linkPadding ? <Link size={16} aria-hidden="true" /> : <Unlink size={16} aria-hidden="true" />}</>
             </button>
           </div>
           <div className="padding-grid">
             <div className="padding-field top">
-              <label>{t("m.t.c2c53d")}</label>
-              <input
-                type="number"
+              <label htmlFor={`${id}-padding-top`}>{t("m.t.c2c53d")}</label>
+              <PropertyNumberInput id={`${id}-padding-top`} aria-label={t("m.t.c2c53d")}
                 value={boxStyle.padding?.top ?? 8}
                 min={0}
                 max={100}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 0) {
-                    handlePaddingChange('top', val);
-                  }
-                }}
+                onCommit={value => handlePaddingChange('top', value)}
               />
             </div>
             <div className="padding-field right">
-              <label>{t("m.r.065765")}</label>
-              <input
-                type="number"
+              <label htmlFor={`${id}-padding-right`}>{t("m.r.065765")}</label>
+              <PropertyNumberInput id={`${id}-padding-right`} aria-label={t("m.r.065765")}
                 value={boxStyle.padding?.right ?? 8}
                 min={0}
                 max={100}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 0) {
-                    handlePaddingChange('right', val);
-                  }
-                }}
+                onCommit={value => handlePaddingChange('right', value)}
               />
             </div>
             <div className="padding-field bottom">
-              <label>{t("m.b.ae4f28")}</label>
-              <input
-                type="number"
+              <label htmlFor={`${id}-padding-bottom`}>{t("m.b.ae4f28")}</label>
+              <PropertyNumberInput id={`${id}-padding-bottom`} aria-label={t("m.b.ae4f28")}
                 value={boxStyle.padding?.bottom ?? 8}
                 min={0}
                 max={100}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 0) {
-                    handlePaddingChange('bottom', val);
-                  }
-                }}
+                onCommit={value => handlePaddingChange('bottom', value)}
               />
             </div>
             <div className="padding-field left">
-              <label>{t("m.l.d160e0")}</label>
-              <input
-                type="number"
+              <label htmlFor={`${id}-padding-left`}>{t("m.l.d160e0")}</label>
+              <PropertyNumberInput id={`${id}-padding-left`} aria-label={t("m.l.d160e0")}
                 value={boxStyle.padding?.left ?? 8}
                 min={0}
                 max={100}
                 step={1}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 0) {
-                    handlePaddingChange('left', val);
-                  }
-                }}
+                onCommit={value => handlePaddingChange('left', value)}
               />
             </div>
           </div>

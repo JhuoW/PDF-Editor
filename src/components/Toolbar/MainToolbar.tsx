@@ -402,12 +402,12 @@ export function MainToolbar({
           disabled={isSaving}
           style={{ display: 'none' }}
         />
-        {onSave && <button type="button" className="toolbar-btn toolbar-save-button" data-file-action="save" onClick={onSave} disabled={!hasDocument || isSaving}
+        {onSave && <button type="button" className="toolbar-btn toolbar-save-button toolbar-btn-primary" data-file-action="save" onClick={onSave} disabled={!hasDocument || isSaving}
           title={t('file.save.tooltip')} aria-label={isSaving ? t('file.saving') : t('file.save')}>
           <Save size={18} /><span className="btn-label">{isSaving ? t('file.saving') : t('file.save')}</span>
         </button>}
         <button
-          className="toolbar-btn toolbar-btn-primary"
+          className={`toolbar-btn ${onSave ? '' : 'toolbar-btn-primary'}`}
           onClick={onExport}
           disabled={!hasDocument || isSaving}
           title={t('file.export.tooltip')} aria-label={t("m.export.f3e4fa")}

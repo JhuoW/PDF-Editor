@@ -1,4 +1,5 @@
 import { TextFontPicker } from '../Fonts/TextFontPicker';
+import { TextFontSummary } from '../Workspace/TextFontSummary';
 import type { FontAsset } from '../../fonts/fontAsset';
 import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
@@ -157,7 +158,7 @@ function TextLayoutSession({ blockId, readPDF, onSave, onClose }: TextLayoutDial
           <div className="text-layout-fit-actions"><button type="button" disabled={!canFitHeight || saving} onClick={() => changeRect({ ...input.rect, height: fitHeight })}>{t("m.fit.height.e33d68")}</button>
             <button type="button" disabled={!canShrink || saving} onClick={() => { if (layout?.suggestedFontSize) change({ fontSize: layout.suggestedFontSize }); }}>{t("m.shrink.font.to.fit.f613cf")}</button></div>
         </fieldset>
-        <p className="text-layout-help">{t("m.standard.replacement.fonts.are.used.the.preview..05f58c")}</p>
+        <TextFontSummary fonts={measured?.prepared?.fonts} />
         {!!layout?.warnings.length && <ul className="text-layout-help">{layout.warnings.map((warning, index) => <li key={index}>{translateMessage(warning)}</li>)}</ul>}
       </section>
       <section className="text-layout-preview-column" aria-label={t("m.text.layout.preview.e6eadf")}>

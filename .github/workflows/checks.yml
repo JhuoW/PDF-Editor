@@ -16,7 +16,7 @@ jobs:
   # ubuntu-latest can advance before that browser release supports the new OS.
   # Preserve the existing required check name for branch protection.
   check:
-    needs: [quality, browser, deployment]
+    needs: [quality, browser, deployment, compatibility]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -24,7 +24,7 @@ jobs:
       - name: Require all checks to pass
         env:
           CHECK_RESULTS: ${{ join(needs.*.result, ',') }}
-        run: test "$CHECK_RESULTS" = "success,success,success"
+        run: test "$CHECK_RESULTS" = "success,success,success,success"
 
   quality:
     runs-on: ubuntu-24.04
@@ -96,6 +96,26 @@ jobs:
         if: ${{ !cancelled() && matrix.shard == 1 }}
         with:
           name: secure-redaction-results
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps firefox webkit
+      - run: npx playwright test --config tests/fixtures/compatibility.playwright.config.ts
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: compatibility-results
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore

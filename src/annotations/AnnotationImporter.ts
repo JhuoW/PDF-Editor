@@ -3,6 +3,8 @@ import {
   PDFName, PDFNumber, PDFRef, PDFString,
 } from 'pdf-lib';
 import type { Annotation, NativeTextMetadata, StickyNoteAnnotation, StickyNoteReply } from './types';
+import { readNativeAnnotation, isNativeAnnotationShared } from './NativeAnnotation';
+import { hasPDFSignatures } from '../core/PDFModificationGuard';
 
 interface Entry {
   dictionary: PDFDict;
@@ -120,6 +122,7 @@ export async function importEditableAnnotations(data: ArrayBuffer): Promise<{
   annotations: Map<number, Annotation[]>;
 }> {
   const document = await PDFDocument.load(data, { updateMetadata: false });
+  if (hasPDFSignatures(document)) return { data, annotations: new Map() };
   const entries: Entry[] = [];
   document.getPages().forEach((page, index) => {
     for (const object of page.node.Annots()?.asArray() ?? []) {
@@ -147,6 +150,14 @@ export async function importEditableAnnotations(data: ArrayBuffer): Promise<{
   const annotations = new Map<number, Annotation[]>();
   const removed = new Set<PDFDict>();
 
+  for (const entry of entries) {
+    if (isNativeAnnotationShared(entry.dictionary, occurrences) || children.has(entry.dictionary)) continue;
+    const annotation = await readNativeAnnotation(entry.dictionary, entry.pageNumber);
+    if (annotation) {
+      annotations.set(entry.pageNumber, [...(annotations.get(entry.pageNumber) ?? []), annotation]);
+      removed.add(entry.dictionary);
+    }
+  }
   for (const root of entries) {
     if (value(root.dictionary, 'Subtype') !== PDFName.of('Text') || root.dictionary.has(PDFName.of('IRT'))) continue;
     try {

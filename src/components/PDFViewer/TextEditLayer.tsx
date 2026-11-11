@@ -1,7 +1,7 @@
 import { ErrorMessage } from '../Feedback/ErrorMessage';
 import { useLocale, t, translateError } from "../../i18n";
 /** Direct PDF text editing: the PDF paints the letters, an input handles typing. */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useEditingStore } from '../../store/editingStore';
@@ -126,8 +126,9 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     return mapViewportPoint(event.clientX - bounds.left, event.clientY - bounds.top, viewport, source);
   };
   const begin = (block: TextBlock, event: React.PointerEvent) => {
-    if (!block.editable || event.button !== 0) return;
+    if (event.button !== 0) return;
     event.preventDefault(); event.stopPropagation();
+    if (!block.editable) { finish(); selectBlock(block.id); return; }
     preferredColumn.current = null;
     const point = pointAt(event);
     if (activeId !== block.id) {
@@ -214,12 +215,14 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
   };
   const selectedBlock = pageBlocks.find(block => block.id === selectedBlockId && block.editable);
   const selectedRect = selectedBlock ? blockStyle(selectedBlock) : null;
-  const readOnlyReason = pageBlocks.find(block => !block.editable)?.unsupportedReason;
+  const readOnlyReason = pageBlocks.find(block => block.id === selectedBlockId && !block.editable)?.unsupportedReason;
   const caret = activeId && prepared ? rectStyle(inlineCaret(prepared, selection.end, selection.affinity)) : null;
   const regions = activeId && prepared ? inlineSelection(prepared, selection.start, selection.end).map(rectStyle) : [];
   const layoutIssue = preview?.issues?.[0];
   const layoutIssues = new Map(preview?.issues?.map(issue => [issue.blockId, issue.message]));
   const toolbarHost = window.document.getElementById('pdf-text-edit-controls');
+  const feedbackHost = window.document.getElementById('workspace-edit-feedback');
+  const feedback = (node: ReactNode) => feedbackHost ? createPortal(node, feedbackHost) : node;
   const editActions = selectedBlock && selectedRect && <div ref={actions} className={`text-edit-actions ${toolbarHost ? 'in-toolbar' : ''}`} style={toolbarHost ? undefined : { left: Math.max(0, Math.min(selectedRect.left, (viewport.width || 500) - 270)), top: Math.max(0, selectedRect.top - 40) }}>
     {activeId && !toolbarHost && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); setMode('none'); }}>{t("m.done.e9b450")}</button>}
     {onTextLayout && <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => { finish(); onTextLayout(selectedBlock.id); }}>{t("m.text.layout.661a8e")}</button>}
@@ -262,12 +265,12 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
         }} onKeyDown={keyDown} onBlur={event => finish(!!actions.current?.contains(event.relatedTarget) || event.relatedTarget instanceof Element && !!event.relatedTarget.closest('.workspace-inspector'))} />
       </>}
       {toolbarHost ? createPortal(editActions, toolbarHost) : editActions}
-      {!selectedBlock && readOnlyReason && <div className="text-edit-readonly" role="status"><ErrorMessage error={readOnlyReason} /> <button type="button" onClick={() => setMode('none')}>{t("m.exit.text.editing.6c1160")}</button></div>}
+      {readOnlyReason && feedback(<div className="text-edit-readonly" role="status"><ErrorMessage error={readOnlyReason} /> <button type="button" onClick={() => selectBlock(null)}>{t('m.dismiss.70afe9')}</button></div>)}
     </>}
-    {(preview?.error || layoutIssue || (prepared && !prepared.layout.fits)) && <div className="text-edit-notice" role="alert">
+    {(preview?.error || layoutIssue || (prepared && !prepared.layout.fits)) && feedback(<div className="text-edit-notice" role="alert">
       {preview?.error ? <ErrorMessage error={preview.error} operation="Preview text edit" /> : layoutIssue ? <ErrorMessage error={layoutIssue.message} /> : prepared?.layout.overflow ? <ErrorMessage error={prepared.layout.overflow} /> : t("text.edit.overflow.help")}
       {onTextLayout && (layoutIssue || activeId) && <button type="button" onClick={() => { finish(); onTextLayout(layoutIssue?.blockId ?? activeId!); }}>{t('m.text.layout.661a8e')}</button>}
-    </div>}
-    {!!prepared?.layout.warnings.length && !layoutIssue && <div className="text-edit-font-notice" role="status">{prepared.layout.warnings.map(translateError).join(' ')}</div>}
+    </div>)}
+    {!!prepared?.layout.warnings.length && !layoutIssue && feedback(<div className="text-edit-font-notice" role="status">{prepared.layout.warnings.map(translateError).join(' ')}</div>)}
   </div>;
 }

@@ -9,7 +9,7 @@ import FontFamily from '@tiptap/extension-font-family';
 import TextAlign from '@tiptap/extension-text-align';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
-import type { TextStyle as PDFTextStyle } from '../../annotations/types';
+import type { BoxStyle, TextStyle as PDFTextStyle } from '../../annotations/types';
 import { useTextBoxStore } from '../../store/textBoxStore';
 import './TipTapEditor.css';
 
@@ -21,6 +21,9 @@ function editorStyle(defaultStyle: PDFTextStyle): string {
   style.fontSize = `${defaultStyle.fontSize}px`;
   style.color = defaultStyle.color;
   style.lineHeight = String(defaultStyle.lineHeight);
+  style.fontWeight = defaultStyle.fontWeight;
+  style.fontStyle = defaultStyle.fontStyle;
+  style.textDecoration = defaultStyle.textDecoration;
   style.letterSpacing = `${defaultStyle.letterSpacing}px`;
   style.textAlign = defaultStyle.textAlign;
   return style.cssText;
@@ -31,7 +34,7 @@ export interface TipTapEditorProps {
   defaultStyle: PDFTextStyle;
   width: number;
   height: number;
-  padding?: number;
+  padding?: number | BoxStyle['padding'];
   onContentChange?: (html: string, text: string) => void;
   onBlur?: () => void;
   autoFocus?: boolean;
@@ -189,7 +192,7 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
         style={{
           width,
           height,
-          padding,
+          padding: typeof padding === 'number' ? padding : `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px`,
           boxSizing: 'border-box',
         }}
         onClick={handleContainerClick}

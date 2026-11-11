@@ -106,7 +106,10 @@ test('local Chinese OTF is embedded, persists after reload and remains usable af
   expect(highlight.x).toBeGreaterThan(canvas.x); expect(highlight.x + highlight.width).toBeLessThan(canvas.x + canvas.width);
   expect(highlight.y).toBeGreaterThan(canvas.y); expect(highlight.y + highlight.height).toBeLessThan(canvas.y + canvas.height);
   const before = inspect(await exportPDF(page)); expect(before.names).toEqual(['PDFEditorTestCJK']);
-  await page.reload(); await expect(page.locator('canvas.page-canvas')).toBeVisible();
+  // Firefox's automation reload reports a new navigation; exercise the actual
+  // browser reload so the tab-owned recovery guard sees the correct lifecycle.
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => location.reload())]);
+  await expect(page.locator('canvas.page-canvas')).toBeVisible();
   panel = await properties(page); await expect(panel.getByRole('combobox', { name: 'Text font' })).toHaveValue(/^custom:/);
   await panel.getByRole('button', { name: 'Manage fonts…' }).click(); manager = page.getByRole('dialog', { name: 'Manage fonts…' });
   await manager.getByRole('button', { name: 'Remove PDFEditorTestCJK' }).click();

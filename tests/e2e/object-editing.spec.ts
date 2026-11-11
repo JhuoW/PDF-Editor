@@ -76,6 +76,7 @@ async function open(page: Page, rotation = 0) {
   return { bytes, original: inspect(bytes) };
 }
 async function startDrag(page: Page, object: Locator, dx: number, dy: number) {
+  await object.scrollIntoViewIfNeeded();
   const bounds = (await object.boundingBox())!;
   const start = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
   await page.mouse.move(start.x, start.y); await page.mouse.down();

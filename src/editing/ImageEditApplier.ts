@@ -9,8 +9,47 @@ type Engine = Awaited<ReturnType<typeof loadMuPDF>>;
 interface Token { start: number; end: number; value: string; kind: 'name' | 'number' | 'object' | 'word' }
 interface Command { start: number; end: number; operator: string; operands: Token[] }
 interface Draw { command: Command; name: string; object: PDFObject; matrix: ImageMatrix; contextMatrix?: ImageMatrix; occurrence?: number; form?: ContentNode }
-interface ContentNode { text: string; resources: PDFObject; object?: PDFObject; draws: Draw[]; inheritsResources: boolean }
-interface Lifted { object: PDFObject; matrix: ImageMatrix; crop: ImageAppearance['crop'] }
+interface ContentNode { text: string; resources: PDFObject; object?: PDFObject; draws: Draw[]; inheritsResources: boolean; matrix: ImageMatrix; renderingMode: number }
+interface Fragment { stream: PDFObject; transformed: ImageMatrix[] }
+interface Movement { start: number; end: number; transformed: ImageMatrix[] }
+const pathPaint = new Set(['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*']);
+const textPaint = new Set(['Tj', 'TJ', "'", '"']);
+const paints = (command: Command) => pathPaint.has(command.operator) || textPaint.has(command.operator) || command.operator === 'Do' || command.operator === 'sh';
+
+/** Keep the original state at a fragment, without duplicating painted text or artwork.
+ * Fragment boundaries are outside text objects, so omitted text advances cannot
+ * affect retained text: the next BT resets its text matrices. Clipping paths,
+ * graphics states, and text state parameters still execute in their original order. */
+function paintingFragment(text: string, parsed: Command[], start: number, end: number, initialRenderingMode: number) {
+  const replacements: { start: number; end: number; value: string }[] = [];
+  let inText = false, renderingMode = initialRenderingMode;
+  const modes: number[] = [];
+  for (const command of parsed) {
+    const { operator, operands } = command;
+    if ((command.start === start || command.end === end) && inText && !textPaint.has(operator) && operator !== 'ET') {
+      throw new Error('Images inside PDF text objects cannot be transformed safely.');
+    }
+    if (operator === 'BT') inText = true;
+    else if (operator === 'ET') inText = false;
+    else if (operator === 'q') modes.push(renderingMode);
+    else if (operator === 'Q') renderingMode = modes.pop() ?? renderingMode;
+    else if (operator === 'Tr') renderingMode = Number(operands[0]?.value);
+    if (!paints(command) || (command.start >= start && command.end <= end)) continue;
+    let value = '';
+    if (pathPaint.has(operator)) value = ['s', 'b', 'b*'].includes(operator) ? 'h n' : 'n';
+    else if (textPaint.has(operator)) {
+      // Replaying a clipping glyph would duplicate its searchable text. Such
+      // forms are exposed as read-only by the detector rather than guessed.
+      if (renderingMode >= 4 && command.start < start) throw new Error('Images in forms with text clipping cannot be transformed safely.');
+      // The double-quote operator changes word/character spacing as well as
+      // painting. Those text state values survive ET and must be retained.
+      if (operator === '"') value = `${operands[0]?.value} Tw ${operands[1]?.value} Tc`;
+    }
+    replacements.push({ ...command, value });
+  }
+  for (const replacement of replacements.reverse()) text = text.slice(0, replacement.start) + replacement.value + text.slice(replacement.end);
+  return text;
+}
 interface Pending { image: PDFImage; deleted: boolean; replacement?: ArrayBuffer; rect?: PDFImage['rect']; appearance: ImageAppearance; transformed?: boolean }
 
 const isWhite = (c: string) => ['\0', '\t', '\n', '\f', '\r', ' '].includes(c);
@@ -120,10 +159,10 @@ class Editor {
     const buffer = this.own(source.readStream());
     return bytesToText(buffer.asUint8Array());
   }
-  scan(text: string, resources: PDFObject, matrix: ImageMatrix, ancestors: Set<number>, object?: PDFObject, inheritsResources = false): ContentNode {
+  scan(text: string, resources: PDFObject, matrix: ImageMatrix, ancestors: Set<number>, object?: PDFObject, inheritsResources = false, renderingMode = 0): ContentNode {
     if (ancestors.size > 32) throw new Error('Nested PDF image forms are too deep');
-    const node: ContentNode = { text, resources, object, draws: [], inheritsResources };
-    const stack: ImageMatrix[] = [];
+    const node: ContentNode = { text, resources, object, draws: [], inheritsResources, matrix: [...matrix], renderingMode };
+    const stack: { matrix: ImageMatrix; renderingMode: number }[] = [];
     const markers: Array<{ start: number; matrix: ImageMatrix; crop?: PDFImage['rect']; commands: Command[]; draws: Draw[] }> = [];
     for (const command of commands(text)) {
       const args = command.operands;
@@ -139,11 +178,13 @@ class Editor {
           const draw = span.draws[0]; draw.contextMatrix = span.matrix; draw.command = { ...draw.command, start: span.start, end: command.end };
         }
       } else if (marker?.crop) marker.commands.push(command);
-      if (command.operator === 'q') stack.push([...matrix]);
+      if (command.operator === 'q') stack.push({ matrix: [...matrix], renderingMode });
       else if (command.operator === 'Q') {
         // Viewers ignore an unmatched Q and an unclosed q, and real PDFs contain both.
-        matrix = stack.pop() ?? matrix;
-      } else if (command.operator === 'cm') {
+        const state = stack.pop();
+        if (state) { matrix = state.matrix; renderingMode = state.renderingMode; }
+      } else if (command.operator === 'Tr') renderingMode = Number(args[0]?.value);
+      else if (command.operator === 'cm') {
         if (args.length !== 6 || args.some(arg => arg.kind !== 'number')) throw new Error('Invalid PDF transform');
         matrix = multiplyMatrix(matrix, args.map(arg => Number(arg.value)));
       } else if (command.operator === 'Do') {
@@ -166,7 +207,7 @@ class Editor {
             nextMatrix = multiplyMatrix(matrix, Array.from({ length: 6 }, (_, index) => this.get(formMatrix, index).asNumber()));
           }
           draw.form = this.scan(this.read(target), formResources.isNull() ? resources : formResources,
-            nextMatrix, new Set([...ancestors, id]), target, formResources.isNull());
+            nextMatrix, new Set([...ancestors, id]), target, formResources.isNull(), renderingMode);
         }
         node.draws.push(draw);
       }
@@ -186,7 +227,7 @@ class Editor {
       throw new Error('The selected image no longer matches the page coordinates. Reopen the document and select it again.');
     }
   }
-  /** A transformed image must not stay in a Form: the Form's clip and other uses are not its own. */
+  /** Isolate image transforms without disturbing the enclosing graphics state. */
   private imageDraw(name: string, transform: ImageMatrix, cropRect: ImageAppearance['crop']) {
     const crop = imageCropUV(cropRect);
     const cropped = crop.x !== 0 || crop.y !== 0 || crop.width !== 1 || crop.height !== 1;
@@ -194,12 +235,12 @@ class Editor {
     const value = `q\n${transform.map(value => Number(value.toFixed(10))).join(' ')} cm\n${clipping}${pdfName(name)} Do\nQ`;
     return cropped ? `/${imageCropTag(cropRect)} BMC\n${value}\nEMC` : value;
   }
-  rewrite(node: ContentNode): { stream: PDFObject; resources: PDFObject; lifted: Lifted[] } | null {
-    const edits: { start: number; end: number; value: string }[] = [];
+  rewrite(node: ContentNode): { fragments: Fragment[]; resources: PDFObject } | null {
+    const edits: { start: number; end: number; value: string; movements?: Movement[] }[] = [];
     const resources = this.copy(node.resources);
     const xObjects = this.copy(this.get(node.resources, 'XObject'));
     resources.put('XObject', xObjects);
-    const lifted: Lifted[] = [];
+
     let suffix = 0;
     const add = (object: PDFObject) => {
       let name: string;
@@ -211,16 +252,21 @@ class Editor {
       if (draw.form) {
         const rewritten = this.rewrite(draw.form);
         if (rewritten) {
-          let value = `${pdfName(add(rewritten.stream))} Do`;
-          if (node.object) lifted.push(...rewritten.lifted);
-          else for (const item of rewritten.lifted) value += `\n${this.imageDraw(add(item.object), multiplyMatrix(inverseMatrix(draw.matrix), item.matrix), item.crop)}`;
-          edits.push({ ...draw.command, value });
+          let value = '';
+          const movements: Movement[] = [];
+          for (const fragment of rewritten.fragments) {
+            const start = value.length;
+            value += `${pdfName(add(fragment.stream))} Do\n`;
+            if (fragment.transformed.length) movements.push({ start, end: value.length, transformed: fragment.transformed });
+          }
+          edits.push({ ...draw.command, value, movements });
         }
       } else if (draw.occurrence !== undefined && this.pending.has(draw.occurrence)) {
         const pending = this.pending.get(draw.occurrence)!;
         this.validate(draw, pending);
         this.applied.add(draw.occurrence);
         let value = '';
+        let movements: Movement[] | undefined;
         if (!pending.deleted) {
           let name = draw.name, object = draw.object;
           if (pending.replacement) {
@@ -239,19 +285,26 @@ class Editor {
             const viewportDelta: ImageMatrix = [sx, 0, 0, sy, next.x - old.x * sx, next.y - old.y * sy];
             absolute = multiplyMatrix(multiplyMatrix(inverseMatrix(this.pageToTopLeft), multiplyMatrix(viewportDelta, this.pageToTopLeft)), draw.matrix);
           }
-          // Only this occurrence leaves its Form: any other use of the Form is rewritten separately.
-          if (absolute && node.object) lifted.push({ object, matrix: absolute, crop: pending.appearance.crop });
-          else {
-            const transform = absolute ? multiplyMatrix(inverseMatrix(draw.contextMatrix ?? draw.matrix), absolute) : identityMatrix();
-            value = this.imageDraw(name, transform, pending.appearance.crop);
+          const transform = absolute ? multiplyMatrix(inverseMatrix(draw.contextMatrix ?? draw.matrix), absolute) : identityMatrix();
+          value = this.imageDraw(name, transform, pending.appearance.crop);
+          if (absolute) {
+            const crop = imageCropUV(pending.appearance.crop);
+            movements = [{ start: 0, end: value.length, transformed: [multiplyMatrix(absolute, [crop.width, 0, 0, crop.height, crop.x, crop.y])] }];
           }
         }
-        edits.push({ ...draw.command, value });
+        edits.push({ ...draw.command, value, movements });
       }
     }
     if (!edits.length) return null;
-    let text = node.text;
-    for (const edit of edits.sort((a, b) => b.start - a.start)) text = text.slice(0, edit.start) + edit.value + text.slice(edit.end);
+    let text = '', offset = 0;
+    const movements: Movement[] = [];
+    for (const edit of edits.sort((a, b) => a.start - b.start)) {
+      text += node.text.slice(offset, edit.start);
+      for (const movement of edit.movements ?? []) movements.push({ ...movement, start: text.length + movement.start, end: text.length + movement.end });
+      text += edit.value;
+      offset = edit.end;
+    }
+    text += node.text.slice(offset);
     // Do not leave an unused original image reachable solely through this local
     // resource dictionary. Shared uses elsewhere retain their own references.
     const used = new Set(commands(text).filter(command => command.operator === 'Do').map(command => command.operands[0].value));
@@ -260,10 +313,43 @@ class Editor {
       xObjects.forEach((value, key) => { this.own(value); if (!used.has(String(key))) unused.push(key); });
       for (const key of unused) xObjects.delete(key);
     }
-    const dictionary = node.object ? this.copy(node.object) : this.own(this.document.newDictionary());
-    for (const key of ['Length', 'Filter', 'DecodeParms']) dictionary.delete(key);
-    if (node.object) dictionary.put('Resources', resources);
-    return { stream: this.own(this.document.addStream(textToBytes(text), dictionary)), resources, lifted };
+    const write = (content: string, transformed: ImageMatrix[]): Fragment => {
+      const dictionary = node.object ? this.copy(node.object) : this.own(this.document.newDictionary());
+      for (const key of ['Length', 'Filter', 'DecodeParms']) dictionary.delete(key);
+      if (node.object) {
+        dictionary.put('Resources', resources);
+        if (transformed.length) {
+          const original = this.get(node.object, 'BBox');
+          if (!original.isArray() || original.length !== 4) throw new Error('Invalid PDF form bounds');
+          const bounds = Array.from({ length: 4 }, (_, index) => this.get(original, index).asNumber());
+          if (!bounds.every(Number.isFinite)) throw new Error('Invalid PDF form bounds');
+          for (const matrix of transformed) {
+            const rect = matrixBounds(multiplyMatrix(inverseMatrix(node.matrix), matrix));
+            bounds[0] = Math.min(bounds[0], rect.x); bounds[1] = Math.min(bounds[1], rect.y);
+            bounds[2] = Math.max(bounds[2], rect.x + rect.width); bounds[3] = Math.max(bounds[3], rect.y + rect.height);
+          }
+          dictionary.put('BBox', bounds);
+        }
+      }
+      return { stream: this.own(this.document.addStream(textToBytes(content), dictionary)), transformed };
+    };
+    if (!node.object || !movements.length) return { fragments: [write(text, [])], resources };
+    // Draw ordered fragments at this invocation, retaining the complete state
+    // prefix of each. Only the image fragment may escape the original Form box;
+    // unrelated text and paths retain their original clipping and stacking.
+    const parsed = commands(text), fragments: Fragment[] = [];
+    const addFragment = (start: number, end: number, transformed: ImageMatrix[]) => {
+      if (!parsed.some(command => command.start >= start && command.end <= end && paints(command))) return;
+      fragments.push(write(paintingFragment(text, parsed, start, end, node.renderingMode), transformed));
+    };
+    offset = 0;
+    for (const movement of movements) {
+      addFragment(offset, movement.start, []);
+      addFragment(movement.start, movement.end, movement.transformed);
+      offset = movement.end;
+    }
+    addFragment(offset, text.length, []);
+    return { fragments, resources };
   }
   apply(pageIndex: number) {
     const page = this.own(this.document.loadPage(pageIndex));
@@ -279,7 +365,7 @@ class Editor {
     }
     const rewritten = this.rewrite(node);
     if (this.applied.size !== this.pending.size) throw new Error('A selected image could not be located in the PDF. Inline, pattern, and soft-mask images are not supported.');
-    if (rewritten) { object.put('Contents', rewritten.stream); object.put('Resources', rewritten.resources); }
+    if (rewritten) { object.put('Contents', rewritten.fragments[0].stream); object.put('Resources', rewritten.resources); }
   }
 }
 

@@ -86,7 +86,7 @@ async function expectExport(page: Page, state: ExpectedState) {
         let images = 0;
         text.walk({ onImageBlock() { images++; } });
         expect(images).toBe(state.image ? 1 : 0);
-        const pixmap = outputPage.toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, false);
+        const pixmap = outputPage.toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true);
         try {
           let bluePixels = 0;
           const pixels = pixmap.getPixels();

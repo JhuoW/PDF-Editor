@@ -30,12 +30,12 @@ async function exportedText(page: Page) {
   const document = new mupdf.PDFDocument(Buffer.concat(chunks));
   try {
     const pdfPage = document.loadPage(0);
-    const text = pdfPage.toStructuredText('');
+    const display = pdfPage.toDisplayList(true), text = display.toStructuredText('');
     try {
       const content = text.asText();
       expect(content).toContain(footer);
       return content;
-    } finally { text.destroy(); pdfPage.destroy(); }
+    } finally { text.destroy(); display.destroy(); pdfPage.destroy(); }
   } finally { document.destroy(); }
 }
 

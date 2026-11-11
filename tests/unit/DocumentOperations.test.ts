@@ -12,6 +12,9 @@ import { captureWorkspace, createWorkspace, restoreWorkspace } from '../../src/s
 const mocks = vi.hoisted(() => ({ loadCurrentPDF: vi.fn(), extractFormFields: vi.fn() }));
 vi.mock('../../src/core/ActiveDocument', () => ({ readActivePDF: mocks.loadCurrentPDF }));
 vi.mock('../../src/forms/FormFieldExtractor', () => mocks);
+// These state-transaction fixtures deliberately use sentinel bytes. Signature
+// detection is exercised with actual PDFs in PDFModificationGuard.test.ts.
+vi.mock('../../src/core/PDFModificationGuard', () => ({ assertDocumentModificationAllowed: vi.fn(async () => {}) }));
 const bytes = (value: number) => new Uint8Array([value]).buffer;
 const proxy = (numPages: number) => ({ numPages }) as PDFDocumentProxy;
 

@@ -145,7 +145,7 @@ for (const rotation of [90, 270]) {
       ] as Array<[Region, 'blue' | 'green' | 'black']>) {
         assertNear(bounds(result, region, color), bounds(preview, region, color)!);
       }
-      const text = resultPage.toStructuredText('');
+      const display = resultPage.toDisplayList(true), text = display.toStructuredText('');
       try {
         expect(text.asText().replace(/\s/g, '')).toContain('PDFnote');
         let textBounds: number[] | undefined;
@@ -155,7 +155,7 @@ for (const rotation of [90, 270]) {
         expect(textBounds![1]).toBeGreaterThanOrEqual(370);
         expect(textBounds![2]).toBeLessThanOrEqual(300);
         expect(textBounds![3]).toBeLessThanOrEqual(470);
-      } finally { text.destroy(); }
+      } finally { text.destroy(); display.destroy(); }
     } finally { pixmap.destroy(); resultPage.destroy(); document.destroy(); }
   });
 }
@@ -189,9 +189,9 @@ test('rapidly switching text boxes preserves both drafts and ignores old delayed
   await page.getByTitle('Select (V)', { exact: true }).click();
   await expect(editor).toHaveCount(0);
   const document = new mupdf.PDFDocument(await exported(page));
-  const pdfPage = document.loadPage(0), text = pdfPage.toStructuredText('');
+  const pdfPage = document.loadPage(0), display = pdfPage.toDisplayList(true), text = display.toStructuredText('');
   try {
     expect(text.asText()).toContain('First revised');
     expect(text.asText()).toContain('Second revised');
-  } finally { text.destroy(); pdfPage.destroy(); document.destroy(); }
+  } finally { text.destroy(); display.destroy(); pdfPage.destroy(); document.destroy(); }
 });

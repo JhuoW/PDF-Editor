@@ -13,7 +13,9 @@ export async function detectImages(page: PDFPageProxy): Promise<PDFImage[]> {
   const { OPS, AnnotationMode } = await import('pdfjs-dist');
   const operatorList = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
   let transform = identityMatrix();
-  const stack: ImageMatrix[] = [];
+  const stack: { transform: ImageMatrix; renderingMode: number }[] = [];
+  const forms: { images: PDFImage[]; textClipping: boolean; enteredInText: boolean }[] = [];
+  let inText = false, renderingMode = 0;
   let formDepth = 0;
   let unsupported = '';
   const markedContent: Array<string | undefined> = [];
@@ -26,29 +28,50 @@ export async function detectImages(page: PDFPageProxy): Promise<PDFImage[]> {
     const rawRect = matrixBounds(multiplyMatrix(viewport.transform, matrix)), crop = [...crops].reverse().find(Boolean);
     const uv = crop ? imageCropUV(crop) : undefined;
     const rect = uv ? matrixBounds(multiplyMatrix(multiplyMatrix(viewport.transform, matrix), [uv.width, 0, 0, uv.height, uv.x, uv.y])) : rawRect;
-    images.push({
+    const image: PDFImage = {
       id: `img-${crypto.randomUUID()}`, pageNumber: page.pageNumber, objectName: name,
       rect, originalRect: { ...rect },
       source: { occurrence: images.length, occurrenceCount: 0, transform: matrix, pixelWidth: width, pixelHeight: height, insideForm: formDepth > 0,
         ...(crop ? { cropRect: crop, rawRect } : {}),
         ...(decoration() ? { decorationInstance: decoration() } : {}) },
       ...(decoration() ? { unsupportedReason: 'Edit this image in Document → Watermarks, Headers & Backgrounds…' } : {}),
-    });
+    };
+    if (forms.length && inText) image.unsupportedReason ??= 'Images inside PDF text objects cannot be transformed safely.';
+    for (const form of forms) form.images.push(image);
+    images.push(image);
   };
   for (let i = 0; i < operatorList.fnArray.length; i++) {
     const fn = operatorList.fnArray[i];
     const args = operatorList.argsArray[i];
     if (fn === OPS.beginMarkedContent || fn === OPS.beginMarkedContentProps) { markedContent.push(decorationInstanceFromTag(args[0])); crops.push(imageCropFromTag(args[0])); }
     else if (fn === OPS.endMarkedContent) { markedContent.pop(); crops.pop(); }
-    else if (fn === OPS.save) stack.push([...transform]);
-    else if (fn === OPS.restore) transform = stack.pop() ?? transform;
+    else if (fn === OPS.beginText) inText = true;
+    else if (fn === OPS.endText) inText = false;
+    else if (fn === OPS.setTextRenderingMode) renderingMode = args[0];
+    else if ([OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText].includes(fn)) {
+      if (renderingMode >= 4 && forms.length) forms[forms.length - 1].textClipping = true;
+    }
+    else if (fn === OPS.save) stack.push({ transform: [...transform], renderingMode });
+    else if (fn === OPS.restore) {
+      const state = stack.pop();
+      if (state) { transform = state.transform; renderingMode = state.renderingMode; }
+    }
     else if (fn === OPS.transform) transform = multiplyMatrix(transform, args as number[]);
     else if (fn === OPS.paintFormXObjectBegin) {
-      stack.push([...transform]);
+      stack.push({ transform: [...transform], renderingMode });
+      forms.push({ images: [], textClipping: false, enteredInText: inText });
+      inText = false;
       if (args[0]) transform = multiplyMatrix(transform, args[0]);
       formDepth++;
     } else if (fn === OPS.paintFormXObjectEnd) {
-      transform = stack.pop() ?? identityMatrix();
+      const state = stack.pop();
+      if (state) { transform = state.transform; renderingMode = state.renderingMode; }
+      const form = forms.pop();
+      inText = form?.enteredInText ?? false;
+      if (form?.enteredInText || form?.textClipping) for (const image of form.images) {
+        image.unsupportedReason ??= form.enteredInText ? 'Images inside PDF text objects cannot be transformed safely.'
+          : 'Images in forms with text clipping cannot be transformed safely.';
+      }
       formDepth--;
     } else if (fn === OPS.paintImageXObject) add(args[0], [...transform], args[1], args[2]);
     else if (fn === OPS.paintImageXObjectRepeat) {

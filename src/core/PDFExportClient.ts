@@ -32,7 +32,7 @@ function run<T>(data: ArrayBuffer, workspace: WorkspaceSnapshot, job: PDFExportR
     try {
       // Transfer only a private source copy. Live PDF, undo and image buffers stay owned by the UI.
       const source = data.slice(0);
-      worker.postMessage({ job, data: source, workspace } satisfies PDFExportRequest, [source]);
+      worker.postMessage({ job, data: source, workspace, flattenAnnotations: control.flattenAnnotations } satisfies PDFExportRequest, [source]);
     } catch (error) { fail(error); }
   });
 }

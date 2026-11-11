@@ -3,7 +3,7 @@
  */
 import {
   AnnotationFlags, PDFDocument, PDFPage, PDFHexString, PDFString, PDFName,
-  rgb, StandardFonts, appendBezierCurve, clip, closePath, concatTransformationMatrix,
+  rgb, appendBezierCurve, clip, closePath, concatTransformationMatrix,
   endPath, lineTo, moveTo, popGraphicsState, pushGraphicsState, setDashPattern,
   setGraphicsState, setLineWidth, setStrokingColor, stroke,
 } from 'pdf-lib';
@@ -20,9 +20,9 @@ import type {
   StampAnnotation,
   FreeTextAnnotation,
   ImageAnnotation,
-  TextStyle,
 } from './types';
-import { DEFAULT_TEXT_STYLE } from './types';
+import { createFreeTextAppearance, type FreeTextAppearance } from './FreeTextAppearance';
+import { addNativeAnnotation, annotationBounds } from './NativeAnnotation';
 
 // Convert hex color to RGB values (0-1 range)
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -37,50 +37,17 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return { r: 0, g: 0, b: 0 };
 }
 
-// Map font family names to Standard PDF fonts
-function mapFontToStandard(fontFamily: string, fontWeight: string, fontStyle: string): StandardFonts {
-  const isBold = fontWeight === 'bold';
-  const isItalic = fontStyle === 'italic';
-
-  // Normalize font family
-  const normalizedFont = fontFamily.toLowerCase().replace(/[^a-z]/g, '');
-
-  // Times/Times New Roman
-  if (normalizedFont.includes('times') || normalizedFont.includes('roman')) {
-    if (isBold && isItalic) return StandardFonts.TimesRomanBoldItalic;
-    if (isBold) return StandardFonts.TimesRomanBold;
-    if (isItalic) return StandardFonts.TimesRomanItalic;
-    return StandardFonts.TimesRoman;
-  }
-
-  // Courier
-  if (normalizedFont.includes('courier') || normalizedFont.includes('mono')) {
-    if (isBold && isItalic) return StandardFonts.CourierBoldOblique;
-    if (isBold) return StandardFonts.CourierBold;
-    if (isItalic) return StandardFonts.CourierOblique;
-    return StandardFonts.Courier;
-  }
-
-  // Default to Helvetica (covers Arial, Helvetica, sans-serif, etc.)
-  if (isBold && isItalic) return StandardFonts.HelveticaBoldOblique;
-  if (isBold) return StandardFonts.HelveticaBold;
-  if (isItalic) return StandardFonts.HelveticaOblique;
-  return StandardFonts.Helvetica;
-}
-
 /**
  * Serialize annotations to a PDF document
  * Returns a new PDF with annotations embedded
  */
 export async function serializeAnnotationsToPDF(
   pdfData: ArrayBuffer,
-  annotations: Map<number, Annotation[]>
+  annotations: Map<number, Annotation[]>,
+  options: { flattenAnnotations?: boolean } = {},
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.load(pdfData, { updateMetadata: false });
   const pages = pdfDoc.getPages();
-
-  // Embed standard fonts that might be used
-  const embeddedFonts = new Map<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>>();
 
   // Process each page's annotations
   for (const [pageNumber, pageAnnotations] of annotations) {
@@ -92,9 +59,29 @@ export async function serializeAnnotationsToPDF(
 
     const page = pages[pageIndex];
 
-    for (const annotation of pageAnnotations) {
+    for (const original of [...pageAnnotations].sort((a, b) => ('zIndex' in a ? a.zIndex ?? 0 : 0) - ('zIndex' in b ? b.zIndex ?? 0 : 0))) {
+      let annotation = original;
       try {
-        await addAnnotationToPage(pdfDoc, page, annotation, embeddedFonts);
+        let textAppearance: FreeTextAppearance | undefined;
+        if (annotation.type === 'freetext') {
+          textAppearance = await createFreeTextAppearance(annotation);
+          const rect = annotation.rect;
+          annotation = { ...annotation, rect: [rect[0], rect[1] + rect[3] - textAppearance.height, rect[2], textAppearance.height] };
+          const media = page.getMediaBox();
+          if (annotation.rect[1] + annotation.rect[3] - textAppearance.contentHeight < media.y - .01) throw new Error('Text exceeds the page height. Move the text box upward or widen it; no text was truncated.');
+        }
+        if (annotation.type === 'sticky-note' || options.flattenAnnotations) {
+          await addAnnotationToPage(pdfDoc, page, annotation, textAppearance);
+        } else {
+          const bounds = annotationBounds(annotation);
+          const scratch = pdfDoc.addPage([page.getWidth(), page.getHeight()]);
+          try {
+            await addAnnotationToPage(pdfDoc, scratch, annotation, textAppearance);
+            const appearance = await pdfDoc.embedPage(scratch, { left: bounds[0], bottom: bounds[1], right: bounds[2], top: bounds[3] });
+            await appearance.embed();
+            await addNativeAnnotation(pdfDoc, page, annotation, appearance.ref, bounds);
+          } finally { pdfDoc.removePage(pdfDoc.getPageCount() - 1); }
+        }
       } catch (error) {
         throw new Error(`Failed to export ${annotation.type} annotation "${annotation.id}" on page ${pageNumber}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -111,7 +98,7 @@ async function addAnnotationToPage(
   pdfDoc: PDFDocument,
   page: PDFPage,
   annotation: Annotation,
-  embeddedFonts: Map<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>>
+  textAppearance?: FreeTextAppearance,
 ): Promise<void> {
   switch (annotation.type) {
     case 'highlight':
@@ -139,7 +126,7 @@ async function addAnnotationToPage(
       await addStampAnnotation(pdfDoc, page, annotation);
       break;
     case 'freetext':
-      await addFreeTextAnnotation(pdfDoc, page, annotation, embeddedFonts);
+      await addFreeTextAnnotation(pdfDoc, page, annotation, textAppearance!);
       break;
     case 'image':
       await addImageAnnotation(pdfDoc, page, annotation);
@@ -418,143 +405,16 @@ async function addStampAnnotation(pdfDoc: PDFDocument, page: PDFPage, annotation
   });
 }
 
-/**
- * Get style from annotation (handle legacy format)
- */
-function getAnnotationStyle(annotation: FreeTextAnnotation): TextStyle {
-  if (annotation.style) {
-    return annotation.style;
-  }
-  // Legacy format conversion
-  return {
-    ...DEFAULT_TEXT_STYLE,
-    fontSize: annotation.fontSize || DEFAULT_TEXT_STYLE.fontSize,
-    fontFamily: annotation.fontFamily || DEFAULT_TEXT_STYLE.fontFamily,
-    color: annotation.textColor || annotation.color || DEFAULT_TEXT_STYLE.color,
-    backgroundColor: annotation.backgroundColor || 'transparent',
-    borderColor: annotation.borderColor || DEFAULT_TEXT_STYLE.borderColor,
-    borderWidth: annotation.borderWidth || DEFAULT_TEXT_STYLE.borderWidth,
-  };
-}
-
-/**
- * Add free text annotation with full styling support
- */
-async function addFreeTextAnnotation(
-  pdfDoc: PDFDocument,
-  page: PDFPage,
-  annotation: FreeTextAnnotation,
-  embeddedFonts: Map<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>>
-): Promise<void> {
-  const { rect, content } = annotation;
-  const style = getAnnotationStyle(annotation);
-
-  // Get or embed the required font
-  const fontKey = `${style.fontFamily}-${style.fontWeight}-${style.fontStyle}`;
-  let font = embeddedFonts.get(fontKey);
-  if (!font) {
-    const standardFont = mapFontToStandard(style.fontFamily, style.fontWeight, style.fontStyle);
-    font = await pdfDoc.embedFont(standardFont);
-    embeddedFonts.set(fontKey, font);
-  }
-
-  const textColor = hexToRgb(style.color);
-
-  // Draw background if set
-  if (style.backgroundColor && style.backgroundColor !== 'transparent') {
-    const bg = hexToRgb(style.backgroundColor);
-    page.drawRectangle({
-      x: rect[0],
-      y: rect[1],
-      width: rect[2],
-      height: rect[3],
-      color: rgb(bg.r, bg.g, bg.b),
-    });
-  }
-
-  // Draw border if set
-  if (style.borderWidth > 0) {
-    const border = hexToRgb(style.borderColor);
-    page.drawRectangle({
-      x: rect[0],
-      y: rect[1],
-      width: rect[2],
-      height: rect[3],
-      borderColor: rgb(border.r, border.g, border.b),
-      borderWidth: style.borderWidth,
-    });
-  }
-
-  // Calculate text position based on alignment
-  const fontSize = style.fontSize;
-  const lineHeight = fontSize * 1.2;
-  const padding = 4;
-
-  // Word wrap the text
-  const maxWidth = rect[2] - padding * 2;
-  if (fontSize <= 0 || maxWidth <= 0) throw new Error('Text box dimensions or font size are invalid');
-  const wrappedLines: string[] = [];
-
-  const inputLines = content.split('\n');
-  for (const inputLine of inputLines) {
-    const words = inputLine.split(' ');
-    let currentLine = '';
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const textWidth = font.widthOfTextAtSize(testLine, fontSize);
-      if (font.widthOfTextAtSize(word, fontSize) > maxWidth) {
-        throw new Error('A word is wider than the text box; enlarge the box or reduce the font size');
-      }
-
-      if (textWidth > maxWidth && currentLine) {
-        wrappedLines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-    wrappedLines.push(currentLine);
-  }
-
-  if (fontSize + (wrappedLines.length - 1) * lineHeight > rect[3] - padding * 2) {
-    throw new Error('Text exceeds the text box height; enlarge the box or reduce the font size');
-  }
-
-  // Draw text lines
-  let y = rect[1] + rect[3] - fontSize - padding;
-  for (const line of wrappedLines) {
-    // Calculate x position based on alignment
-    let x = rect[0] + padding;
-    if (style.textAlign === 'center') {
-      const lineWidth = font.widthOfTextAtSize(line, fontSize);
-      x = rect[0] + (rect[2] - lineWidth) / 2;
-    } else if (style.textAlign === 'right') {
-      const lineWidth = font.widthOfTextAtSize(line, fontSize);
-      x = rect[0] + rect[2] - lineWidth - padding;
-    }
-
-    page.drawText(line, {
-      x: x,
-      y: y,
-      size: fontSize,
-      font: font,
-      color: rgb(textColor.r, textColor.g, textColor.b),
-    });
-
-    // Draw underline if needed
-    if (style.textDecoration === 'underline') {
-      const lineWidth = font.widthOfTextAtSize(line, fontSize);
-      page.drawLine({
-        start: { x: x, y: y - 2 },
-        end: { x: x + lineWidth, y: y - 2 },
-        color: rgb(textColor.r, textColor.g, textColor.b),
-        thickness: 1,
-      });
-    }
-
-    y -= lineHeight;
-  }
+/** Paint the measured vector appearance with the same clockwise center rotation as the editor. */
+async function addFreeTextAnnotation(pdfDoc: PDFDocument, page: PDFPage, annotation: FreeTextAnnotation, appearance: FreeTextAppearance): Promise<void> {
+  const [embedded] = await pdfDoc.embedPdf(appearance.bytes);
+  const [x, y, width, height] = annotation.rect;
+  const radians = -(annotation.rotation ?? 0) * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+  const centerX = x + width / 2, centerY = y + height / 2;
+  page.pushOperators(pushGraphicsState(), concatTransformationMatrix(cos, sin, -sin, cos,
+    centerX - cos * width / 2 + sin * height / 2, centerY - sin * width / 2 - cos * height / 2));
+  try { page.drawPage(embedded, { x: 0, y: 0, width, height }); }
+  finally { page.pushOperators(popGraphicsState()); }
 }
 
 /**

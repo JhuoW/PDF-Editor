@@ -7,6 +7,7 @@ import { applyImageEdits } from '../editing/ImageEditApplier';
 import { flattenForm } from '../forms/FormFlattener';
 import { exportProgress, type PDFExportControl } from './PDFExportTypes';
 import type { TextCheckReport } from '../editing/TextCheckTypes';
+import { assertDocumentModificationAllowed } from './PDFModificationGuard';
 
 /** Commit original content edits without flattening editable overlays. */
 export async function applyWorkspaceContent(data: ArrayBuffer, workspace: WorkspaceSnapshot, control: PDFExportControl = {}): Promise<Uint8Array> {
@@ -60,6 +61,13 @@ export async function bakeWorkspaceContent(data: ArrayBuffer, workspace: Workspa
 /** One export path for downloads and page extraction, including unsaved edits. */
 export async function exportWorkspacePDF(data: ArrayBuffer, workspace: WorkspaceSnapshot, control: PDFExportControl = {}): Promise<Uint8Array> {
   exportProgress(control, 'validate', .05);
+  const contentChanged = workspace.editing.textEdits.length > 0 || workspace.editing.imageEdits.length > 0
+    || [...workspace.annotations.values()].some(items => items.length > 0) || workspace.form.isDirty
+    || workspace.form.fields.some(field => JSON.stringify(field.value) !== JSON.stringify(workspace.form.originalValues.get(field.id)));
+  // An unchanged signed file remains byte-for-byte downloadable. Every actual
+  // rewrite uses the same guard, including images, annotations and form values.
+  if (!contentChanged) return new Uint8Array(data);
+  await assertDocumentModificationAllowed(data, control.signal);
   if (workspace.editing.textEdits.length) {
     await assertTextEditSource(data, control.signal);
   }
@@ -72,7 +80,7 @@ export async function exportWorkspacePDF(data: ArrayBuffer, workspace: Workspace
   result = new Uint8Array(await applyWorkspaceContent(result.buffer, workspace, control));
   if (workspace.annotations.size) {
     exportProgress(control, 'annotations', .85);
-    result = new Uint8Array(await serializeAnnotationsToPDF(result.buffer, workspace.annotations));
+    result = new Uint8Array(await serializeAnnotationsToPDF(result.buffer, workspace.annotations, { flattenAnnotations: control.flattenAnnotations }));
   }
   exportProgress(control, 'complete', 1);
   return result;

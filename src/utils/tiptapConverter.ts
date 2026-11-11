@@ -87,12 +87,8 @@ function processNode(node: Node, segments: RichTextSegment[], inheritedStyle: Pa
           break;
         }
         case 'mark': {
-          // Highlight - we could track background color if needed
-          const markColor = element.getAttribute('data-color');
-          if (markColor) {
-            // For now, we don't have background color in segments
-            // but this could be added
-          }
+          const markColor = element.getAttribute('data-color') || extractStyleValue(element.getAttribute('style') || '', 'background-color') || '#ffff00';
+          newStyle.highlightColor = normalizeColor(markColor);
           break;
         }
         case 'br':
@@ -124,7 +120,7 @@ function applyInlineStyles(styleAttr: string, style: Partial<TextStyle>): void {
   // Font size
   const fontSize = extractStyleValue(styleAttr, 'font-size');
   if (fontSize) {
-    const size = parseInt(fontSize, 10);
+    const size = parseFloat(fontSize);
     if (!isNaN(size)) {
       style.fontSize = size;
     }
@@ -258,7 +254,10 @@ function stylesEqual(a: Partial<TextStyle>, b: Partial<TextStyle>): boolean {
     a.fontStyle === b.fontStyle &&
     a.textDecoration === b.textDecoration &&
     a.color === b.color &&
-    a.textAlign === b.textAlign
+    a.textAlign === b.textAlign &&
+    a.highlightColor === b.highlightColor &&
+    a.lineHeight === b.lineHeight &&
+    a.letterSpacing === b.letterSpacing
   );
 }
 
@@ -355,6 +354,10 @@ function buildStyledSpan(text: string, style: Partial<TextStyle>, defaultStyle: 
   }
   if (style.textDecoration === 'line-through') {
     result = `<s>${result}</s>`;
+  }
+
+  if (style.highlightColor && /^#[0-9a-f]{6}$/i.test(style.highlightColor)) {
+    result = `<mark data-color="${style.highlightColor}" style="background-color: ${style.highlightColor}">${result}</mark>`;
   }
 
   // Build style attribute for non-default values

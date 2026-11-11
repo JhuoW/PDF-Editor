@@ -47,6 +47,7 @@ export interface TextStyle {
   color: string;
   lineHeight: number;
   letterSpacing: number;
+  highlightColor?: string;
   // Legacy - kept for backward compatibility, use BoxStyle instead
   backgroundColor: string;
   borderColor: string;

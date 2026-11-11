@@ -2,13 +2,36 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { detectImages } from '../../src/editing/ImageDetector';
 import { imageCropTag } from '../../src/editing/ImageCropMarker';
-const OPS = vi.hoisted(() => ({ save: 1, restore: 2, transform: 3, paintImageXObject: 4, paintFormXObjectBegin: 5, paintFormXObjectEnd: 6, paintImageXObjectRepeat: 7, paintInlineImageXObject: 8, paintInlineImageXObjectGroup: 9, beginGroup: 10, beginMarkedContent: 11, beginMarkedContentProps: 12, endMarkedContent: 13 }));
+const OPS = vi.hoisted(() => ({ save: 1, restore: 2, transform: 3, paintImageXObject: 4, paintFormXObjectBegin: 5, paintFormXObjectEnd: 6, paintImageXObjectRepeat: 7, paintInlineImageXObject: 8, paintInlineImageXObjectGroup: 9, beginGroup: 10, beginMarkedContent: 11, beginMarkedContentProps: 12, endMarkedContent: 13, beginText: 14, endText: 15, setTextRenderingMode: 16, showText: 17, showSpacedText: 18, nextLineShowText: 19, nextLineSetSpacingShowText: 20 }));
 vi.mock('pdfjs-dist', () => ({ OPS, AnnotationMode: { DISABLE: 0 } }));
 function page(operations: [number, unknown[]][]) {
   return { pageNumber: 1, getViewport: () => ({ transform: [2, 0, 0, -2, -40, 1160] }),
     getOperatorList: async () => ({ fnArray: operations.map(([op]) => op), argsArray: operations.map(([, args]) => args) }) } as unknown as PDFPageProxy;
 }
 describe('detectImages', () => {
+  it('restricts text-clipping Forms without disabling an unrelated image or ordinary Form', async () => {
+    const images = await detectImages(page([
+      [OPS.paintImageXObject, ['outside-before', 4, 4]],
+      [OPS.paintFormXObjectBegin, [null, [0, 0, 100, 100]]],
+      [OPS.beginText, []], [OPS.setTextRenderingMode, [7]], [OPS.showText, [['glyphs']]], [OPS.endText, []],
+      [OPS.paintImageXObject, ['clipped', 4, 4]], [OPS.paintFormXObjectEnd, []],
+      [OPS.paintFormXObjectBegin, [null, [0, 0, 100, 100]]],
+      [OPS.beginText, []], [OPS.showText, [['normal glyphs']]], [OPS.endText, []],
+      [OPS.paintImageXObject, ['ordinary-form', 4, 4]], [OPS.paintFormXObjectEnd, []],
+    ]));
+    expect(images[0].unsupportedReason).toBeUndefined();
+    expect(images[1].unsupportedReason).toContain('text clipping');
+    expect(images[2].unsupportedReason).toBeUndefined();
+  });
+  it('marks images inside a Form text object before entering editing', async () => {
+    const [image] = await detectImages(page([
+      [OPS.paintFormXObjectBegin, [null, [0, 0, 100, 100]]],
+      [OPS.beginText, []], [OPS.paintImageXObject, ['inside-text', 4, 4]], [OPS.endText, []],
+      [OPS.paintFormXObjectEnd, []],
+    ]));
+    expect(image.unsupportedReason).toContain('text objects');
+  });
+
   it.each(['string', 'name-object'])('retains editable crop bounds without losing raw source geometry (%s)', async format => {
     const crop = { x: .5, y: 0, width: .5, height: 1 }, tag = imageCropTag(crop);
     const [image] = await detectImages(page([

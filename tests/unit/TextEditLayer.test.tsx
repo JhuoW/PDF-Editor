@@ -164,8 +164,10 @@ describe('text editing interaction', () => {
     expect(useEditingStore.getState().getBlock(block.id)?.text).toBe('Original');
     expect(useEditingStore.getState().textEdits).toEqual([]);
     act(() => container.querySelector<HTMLButtonElement>('.text-edit-readonly > button')!.click());
-    expect(useEditingStore.getState().mode).toBe('none');
-    expect(container.querySelector('.text-edit-layer')).toBeNull();
+    expect(useEditingStore.getState().mode).toBe('text');
+    expect(useEditingStore.getState().selectedBlockId).toBeNull();
+    expect(container.querySelector('.text-edit-readonly')).toBeNull();
+    expect(container.querySelector('.text-block.readonly')).not.toBeNull();
   });
 
   it('saves an empty string as a deletion', async () => {

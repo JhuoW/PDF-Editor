@@ -37,6 +37,17 @@ function makeDocument(pages: PDFPageProxy[]) {
   } as unknown as PDFDocumentProxy;
 }
 
+function delayedDocument(count: number) {
+  const pending = new Map<number, { resolve: (page: PDFPageProxy) => void; reject: (error: Error) => void }>();
+  const document = {
+    numPages: count,
+    getPage: vi.fn((pageNumber: number) => new Promise<PDFPageProxy>((resolve, reject) => {
+      pending.set(pageNumber, { resolve, reject });
+    })),
+  } as unknown as PDFDocumentProxy;
+  return { document, pending };
+}
+
 function rect(top: number, height = 800) {
   return { top, height, bottom: top + height, left: 0, right: 600, width: 600, x: 0, y: top, toJSON() {} };
 }
@@ -166,6 +177,97 @@ describe('PDFViewer navigation and fit zoom', () => {
     expect(host.querySelectorAll('canvas').length).toBeLessThanOrEqual(3);
     expect(firstSlot.getAttribute('style')).toBe(firstSize);
     expect(props.document.getPage).toHaveBeenCalledTimes(500);
+  });
+
+  it('shows the requested page before earlier pages finish and lets navigation bypass a slow background request', async () => {
+    const { document, pending } = delayedDocument(500);
+    await render({ document, currentPage: 250 });
+    expect(document.getPage).toHaveBeenCalledExactlyOnceWith(250);
+    await act(async () => { pending.get(250)!.resolve(makePage(250)); });
+    expect(host.querySelectorAll('.page-wrapper')).toHaveLength(500);
+    expect(host.querySelector('[data-page-canvas="250"]')).not.toBeNull();
+    expect(document.getPage).toHaveBeenCalledWith(1);
+    expect(document.getPage).toHaveBeenCalledWith(249);
+    expect(document.getPage).toHaveBeenCalledWith(251);
+    expect(document.getPage).not.toHaveBeenCalledWith(2);
+
+    await render({ currentPage: 500 });
+    expect(document.getPage).toHaveBeenCalledWith(500);
+    await act(async () => { pending.get(500)!.resolve(makePage(500)); });
+    expect(host.querySelector('[data-page-canvas="500"]')).not.toBeNull();
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(host.querySelector('[data-page="500"]'));
+    expect(vi.mocked(document.getPage).mock.calls.filter(([number]) => number === 500)).toHaveLength(1);
+    expect(document.getPage).not.toHaveBeenCalledWith(2);
+  });
+
+  it('preserves the visible anchor, fit scale, and active canvas as earlier page sizes arrive', async () => {
+    const { document, pending } = delayedDocument(5);
+    await render({ document, currentPage: 3, zoomMode: 'fit-width' });
+    await act(async () => { pending.get(3)!.resolve(makePage(3, 600, 800)); });
+    const canvas = host.querySelector('[data-page-canvas="3"]');
+    const initialScale = canvas?.getAttribute('data-scale');
+    const observerCount = observers.length;
+    const { container, wrappers } = useMeasuredPageLayout();
+    const height = (index: number) => parseFloat((wrappers[index].querySelector('.page-viewport') as HTMLElement).style.height);
+    container.scrollTop = 16 + height(0) + height(1) + 80 + height(2) * 0.4 - 400;
+    await observeVisiblePages([3]);
+    scrollIntoView.mockClear();
+    vi.mocked(props.onPageChange!).mockClear();
+
+    await act(async () => { pending.get(2)!.resolve(makePage(2, 300, 1200)); });
+    expect((400 - wrappers[2].getBoundingClientRect().top) / height(2)).toBeCloseTo(0.4);
+    expect(host.querySelector('[data-page-canvas="3"]')).toBe(canvas);
+    expect(canvas?.getAttribute('data-scale')).toBe(initialScale);
+    expect(observers).toHaveLength(observerCount);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(props.onPageChange).not.toHaveBeenCalled();
+  });
+
+  it('isolates a failed page and ignores delayed continuous results after replacing the document', async () => {
+    const { document, pending } = delayedDocument(3);
+    await render({ document });
+    await act(async () => { pending.get(1)!.resolve(makePage(1)); });
+    const firstCanvas = host.querySelector('[data-page-canvas="1"]');
+    await act(async () => { pending.get(2)!.reject(new Error('Page could not be decoded')); });
+    expect(host.querySelector('[data-page="2"] [role="alert"]')?.textContent).toContain('Page could not be decoded');
+    expect(host.querySelector('[data-page-canvas="1"]')).toBe(firstCanvas);
+
+    await render({ document: makeDocument([makePage(1, 200, 300)]), documentVersion: 2 });
+    const replacement = host.querySelector('canvas');
+    await act(async () => { pending.get(3)!.resolve(makePage(3, 900, 1000)); });
+    expect(host.querySelector('canvas')).toBe(replacement);
+    expect(host.querySelectorAll('.page-wrapper')).toHaveLength(1);
+    expect((host.querySelector('.page-viewport') as HTMLElement).style.width).toBe('200px');
+  });
+
+  it('prioritizes an unloaded link destination and scrolls only after its real dimensions arrive', async () => {
+    const { document, pending } = delayedDocument(20);
+    await render({ document });
+    await act(async () => { pending.get(1)!.resolve(makePage(1)); });
+    const { container, wrappers } = useMeasuredPageLayout();
+    scrollIntoView.mockClear();
+    const destination = { pageNumber: 20, top: 700, left: 0 };
+    await render({ highlightDestination: destination });
+    expect(document.getPage).toHaveBeenCalledWith(20);
+    expect(container.scrollTo).not.toHaveBeenCalled();
+    await act(async () => { pending.get(2)!.resolve(makePage(2)); });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    await act(async () => { pending.get(20)!.resolve(makePage(20)); });
+    expect(container.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: wrappers[19].getBoundingClientRect().top + container.scrollTop, behavior: 'smooth' });
+    await render({ scale: 2 });
+    expect(container.scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('fits a delayed two-page spread once both page dimensions are available', async () => {
+    const { document, pending } = delayedDocument(3);
+    await render({ document, viewMode: 'two-page', currentPage: 2, zoomMode: 'fit-width' });
+    await act(async () => { pending.get(1)!.resolve(makePage(1, 300, 400)); });
+    expect(host.querySelector('canvas')).toBeNull();
+    await act(async () => { pending.get(2)!.resolve(makePage(2, 600, 1200)); });
+    expect(host.querySelectorAll('canvas')).toHaveLength(2);
+    expect(Number(host.querySelector('canvas')?.getAttribute('data-scale'))).toBeCloseTo((920 - 16) / 900);
+    await render({ currentPage: 1 });
+    expect(document.getPage).toHaveBeenCalledTimes(2);
   });
 
   it('preloads one page on each side and keeps the active text editor mounted until editing ends', async () => {

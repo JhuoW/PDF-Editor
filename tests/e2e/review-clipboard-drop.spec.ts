@@ -34,8 +34,8 @@ async function exportedImages(page: Page) {
   const pdf = new mupdf.PDFDocument(Buffer.concat(chunks));
   try {
     return Array.from({ length: pdf.countPages() }, (_, index) => {
-      const sheet = pdf.loadPage(index), text = sheet.toStructuredText('preserve-images'), images: number[][] = [];
-      try { text.walk({ onImageBlock(bounds) { images.push([...bounds]); } }); return images; } finally { text.destroy(); sheet.destroy(); }
+      const sheet = pdf.loadPage(index), display = sheet.toDisplayList(true), text = display.toStructuredText('preserve-images'), images: number[][] = [];
+      try { text.walk({ onImageBlock(bounds) { images.push([...bounds]); } }); return images; } finally { text.destroy(); display.destroy(); sheet.destroy(); }
     });
   } finally { pdf.destroy(); }
 }

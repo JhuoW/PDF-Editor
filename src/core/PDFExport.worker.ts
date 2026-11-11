@@ -4,9 +4,9 @@ import { TextCheckError } from '../editing/TextCheckTypes';
 
 self.onmessage = async (event: MessageEvent<PDFExportRequest>) => {
   try {
-    const { job, data, workspace } = event.data;
+    const { job, data, workspace, flattenAnnotations } = event.data;
     if (!(data instanceof ArrayBuffer) || !data.byteLength) throw new Error('The PDF source is empty.');
-    const control = { onProgress: (progress: PDFExportProgress) => self.postMessage({ type: 'progress', progress }) };
+    const control = { flattenAnnotations, onProgress: (progress: PDFExportProgress) => self.postMessage({ type: 'progress', progress }) };
     if (job === 'export') {
       const result = new Uint8Array(await exportWorkspacePDF(data, workspace, control));
       self.postMessage({ type: 'result', result }, { transfer: [result.buffer] });

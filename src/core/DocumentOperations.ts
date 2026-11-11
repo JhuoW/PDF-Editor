@@ -6,6 +6,7 @@ import { captureWorkspace, remapWorkspacePages, type WorkspaceSnapshot } from '.
 import { readActivePDF } from './ActiveDocument';
 import { extractFormFields } from '../forms/FormFieldExtractor';
 import { reconcileFormState } from '../forms/reconcileFormState';
+import { assertDocumentModificationAllowed } from './PDFModificationGuard';
 
 export interface DocumentOperationContext {
   data: ArrayBuffer;
@@ -51,6 +52,8 @@ export async function performDocumentOperation(
     const stored = await readActivePDF();
     if (!isSameDocument()) throw new Error('Document changed before the operation started');
     if (!stored) throw new Error('The current PDF is unavailable');
+    await assertDocumentModificationAllowed(stored.data);
+    if (!isSameDocument()) throw new Error('Document changed before the operation started');
     const result = await transform({
       data: stored.data,
       fileName: stored.fileName,

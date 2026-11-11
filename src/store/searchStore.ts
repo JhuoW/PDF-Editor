@@ -90,6 +90,20 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   },
 }));
 
+const pageTextCache = new WeakMap<PDFDocumentProxy, Map<number, string>>();
+async function cachedPageText(document: PDFDocumentProxy, pageNumber: number, signal?: AbortSignal) {
+  let cache = pageTextCache.get(document);
+  if (!cache) { cache = new Map(); pageTextCache.set(document, cache); }
+  const cached = cache.get(pageNumber);
+  if (cached !== undefined) return cached;
+  const page = await document.getPage(pageNumber);
+  if (signal?.aborted) throw new DOMException('Search cancelled.', 'AbortError');
+  const content = await page.getTextContent();
+  const text = buildSearchText(content.items).text;
+  cache.set(pageNumber, text);
+  return text;
+}
+
 export async function searchDocument(
   document: PDFDocumentProxy,
   query: string,
@@ -102,11 +116,8 @@ export async function searchDocument(
   const results: SearchResult[] = [];
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
     checkCancelled();
-    const page = await document.getPage(pageNumber);
+    const text = await cachedPageText(document, pageNumber, signal);
     checkCancelled();
-    const textContent = await page.getTextContent();
-    checkCancelled();
-    const { text } = buildSearchText(textContent.items);
     findTextMatches(text, query, options).forEach((match, matchIndex) => {
       results.push({ pageNumber, matchIndex, textContent: text.substring(Math.max(0, match.start - 20), Math.min(text.length, match.end + 20)) });
     });

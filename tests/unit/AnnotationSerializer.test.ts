@@ -91,16 +91,16 @@ describe('annotation export preserves content', () => {
     const stamp = createStampAnnotation(1, [10, 20, 120, 80], 'CUSTOM LABEL MUST NOT REPLACE IMAGE', 'custom', png);
     const result = await serializeAnnotationsToPDF(await blankPDF(), new Map([[1, [stamp]]]));
     const pdf = await PDFDocument.load(result);
-    const resources = pdf.getPage(0).node.Resources()!.lookup(PDFName.of('XObject'), PDFDict);
-    const images = resources.entries().map(([, ref]) => pdf.context.lookup(ref))
+    expect(pdf.getPage(0).node.Annots()!.lookup(0, PDFDict).lookup(PDFName.of('Subtype'))).toBe(PDFName.of('Stamp'));
+    const images = pdf.context.enumerateIndirectObjects().map(([, object]) => object)
       .filter(object => object instanceof PDFRawStream && object.dict.lookup(PDFName.of('Subtype')) === PDFName.of('Image'));
     expect(images).toHaveLength(1);
 
     const reader = new mupdf.PDFDocument(result);
     const page = reader.loadPage(0);
-    const text = page.toStructuredText('');
+    const display = page.toDisplayList(true), text = display.toStructuredText('');
     try { expect(text.asText().trim()).toBe(''); }
-    finally { text.destroy(); page.destroy(); reader.destroy(); }
+    finally { text.destroy(); display.destroy(); page.destroy(); reader.destroy(); }
   });
 
   it.each([
@@ -122,17 +122,32 @@ describe('annotation export preserves content', () => {
       .rejects.toThrow('Custom stamp image is missing');
   });
 
-  it('rejects unsupported text glyphs with the annotation identity', async () => {
-    const text = createFreeTextAnnotation(1, [10, 20, 200, 80], '中文');
-    text.id = 'unsupported-text';
-    await expect(serializeAnnotationsToPDF(await blankPDF(), new Map([[1, [text]]])))
-      .rejects.toThrow(/freetext annotation "unsupported-text" on page 1:.*cannot encode/);
+  it('exports Chinese as visible searchable native text without losing glyphs', async () => {
+    const annotation = createFreeTextAnnotation(1, [10, 20, 200, 80], '中文');
+    const result = await serializeAnnotationsToPDF(await blankPDF(), new Map([[1, [annotation]]]));
+    const reader = new mupdf.PDFDocument(result), page = reader.loadPage(0), display = page.toDisplayList(true), text = display.toStructuredText('');
+    try { expect(text.asText().trim()).toBe('中文'); }
+    finally { text.destroy(); display.destroy(); page.destroy(); reader.destroy(); }
+    const dictionary = (await PDFDocument.load(result)).getPage(0).node.Annots()!.lookup(0, PDFDict);
+    expect(dictionary.lookup(PDFName.of('Subtype'))).toBe(PDFName.of('FreeText'));
+    expect(dictionary.lookup(PDFName.of('Contents'), PDFHexString).decodeText()).toBe('中文');
   });
 
-  it('rejects overflowing text instead of dropping lines from the exported PDF', async () => {
+  it('expands a short box while preserving all lines and their font size', async () => {
+    const annotation = createFreeTextAnnotation(1, [10, 200, 200, 20], 'First\nSecond\nThird');
+    const result = await serializeAnnotationsToPDF(await blankPDF(), new Map([[1, [annotation]]]));
+    const reader = new mupdf.PDFDocument(result), page = reader.loadPage(0), display = page.toDisplayList(true), text = display.toStructuredText('');
+    try {
+      expect(text.asText()).toMatch(/First\s+Second\s+Third/);
+      const sizes: number[] = []; text.walk({ onChar(_c, _origin, _font, size) { sizes.push(size); } });
+      expect(sizes.every(size => Math.abs(size - annotation.style.fontSize) < .01)).toBe(true);
+    } finally { text.destroy(); display.destroy(); page.destroy(); reader.destroy(); }
+  });
+
+  it('reports the page boundary instead of silently clipping expanded text', async () => {
     const text = createFreeTextAnnotation(1, [10, 20, 200, 20], 'First\nSecond\nThird');
     await expect(serializeAnnotationsToPDF(await blankPDF(), new Map([[1, [text]]])))
-      .rejects.toThrow('Text exceeds the text box height');
+      .rejects.toThrow('Text exceeds the page height');
   });
 
   it('rejects annotations assigned to a missing page', async () => {

@@ -114,6 +114,7 @@ export function SearchDialog({ document, onNavigateToPage, onClose }: SearchDial
         ))}
       </div>
       {!!source?.error && <div className="search-index-error"><ErrorMessage error={source.error} operation="Search edited PDF" /><button onClick={source.retry}>{t('search.retry')}</button></div>}
+      {!!source?.warning && <div className="search-index-error" role="status"><p>{t('search.partial', { pages: source.skippedPages?.join(', ') ?? '' })}</p><details><summary>{t('diagnostics.details')}</summary><ErrorMessage error={source.warning} operation="Search edited PDF" /></details><button onClick={source.retry}>{t('search.retry')}</button></div>}
     </div>
   );
 }

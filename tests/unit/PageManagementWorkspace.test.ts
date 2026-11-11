@@ -31,9 +31,9 @@ function inspect(data: Uint8Array | ArrayBuffer) {
   const pdf = new mupdf.PDFDocument(data);
   try {
     return Array.from({ length: pdf.countPages() }, (_, index) => {
-      const page = pdf.loadPage(index), text = page.toStructuredText(''), notes = page.getAnnotations();
+      const page = pdf.loadPage(index), display = page.toDisplayList(true), text = display.toStructuredText(''), notes = page.getAnnotations();
       try { return { text: text.asText(), notes: notes.filter(note => note.getType() === 'Text').map(note => note.getContents()) }; }
-      finally { notes.forEach(note => note.destroy()); text.destroy(); page.destroy(); }
+      finally { notes.forEach(note => note.destroy()); text.destroy(); display.destroy(); page.destroy(); }
     });
   } finally { pdf.destroy(); }
 }

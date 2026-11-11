@@ -1,9 +1,13 @@
 import { useLocale, t } from "../../i18n";
-import { useCallback } from 'react';
+import { useCallback, useId } from 'react';
 import type { FreeTextAnnotation, TextStyle } from '../../annotations/types';
 import { AVAILABLE_FONTS, FONT_SIZE_PRESETS, DEFAULT_TEXT_STYLE } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
+import { useTextBoxStore } from '../../store/textBoxStore';
+import { parseTipTapHTML, segmentsToTipTapHTML } from '../../utils/tiptapConverter';
+import { AlignLeft, AlignCenter, AlignRight, AlignJustify } from 'lucide-react';
+import { PropertyNumberInput, PropertyColorInput } from '../Workspace/PropertyInput';
 import './TextPropertiesPanel.css';
 
 interface TextPropertiesPanelProps {
@@ -20,6 +24,7 @@ const COLOR_PRESETS = [
 
 export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanelProps) {
   useLocale();
+  const id = useId();
   const { updateAnnotation } = useAnnotationStore();
   const { recordUpdate } = useAnnotationHistoryStore();
 
@@ -36,13 +41,29 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
     color: false,
   };
 
-  // Handle style updates to the annotation's default style
+  // Inspector properties apply to the whole text box. Rich-text marks must be
+  // updated too, otherwise their explicit values silently override this style.
   const handleStyleChange = useCallback((updates: Partial<TextStyle>) => {
-    const previousState = { ...annotation };
-    const newStyle = { ...(annotation.style || DEFAULT_TEXT_STYLE), ...updates };
-    updateAnnotation(annotation.id, { style: newStyle });
-    recordUpdate({ ...annotation, style: newStyle }, previousState);
-  }, [annotation, updateAnnotation, recordUpdate]);
+    const previous = useAnnotationStore.getState().getAllAnnotations().find(item => item.id === annotation.id);
+    if (!previous || previous.type !== 'freetext') return;
+    const previousStyle = previous.style || DEFAULT_TEXT_STYLE;
+    const style = { ...previousStyle, ...updates };
+    const originalSegments = previous.richContent ?? (previous.htmlContent ? parseTipTapHTML(previous.htmlContent, previousStyle) : [{ text: previous.content, style: previousStyle }]);
+    const richContent = originalSegments.map(segment => ({ ...segment, style: { ...segment.style, ...updates } }));
+    const htmlContent = segmentsToTipTapHTML(richContent, style);
+    const updated = { ...previous, style, richContent, htmlContent };
+    updateAnnotation(previous.id, updated);
+    recordUpdate(updated, previous);
+    // Keep an open editor in sync so its later blur cannot restore old marks.
+    const editor = useTextBoxStore.getState().tiptapEditor;
+    if (editor && !editor.isDestroyed && editor.view.dom.closest<HTMLElement>('[data-editing-annotation-id]')?.dataset.editingAnnotationId === previous.id) {
+      const { from, to } = editor.state.selection;
+      editor.commands.setContent(htmlContent, { emitUpdate: false });
+      editor.commands.setTextSelection({ from: Math.min(from, editor.state.doc.content.size), to: Math.min(to, editor.state.doc.content.size) });
+      Object.assign(editor.view.dom.style, { fontFamily: style.fontFamily, fontSize: `${style.fontSize}px`, color: style.color,
+        lineHeight: String(style.lineHeight), letterSpacing: `${style.letterSpacing}px`, textAlign: style.textAlign });
+    }
+  }, [annotation.id, updateAnnotation, recordUpdate]);
 
   // Helper for button classes
   const getBtnClass = (isActive: boolean, isMixedState: boolean) => {
@@ -56,7 +77,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
       <div className="panel-header">
         <h3>{t("m.text.properties.cab6f2")}</h3>
         {onClose && (
-          <button className="close-btn" onClick={onClose} title={t("m.close.bbfa77")}>
+          <button className="close-btn" onClick={onClose} title={t("m.close.bbfa77")} aria-label={t("m.close.bbfa77")}>
             &times;
           </button>
         )}
@@ -65,14 +86,15 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
       <div className="panel-content">
         {/* Font Family */}
         <div className="property-group">
-          <label>{t("m.font.b97c4d")}</label>
-          <select
+          <label htmlFor={`${id}-font`}>{t("m.font.b97c4d")}</label>
+          <select id={`${id}-font`}
             value={isMixed.fontFamily ? '' : currentStyle.fontFamily}
             onChange={(e) => {
               if (e.target.value) handleStyleChange({ fontFamily: e.target.value });
             }}
           >
             {isMixed.fontFamily && <option value="" disabled>{t("m.multiple.d28149")}</option>}
+            {!AVAILABLE_FONTS.some(font => font === currentStyle.fontFamily) && <option value={currentStyle.fontFamily}>{currentStyle.fontFamily}</option>}
             {AVAILABLE_FONTS.map((font) => (
               <option key={font} value={font} style={{ fontFamily: font }}>
                 {font}
@@ -83,35 +105,30 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Font Size */}
         <div className="property-group">
-          <label>{t("m.size.b71523")}</label>
+          <label htmlFor={`${id}-size`}>{t("m.size.b71523")}</label>
           <div className="size-input-group">
-            <select
-              value={isMixed.fontSize ? '' : currentStyle.fontSize}
+            <select id={`${id}-size`}
+              value={currentStyle.fontSize}
               onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
+                const val = Number(e.target.value);
                 if (!isNaN(val)) handleStyleChange({ fontSize: val });
               }}
               className="size-select"
             >
               {isMixed.fontSize && <option value="" disabled>--</option>}
+              {!FONT_SIZE_PRESETS.some(size => size === currentStyle.fontSize) && <option value={currentStyle.fontSize}>{currentStyle.fontSize}</option>}
               {FONT_SIZE_PRESETS.map((size) => (
                 <option key={size} value={size}>
                   {size}
                 </option>
               ))}
             </select>
-            <input
-              type="number"
-              value={isMixed.fontSize ? '' : currentStyle.fontSize}
+            <PropertyNumberInput aria-label={t("properties.customFontSize")}
+              value={currentStyle.fontSize}
               placeholder={isMixed.fontSize ? '--' : ''}
               min={1}
               max={200}
-              onChange={(e) => {
-                const size = parseInt(e.target.value, 10);
-                if (!isNaN(size) && size >= 1 && size <= 200) {
-                  handleStyleChange({ fontSize: size });
-                }
-              }}
+              onCommit={fontSize => handleStyleChange({ fontSize })}
               className="size-input"
             />
             <span className="unit">{t("m.pt.bc8112")}</span>
@@ -120,9 +137,10 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Font Style Buttons */}
         <div className="property-group">
-          <label>{t("m.style.99a0ef")}</label>
-          <div className="style-buttons">
+          <label id={`${id}-style-label`}>{t("m.style.99a0ef")}</label>
+          <div className="style-buttons" role="group" aria-labelledby={`${id}-style-label`}>
             <button
+              aria-pressed={currentStyle.fontWeight === 'bold'}
               className={getBtnClass(currentStyle.fontWeight === 'bold', isMixed.fontWeight)}
               onClick={() =>
                 handleStyleChange({ fontWeight: currentStyle.fontWeight === 'bold' ? 'normal' : 'bold' })
@@ -132,6 +150,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               <strong>{t("m.b.ae4f28")}</strong>
             </button>
             <button
+              aria-pressed={currentStyle.fontStyle === 'italic'}
               className={getBtnClass(currentStyle.fontStyle === 'italic', isMixed.fontStyle)}
               onClick={() =>
                 handleStyleChange({ fontStyle: currentStyle.fontStyle === 'italic' ? 'normal' : 'italic' })
@@ -141,6 +160,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               <em>{t("m.i.ca73ab")}</em>
             </button>
             <button
+              aria-pressed={currentStyle.textDecoration === 'underline'}
               className={getBtnClass(currentStyle.textDecoration === 'underline', isMixed.textDecoration)}
               onClick={() =>
                 handleStyleChange({
@@ -152,6 +172,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               <u>{t("m.u.b2c7c0")}</u>
             </button>
             <button
+              aria-pressed={currentStyle.textDecoration === 'line-through'}
               className={getBtnClass(currentStyle.textDecoration === 'line-through', isMixed.textDecoration)}
               onClick={() =>
                 handleStyleChange({
@@ -167,18 +188,17 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Text Color */}
         <div className="property-group">
-          <label>{t("m.color.1d0c83")}</label>
+          <label htmlFor={`${id}-color`}>{t("m.color.1d0c83")}</label>
           <div className="color-picker-row">
-            <input
+            <input id={`${id}-color`}
               type="color"
               value={currentStyle.color}
               onChange={(e) => handleStyleChange({ color: e.target.value })}
               className="color-input"
             />
-            <input
-              type="text"
-              value={isMixed.color ? 'Mixed' : currentStyle.color}
-              onChange={(e) => handleStyleChange({ color: e.target.value })}
+            <PropertyColorInput aria-label={t("properties.colorValue")}
+              value={currentStyle.color}
+              onCommit={color => handleStyleChange({ color })}
               className="color-text"
               pattern="^#[0-9A-Fa-f]{6}$"
             />
@@ -191,6 +211,7 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
                 style={{ backgroundColor: color }}
                 onClick={() => handleStyleChange({ color })}
                 title={color}
+                aria-pressed={color === currentStyle.color}
               />
             ))}
           </div>
@@ -198,43 +219,47 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Text Alignment */}
         <div className="property-group">
-          <label>{t("m.alignment.7f8c51")}</label>
-          <div className="align-buttons">
+          <label id={`${id}-alignment-label`}>{t("m.alignment.7f8c51")}</label>
+          <div className="align-buttons" role="group" aria-labelledby={`${id}-alignment-label`}>
             <button
+              aria-pressed={currentStyle.textAlign === 'left'}
               className={`align-btn ${currentStyle.textAlign === 'left' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'left' })}
               title={t("m.align.left.ctrl.l.8e8017")}
             >
-              &#9776;
+              <AlignLeft size={16} aria-hidden="true" />
             </button>
             <button
+              aria-pressed={currentStyle.textAlign === 'center'}
               className={`align-btn ${currentStyle.textAlign === 'center' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'center' })}
               title={t("m.align.center.ctrl.e.9f0b3d")}
             >
-              &#9783;
+              <AlignCenter size={16} aria-hidden="true" />
             </button>
             <button
+              aria-pressed={currentStyle.textAlign === 'right'}
               className={`align-btn ${currentStyle.textAlign === 'right' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'right' })}
               title={t("m.align.right.ctrl.r.3b9272")}
             >
-              &#9782;
+              <AlignRight size={16} aria-hidden="true" />
             </button>
             <button
+              aria-pressed={currentStyle.textAlign === 'justify'}
               className={`align-btn ${currentStyle.textAlign === 'justify' ? 'active' : ''}`}
               onClick={() => handleStyleChange({ textAlign: 'justify' })}
               title={t("m.justify.ctrl.j.108611")}
             >
-              &#9781;
+              <AlignJustify size={16} aria-hidden="true" />
             </button>
           </div>
         </div>
 
         {/* Vertical Alignment */}
         <div className="property-group">
-          <label>{t("m.vertical.align.22ca5a")}</label>
-          <select
+          <label htmlFor={`${id}-vertical`}>{t("m.vertical.align.22ca5a")}</label>
+          <select id={`${id}-vertical`}
             value={currentStyle.verticalAlign}
             onChange={(e) =>
               handleStyleChange({ verticalAlign: e.target.value as TextStyle['verticalAlign'] })
@@ -248,9 +273,9 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Line Height */}
         <div className="property-group">
-          <label>{t("m.line.height.ac3292")}</label>
+          <label htmlFor={`${id}-leading`}>{t("m.line.height.ac3292")}</label>
           <div className="slider-group">
-            <input
+            <input id={`${id}-leading`}
               type="range"
               min="1"
               max="3"
@@ -259,18 +284,12 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               onChange={(e) => handleStyleChange({ lineHeight: parseFloat(e.target.value) })}
               className="slider"
             />
-            <input
-              type="number"
-              value={currentStyle.lineHeight?.toFixed(1) || '1.4'}
+            <PropertyNumberInput aria-label={t("m.line.height.ac3292")}
+              value={currentStyle.lineHeight || 1.4}
               min={1}
               max={3}
               step={0.1}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val) && val >= 1 && val <= 3) {
-                  handleStyleChange({ lineHeight: val });
-                }
-              }}
+              onCommit={lineHeight => handleStyleChange({ lineHeight })}
               className="slider-value"
             />
           </div>
@@ -278,9 +297,9 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
 
         {/* Letter Spacing */}
         <div className="property-group">
-          <label>{t("m.letter.spacing.65346e")}</label>
+          <label htmlFor={`${id}-spacing`}>{t("m.letter.spacing.65346e")}</label>
           <div className="slider-group">
-            <input
+            <input id={`${id}-spacing`}
               type="range"
               min="-5"
               max="20"
@@ -289,18 +308,12 @@ export function TextPropertiesPanel({ annotation, onClose }: TextPropertiesPanel
               onChange={(e) => handleStyleChange({ letterSpacing: parseFloat(e.target.value) })}
               className="slider"
             />
-            <input
-              type="number"
+            <PropertyNumberInput aria-label={t("m.letter.spacing.65346e")}
               value={currentStyle.letterSpacing || 0}
               min={-5}
               max={20}
               step={0.5}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val) && val >= -5 && val <= 20) {
-                  handleStyleChange({ letterSpacing: val });
-                }
-              }}
+              onCommit={letterSpacing => handleStyleChange({ letterSpacing })}
               className="slider-value"
             />
             <span className="unit">{t("m.px.07a65d")}</span>

@@ -105,7 +105,7 @@ test('a fresh tab starts empty without clearing another tab, while closing a dir
 test('Export is translated as 导出 and Save As has a separate entry on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 }); await open(page);
   await page.locator('.main-toolbar .language-switcher button[lang="zh-CN"]').click();
-  await expect(page.locator('.main-toolbar .toolbar-btn-primary')).toHaveAccessibleName('导出');
+  await expect(page.locator('.main-toolbar').getByRole('button', { name: '导出', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '文件', exact: true }).click();
   const menu = page.locator('.toolbar-file-actions'); await expect(menu.locator('[data-file-action="save"]')).toContainText('保存');
   await expect(menu.locator('[data-file-action="save-as"]')).toContainText('另存为'); await expect(menu.locator('[data-file-action="export"]')).toHaveText('导出');

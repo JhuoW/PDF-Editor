@@ -40,11 +40,11 @@ function extracted(bytes: Buffer) {
   const document = new mupdf.PDFDocument(bytes);
   try {
     return Array.from({ length: document.countPages() }, (_, index) => {
-      const page = document.loadPage(index), text = page.toStructuredText('preserve-images');
+      const page = document.loadPage(index), display = page.toDisplayList(true), text = display.toStructuredText('preserve-images');
       try {
         let images = 0;
         text.walk({ onImageBlock() { images++; } });
-        const pixels = page.toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, false);
+        const pixels = page.toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true);
         try {
           let bluePixels = 0;
           const data = pixels.getPixels();
@@ -53,7 +53,7 @@ function extracted(bytes: Buffer) {
           }
           return { text: text.asText(), images, bluePixels, pixels: Buffer.from(pixels.getPixels()) };
         } finally { pixels.destroy(); }
-      } finally { text.destroy(); page.destroy(); }
+      } finally { text.destroy(); display.destroy(); page.destroy(); }
     });
   } finally { document.destroy(); }
 }
@@ -103,11 +103,12 @@ test('OCR commits searchable scans with pending content edits, preserves overlay
   await navigation.fill('1'); await navigation.press('Enter');
   await page.getByRole('button', { name: 'All tools' }).click();
   await page.getByRole('button', { name: 'Edit Text', exact: true }).click();
-  await expect(page.locator('.text-edit-readonly')).toContainText('invisible OCR text layer');
+  await expect(page.locator('.text-edit-readonly')).toHaveCount(0);
   await page.locator('.text-block').first().dblclick();
+  await expect(page.locator('.text-edit-readonly')).toContainText('invisible OCR text layer');
   await expect(page.getByRole('textbox', { name: 'Edit text on page 1', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Undo Scan OCR', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Exit text editing', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.locator('.textLayer')).toContainText('Invoice number 739251');
 
   const output = await exportPDF(page), after = extracted(output);

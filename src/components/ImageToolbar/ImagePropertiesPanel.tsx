@@ -1,8 +1,12 @@
 import { useLocale, t } from "../../i18n";
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useEffect, useId } from 'react';
 import type { ImageAnnotation } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
+import { PropertyNumberInput } from '../Workspace/PropertyInput';
+import { readInsertImage } from '../../utils/readInsertImage';
+import { useDocumentStore } from '../../store/documentStore';
+import { ErrorMessage } from '../Feedback/ErrorMessage';
 import './ImagePropertiesPanel.css';
 
 interface ImagePropertiesPanelProps {
@@ -15,15 +19,26 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
   const { updateAnnotation, deleteAnnotation } = useAnnotationStore();
   const { recordUpdate, recordDelete } = useAnnotationHistoryStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const id = useId();
+  const replacement = useRef<AbortController | null>(null);
+  const [replacementState, setReplacementState] = useState<{ id: string; loading: boolean; error: unknown }>({ id: annotation.id, loading: false, error: null });
+  const replacing = replacementState.id === annotation.id && replacementState.loading;
+  const replaceError = replacementState.id === annotation.id ? replacementState.error : null;
+  useEffect(() => {
+    const unsubscribe = useDocumentStore.subscribe((next, previous) => {
+      if (next.document !== previous.document || next.documentVersion !== previous.documentVersion) replacement.current?.abort();
+    });
+    return () => { unsubscribe(); replacement.current?.abort(); replacement.current = null; };
+  }, [annotation.id]);
 
   // Local state for form values
   const [lockAspectRatio, setLockAspectRatio] = useState(true);
 
   // Calculate display values
-  const x = Math.round(annotation.rect[0]);
-  const y = Math.round(annotation.rect[1]);
-  const width = Math.round(annotation.rect[2]);
-  const height = Math.round(annotation.rect[3]);
+  const x = annotation.rect[0];
+  const y = annotation.rect[1];
+  const width = annotation.rect[2];
+  const height = annotation.rect[3];
   const rotation = annotation.rotation || 0;
   const opacity = Math.round(annotation.opacity * 100);
 
@@ -39,48 +54,46 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
   const hasCrop = cropBounds.top > 0 || cropBounds.right > 0 || cropBounds.bottom > 0 || cropBounds.left > 0;
 
   // File info
-  const filename = annotation.originalFilename || 'Unknown';
+  const filename = annotation.originalFilename || t('m.unknown.bc7819');
   const fileSize = annotation.originalFileSize
     ? annotation.originalFileSize > 1024 * 1024
       ? `${(annotation.originalFileSize / (1024 * 1024)).toFixed(2)} MB`
       : `${(annotation.originalFileSize / 1024).toFixed(2)} KB`
-    : 'Unknown';
+    : t('m.unknown.bc7819');
   const originalDimensions = `${annotation.originalWidth} × ${annotation.originalHeight}`;
-  const mimeType = annotation.mimeType || 'Unknown';
+  const mimeType = annotation.mimeType || t('m.unknown.bc7819');
 
   // Update with undo support
   const updateWithHistory = useCallback((updates: Partial<ImageAnnotation>) => {
-    const previousState = { ...annotation };
-    updateAnnotation(annotation.id, updates);
-    recordUpdate({ ...annotation, ...updates }, previousState);
+    const current = useAnnotationStore.getState().getAllAnnotations().find(item => item.id === annotation.id);
+    if (!current || current.type !== 'image') return;
+    const previousState = { ...current };
+    updateAnnotation(current.id, updates);
+    recordUpdate({ ...current, ...updates }, previousState);
   }, [annotation, updateAnnotation, recordUpdate]);
 
   // Position handlers
-  const handleXChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newX = parseFloat(e.target.value) || 0;
+  const handleXChange = useCallback((newX: number) => {
     updateWithHistory({ rect: [newX, annotation.rect[1], annotation.rect[2], annotation.rect[3]] });
   }, [annotation, updateWithHistory]);
 
-  const handleYChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newY = parseFloat(e.target.value) || 0;
+  const handleYChange = useCallback((newY: number) => {
     updateWithHistory({ rect: [annotation.rect[0], newY, annotation.rect[2], annotation.rect[3]] });
   }, [annotation, updateWithHistory]);
 
   // Size handlers
-  const handleWidthChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newWidth = parseFloat(e.target.value) || 10;
+  const handleWidthChange = useCallback((newWidth: number) => {
     let newHeight = annotation.rect[3];
-    if (lockAspectRatio) {
+    if (lockAspectRatio && annotation.rect[2] > 0 && annotation.rect[3] > 0) {
       const aspectRatio = annotation.rect[2] / annotation.rect[3];
       newHeight = newWidth / aspectRatio;
     }
     updateWithHistory({ rect: [annotation.rect[0], annotation.rect[1], newWidth, newHeight] });
   }, [annotation, updateWithHistory, lockAspectRatio]);
 
-  const handleHeightChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newHeight = parseFloat(e.target.value) || 10;
+  const handleHeightChange = useCallback((newHeight: number) => {
     let newWidth = annotation.rect[2];
-    if (lockAspectRatio) {
+    if (lockAspectRatio && annotation.rect[2] > 0 && annotation.rect[3] > 0) {
       const aspectRatio = annotation.rect[2] / annotation.rect[3];
       newWidth = newHeight * aspectRatio;
     }
@@ -103,8 +116,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
   }, [annotation, updateWithHistory]);
 
   // Rotation handler
-  const handleRotationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newRotation = (parseFloat(e.target.value) || 0) % 360;
+  const handleRotationChange = useCallback((newRotation: number) => {
     updateWithHistory({ rotation: newRotation });
   }, [updateWithHistory]);
 
@@ -119,8 +131,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
     updateWithHistory({ borderWidth: e.target.checked ? 1 : 0 });
   }, [updateWithHistory]);
 
-  const handleBorderWidthChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newWidth = Math.max(0, parseFloat(e.target.value) || 0);
+  const handleBorderWidthChange = useCallback((newWidth: number) => {
     updateWithHistory({ borderWidth: newWidth });
   }, [updateWithHistory]);
 
@@ -132,8 +143,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
     updateWithHistory({ borderStyle: e.target.value as 'solid' | 'dashed' | 'dotted' | 'none' });
   }, [updateWithHistory]);
 
-  const handleBorderRadiusChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newRadius = Math.max(0, parseFloat(e.target.value) || 0);
+  const handleBorderRadiusChange = useCallback((newRadius: number) => {
     updateWithHistory({ borderRadius: newRadius });
   }, [updateWithHistory]);
 
@@ -171,28 +181,27 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
     fileInputRef.current?.click();
   }, []);
 
-  const handleFileSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        updateWithHistory({
-          imageData: reader.result as string,
-          originalWidth: img.naturalWidth,
-          originalHeight: img.naturalHeight,
-          originalFilename: file.name,
-          originalFileSize: file.size,
-          mimeType: file.type,
-          cropBounds: undefined, // Reset crop when replacing
-        });
-      };
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
-  }, [updateWithHistory]);
+    replacement.current?.abort();
+    const controller = new AbortController(); replacement.current = controller;
+    const { document, documentVersion } = useDocumentStore.getState();
+    setReplacementState({ id: annotation.id, loading: true, error: null });
+    try {
+      const image = await readInsertImage(file, controller.signal);
+      const current = useDocumentStore.getState();
+      if (controller.signal.aborted || current.document !== document || current.documentVersion !== documentVersion) return;
+      updateWithHistory({ imageData: image.imageData, originalWidth: image.originalWidth, originalHeight: image.originalHeight,
+        originalFilename: image.filename, originalFileSize: image.fileSize, mimeType: image.mimeType, cropBounds: undefined });
+    } catch (error) { if (!controller.signal.aborted) setReplacementState({ id: annotation.id, loading: false, error }); }
+    finally {
+      if (replacement.current === controller) {
+        replacement.current = null;
+        setReplacementState(previous => ({ ...previous, loading: false }));
+      }
+    }
+  }, [annotation.id, updateWithHistory]);
 
   // Delete image
   const handleDelete = useCallback(() => {
@@ -205,7 +214,7 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
     <div className="image-properties-panel">
       <div className="panel-header">
         <h3>{t("m.image.properties.70dd8a")}</h3>
-        <button className="close-button" onClick={onClose}>×</button>
+        <button className="close-button" aria-label={t("m.close.bbfa77")} onClick={onClose}>×</button>
       </div>
 
       <div className="panel-content">
@@ -213,42 +222,38 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
         <div className="panel-section">
           <h4>{t("m.position.size.3c8106")}</h4>
           <div className="property-row">
-            <label>{t("m.x.9cca99")}</label>
-            <input
-              type="number"
+            <label htmlFor={`${id}-x`}>{t("m.x.9cca99")}</label>
+            <PropertyNumberInput id={`${id}-x`}
               value={x}
-              onChange={handleXChange}
+              onCommit={handleXChange}
               className="property-input"
             />
             <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
           <div className="property-row">
-            <label>{t("m.y.aebff3")}</label>
-            <input
-              type="number"
+            <label htmlFor={`${id}-y`}>{t("m.y.aebff3")}</label>
+            <PropertyNumberInput id={`${id}-y`}
               value={y}
-              onChange={handleYChange}
+              onCommit={handleYChange}
               className="property-input"
             />
             <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
           <div className="property-row">
-            <label>{t("m.width.bff1e2")}</label>
-            <input
-              type="number"
+            <label htmlFor={`${id}-width`}>{t("m.width.bff1e2")}</label>
+            <PropertyNumberInput id={`${id}-width`}
               value={width}
-              onChange={handleWidthChange}
+              onCommit={handleWidthChange}
               min={10}
               className="property-input"
             />
             <span className="unit">{t("m.pt.bc8112")}</span>
           </div>
           <div className="property-row">
-            <label>{t("m.height.c58a28")}</label>
-            <input
-              type="number"
+            <label htmlFor={`${id}-height`}>{t("m.height.c58a28")}</label>
+            <PropertyNumberInput id={`${id}-height`}
               value={height}
-              onChange={handleHeightChange}
+              onCommit={handleHeightChange}
               min={10}
               className="property-input"
             />
@@ -264,11 +269,10 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
               {t("m.lock.aspect.ratio.370bda")}</label>
           </div>
           <div className="property-row">
-            <label>{t("m.rotation.0f7802")}</label>
-            <input
-              type="number"
+            <label htmlFor={`${id}-rotation`}>{t("m.rotation.0f7802")}</label>
+            <PropertyNumberInput id={`${id}-rotation`}
               value={rotation}
-              onChange={handleRotationChange}
+              onCommit={handleRotationChange}
               min={-360}
               max={360}
               className="property-input"
@@ -310,8 +314,8 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
         <div className="panel-section">
           <h4>{t("m.appearance.41def7")}</h4>
           <div className="property-row">
-            <label>{t("m.opacity.d20ab2")}</label>
-            <input
+            <label htmlFor={`${id}-opacity`}>{t("m.opacity.d20ab2")}</label>
+            <input id={`${id}-opacity`}
               type="range"
               min={0}
               max={100}
@@ -319,10 +323,10 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
               onChange={handleOpacityChange}
               className="property-slider"
             />
-            <input
-              type="number"
+            <PropertyNumberInput
+              aria-label={t("m.opacity.d20ab2")}
               value={opacity}
-              onChange={handleOpacityChange}
+              onCommit={value => updateWithHistory({ opacity: value / 100 })}
               min={0}
               max={100}
               className="property-input small"
@@ -346,8 +350,8 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
           {borderEnabled && (
             <>
               <div className="property-row">
-                <label>{t("m.color.511a00")}</label>
-                <input
+                <label htmlFor={`${id}-border-color`}>{t("m.color.511a00")}</label>
+                <input id={`${id}-border-color`}
                   type="color"
                   value={borderColor}
                   onChange={handleBorderColorChange}
@@ -355,11 +359,10 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                 />
               </div>
               <div className="property-row">
-                <label>{t("m.width.bff1e2")}</label>
-                <input
-                  type="number"
+                <label htmlFor={`${id}-border-width`}>{t("m.width.bff1e2")}</label>
+                <PropertyNumberInput id={`${id}-border-width`}
                   value={borderWidth}
-                  onChange={handleBorderWidthChange}
+                  onCommit={handleBorderWidthChange}
                   min={0}
                   max={20}
                   step={0.5}
@@ -368,8 +371,8 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                 <span className="unit">{t("m.pt.bc8112")}</span>
               </div>
               <div className="property-row">
-                <label>{t("m.style.4020c0")}</label>
-                <select
+                <label htmlFor={`${id}-border-style`}>{t("m.style.4020c0")}</label>
+                <select id={`${id}-border-style`}
                   value={borderStyle}
                   onChange={handleBorderStyleChange}
                   className="property-select"
@@ -380,11 +383,10 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
                 </select>
               </div>
               <div className="property-row">
-                <label>{t("m.radius.96f54c")}</label>
-                <input
-                  type="number"
+                <label htmlFor={`${id}-border-radius`}>{t("m.radius.96f54c")}</label>
+                <PropertyNumberInput id={`${id}-border-radius`}
                   value={borderRadius}
-                  onChange={handleBorderRadiusChange}
+                  onCommit={handleBorderRadiusChange}
                   min={0}
                   max={100}
                   className="property-input"
@@ -425,8 +427,10 @@ export function ImagePropertiesPanel({ annotation, onClose }: ImagePropertiesPan
             onChange={handleFileSelected}
             style={{ display: 'none' }}
           />
-          <button className="action-button" onClick={handleReplaceImage}>
-            {t("m.replace.image.6cba62")}</button>
+          {replaceError !== null && <div role="alert"><ErrorMessage error={replaceError} operation="Replace image" /></div>}
+          <button className="action-button" disabled={replacing} onClick={handleReplaceImage}>
+            {t(replacing ? "m.reading.image.8ae8b8" : "m.replace.image.6cba62")}</button>
+          {replacing && <button className="action-button" onClick={() => replacement.current?.abort()}>{t("m.cancel.image.loading.6ec197")}</button>}
           <button className="action-button" onClick={handleResetAll}>
             {t("m.reset.all.58f5fb")}</button>
           <button className="action-button danger" onClick={handleDelete}>

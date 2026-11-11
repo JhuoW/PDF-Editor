@@ -4,13 +4,16 @@ import { expect, test } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import * as mupdf from 'mupdf';
 function outputImage(bytes: Uint8Array) {
-  const pdf = new mupdf.PDFDocument(bytes), page = pdf.loadPage(0), text = page.toStructuredText('preserve-images'), areas: number[][] = [];
+  const pdf = new mupdf.PDFDocument(bytes), page = pdf.loadPage(0), display = page.toDisplayList(true), text = display.toStructuredText('preserve-images'), areas: number[][] = [];
   try {
+    const annotations = page.getAnnotations();
+    try { expect(annotations.map(annotation => annotation.getType())).toEqual(['Stamp']); }
+    finally { annotations.forEach(annotation => annotation.destroy()); }
     text.walk({ onImageBlock(rect) { areas.push([...rect]); } });
-    const bitmap = page.toPixmap([1, 0, 0, 1, 0, 0], mupdf.ColorSpace.DeviceRGB, false);
+    const bitmap = page.toPixmap([1, 0, 0, 1, 0, 0], mupdf.ColorSpace.DeviceRGB, false, true);
     try { const pixels = new Uint8Array(bitmap.getPixels()), width = bitmap.getWidth(); return { areas, sample: (x: number, y: number) => Array.from(pixels.slice((Math.floor(y) * width + Math.floor(x)) * 3, (Math.floor(y) * width + Math.floor(x)) * 3 + 3)) }; }
     finally { bitmap.destroy(); }
-  } finally { text.destroy(); page.destroy(); pdf.destroy(); }
+  } finally { text.destroy(); display.destroy(); page.destroy(); pdf.destroy(); }
 }
 for (const format of ['webp', 'svg', 'oriented-jpeg', 'portrait-png'] as const) test(`custom stamp ${format} retains selection, proportions and exported pixels`, async ({ page }) => {
   await page.addInitScript(() => { Reflect.deleteProperty(window, 'showSaveFilePicker'); });
@@ -47,6 +50,7 @@ for (const format of ['webp', 'svg', 'oriented-jpeg', 'portrait-png'] as const) 
   const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export', exact: true }).click(); const saved = await readFile((await (await download).path())!); const output = outputImage(saved); expect(output.areas).toHaveLength(1);
   const [left, top, right, bottom] = output.areas[0], width = right - left, height = bottom - top, rotated = format === 'oriented-jpeg' || format === 'portrait-png';
   expect(width / height).toBeCloseTo(rotated ? .5 : 2); expect(Math.max(width, height)).toBeCloseTo(120);
+  expect((left + right) / 2).toBeCloseTo(300, 0); expect((top + bottom) / 2).toBeCloseTo(380, 0);
   const redPoint = [left + width * (rotated ? .5 : .25), top + height * (rotated ? .25 : .5)], bluePoint = [left + width * (rotated ? .5 : .75), top + height * (rotated ? .75 : .5)];
   expect(output.sample(redPoint[0], redPoint[1])[0]).toBeGreaterThan(240); expect(output.sample(redPoint[0], redPoint[1])[2]).toBeLessThan(15);
   expect(output.sample(bluePoint[0], bluePoint[1])[2]).toBeGreaterThan(240); expect(output.sample(bluePoint[0], bluePoint[1])[0]).toBeLessThan(15);

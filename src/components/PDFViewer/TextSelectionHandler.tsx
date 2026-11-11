@@ -75,21 +75,14 @@ export function TextSelectionHandler({
       const top = rect.top - containerRect.top;
       const bottom = rect.bottom - containerRect.top;
 
-      // Convert screen coordinates to PDF coordinates
-      // PDF coordinates have origin at bottom-left
-      const pdfLeft = left / scale;
-      const pdfRight = right / scale;
-      const pdfTop = (viewport.height - top) / scale;
-      const pdfBottom = (viewport.height - bottom) / scale;
-
-      // Create quad points: [x1,y1, x2,y2, x3,y3, x4,y4]
-      // Order: bottom-left, bottom-right, top-right, top-left
-      quadPoints.push([
-        pdfLeft, pdfBottom,   // bottom-left
-        pdfRight, pdfBottom,  // bottom-right
-        pdfRight, pdfTop,     // top-right
-        pdfLeft, pdfTop,      // top-left
-      ]);
+      if (rect.width < .5 || rect.height < .5) continue;
+      // The viewport inverse includes CropBox origins, UserUnit and page/view
+      // rotation. Dividing by scale alone shifts or rotates the saved markup.
+      const lowerLeft = viewport.convertToPdfPoint(left, bottom);
+      const lowerRight = viewport.convertToPdfPoint(right, bottom);
+      const upperRight = viewport.convertToPdfPoint(right, top);
+      const upperLeft = viewport.convertToPdfPoint(left, top);
+      quadPoints.push([...lowerLeft, ...lowerRight, ...upperRight, ...upperLeft]);
     }
 
     if (quadPoints.length === 0) return;

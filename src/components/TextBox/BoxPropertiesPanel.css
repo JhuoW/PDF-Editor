@@ -202,6 +202,14 @@
   flex: 1;
 }
 
+.box-properties-panel :is(.color-input-group, .color-text) {
+  min-width: 0;
+}
+
+.box-properties-panel :is(.color-input, .transparent-indicator) {
+  flex-shrink: 0;
+}
+
 .color-input {
   width: 32px;
   height: 32px;
@@ -404,3 +412,6 @@
   outline: none;
   border-color: #0066FF;
 }
+
+.box-properties-panel :is(button, input, select):focus-visible { outline: 2px solid var(--color-primary, #356ae6); outline-offset: 2px; }
+.box-properties-panel input[aria-invalid="true"] { border-color: var(--color-danger, #b42318); }

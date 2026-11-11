@@ -2,6 +2,7 @@ import { prepareTextEditLayout, previewInlineTextEdits } from './TextEditApplier
 import { applyImageEdits } from './ImageEditApplier';
 import { loadMuPDF } from '../utils/mupdf';
 import { boundedRaster } from '../utils/rasterBudget';
+import { preservePageDecorations, imagesWithoutDetachedDecorations } from '../core/PreservePageDecorations';
 import type { InlineTextPreviewRequest } from './InlineTextPreviewClient';
 import type { Device, Matrix, PDFPage, PDFWidget, Rect } from 'mupdf';
 import type { PreparedTextEditLayout } from './TextEditApplier';
@@ -47,7 +48,9 @@ self.onmessage = async (event: MessageEvent<InlineTextPreviewRequest>) => {
     // Match export exactly: managed marks are passive page artwork, not flow
     // obstacles. Adjust original image occurrences while those marks are out,
     // then restore their unchanged appearances over the edited body.
-    const { preservePageDecorations, imagesWithoutDetachedDecorations } = await import('../core/PreservePageDecorations');
+    // This helper must be a static dependency. A dynamically split helper can
+    // import shared code back from this worker entry; WebKit then evaluates the
+    // entry again, replacing onmessage and losing its initialized PDF source.
     const bytes = await preservePageDecorations(source.slice(0), new Set([request.pageNumber]), async (body, detached) => {
       const imageBytes = request.imageEdits?.length
         ? await applyImageEdits(body, imagesWithoutDetachedDecorations(new Map([[request.pageNumber, request.images ?? []]]), detached), request.imageEdits) : null;

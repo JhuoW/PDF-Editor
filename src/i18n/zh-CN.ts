@@ -1,5 +1,36 @@
 import type { en } from "./en";
 export const zhCN: Record<keyof typeof en, string> = {
+  "workspace.error.locateAnnotation": "定位批注",
+  "updates.review.annotations": "批注：中文与混合格式文本统一预览和导出排版；文本框、高亮、绘图及插入图片保存后可重新编辑。",
+  "updates.review.images": "图片：移动嵌套图片时保留透明度、裁剪及遮挡顺序；修复替换为 WebP、SVG 后无法导出的问题。",
+  "updates.review.interaction": "交互：完善触摸绘图、取消操作和属性输入校验；明确段落与对象模式，减少工具和错误提示对文档的遮挡。",
+  "updates.review.reading": "阅读与搜索：连续阅读优先显示当前页，复用搜索索引；编辑页出现问题时，其余页面仍可搜索。",
+  "updates.review.reliability": "可靠性：阻止破坏数字签名的文件重写，增加保存结果、触摸操作、Firefox 和 WebKit 回归检查。",
+
+  "annotations.text.pageOverflow": "文字超出页面高度。请上移或加宽文本框；所有文字均已保留。",
+  "annotations.text.limit": "每个文本框最多包含 20,000 个字符，请拆分为较小的文本框。",
+  "annotations.text.dimensions": "文本框尺寸或内边距无效。",
+  "annotations.text.height": "文本框高度超出支持的页面尺寸。",
+  "annotations.dimensions": "批注尺寸必须是有效的正数。",
+
+  "search.partial": "第 {pages} 页有尚未完成的编辑，暂不包含在搜索结果中。其他页面仍可搜索。",
+  "document.signed.edit": "此 PDF 含数字签名或认证。保存修改会使签名失效，已保留原始文件。",
+  "document.validation.complex": "此 PDF 结构过于复杂，暂时无法验证是否可以安全编辑。",
+  "image.form.textObject": "图片位于 PDF 文字对象内部，暂不能安全变换。",
+  "image.form.textClip": "图片所在图形容器使用文字裁剪，暂不能安全变换。",
+
+  "workspace.mode.paragraph": "段落编辑 · 同栏后续文字自动重排",
+  "workspace.mode.object": "对象编辑 · 单行文字独立移动和换行",
+  "workspace.apply.help": "可选操作：将草稿应用到当前文档。保存已包含所有当前编辑。",
+  "workspace.error.locateImage": "定位图片",
+  "workspace.file.saved": "已保存到 {fileName}",
+  "workspace.file.downloaded": "已下载副本：{fileName}",
+  "properties.customFontSize": "自定义字号",
+  "properties.colorValue": "文字颜色值",
+  "properties.backgroundColor": "背景颜色",
+  "properties.borderColor": "边框颜色",
+  "properties.noBorder": "无",
+
   "updates.extremes.spacing": "重复编辑：保留真实空格和自动换行边界，修复长字符串、中英文两端对齐文字重新打开后被插入空格的问题，并保持局部字重和颜色与原文字对应。",
   "updates.extremes.frame": "段落位置：保存换行宽度、对齐方式和基线，修复反复改变字号、保存后段落位置漂移，以及两端对齐文字被误判为分栏的问题；单行对象仍使用独立的实际边界。",
   "updates.extremes.validation": "极端场景验证：对比编辑前后的 PDF，覆盖整段与单行删除、空行、多次保存、页面边缘移动、溢出及无效输入恢复；新增真实 arXiv 论文对象编辑和三种阅读器的字形检查。",

@@ -6,6 +6,7 @@ import type { ZoomMode } from '../../store/documentStore';
 import type { AnnotationTool } from '../../annotations/types';
 import type { PendingImageData } from '../Toolbar/CombinedToolbar';
 import { PageCanvas } from './PageCanvas';
+import { ProgressivePageLoader } from './ProgressivePageLoader';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { useTextBoxStore } from '../../store/textBoxStore';
 import { useAnnotationStore } from '../../store/annotationStore';
@@ -43,7 +44,7 @@ interface PDFViewerProps {
   onTextLayout?: (blockId: string) => void;
 }
 
-const EMPTY_PAGES: PDFPageProxy[] = [];
+const EMPTY_PAGES = new Map<number, PDFPageProxy>();
 const FIT_PADDING = 40;
 
 export function PDFViewer({
@@ -73,25 +74,31 @@ export function PDFViewer({
   const lastPage = viewMode === 'continuous'
     ? document.numPages
     : Math.min(firstPage + (viewMode === 'two-page' ? 1 : 0), document.numPages);
-  const request = useMemo(() => ({ document, documentVersion, firstPage, lastPage }), [document, documentVersion, firstPage, lastPage]);
-  const [result, setResult] = useState<{ request: typeof request; pages: PDFPageProxy[]; error?: string } | null>(null);
+  const continuous = viewMode === 'continuous';
+  const request = useMemo(() => ({ document, documentVersion, firstPage, lastPage, continuous }), [document, documentVersion, firstPage, lastPage, continuous]);
+  const pageNumbers = useMemo(() => Array.from({ length: lastPage - firstPage + 1 }, (_, index) => firstPage + index), [firstPage, lastPage]);
+  const [result, setResult] = useState<{ request: typeof request; pages: Map<number, PDFPageProxy>; reference: PDFPageProxy | undefined; errors: Map<number, string> } | null>(null);
   const pages = result?.request === request ? result.pages : EMPTY_PAGES;
-  const loading = result?.request !== request;
-  const loadError = result?.request === request ? result.error : undefined;
+  const referencePage = result?.request === request ? result.reference : undefined;
+  const hasPages = pages.size > 0;
+  const loadErrors = result?.request === request ? result.errors : undefined;
+  const initialPage = useRef(currentPage);
+  useEffect(() => { initialPage.current = currentPage; }, [currentPage]);
+  const loaderRef = useRef<{ request: typeof request; loader: ProgressivePageLoader } | null>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number; gap: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const scrollReportedPage = useRef<number | null>(null);
-  const [visibility, setVisibility] = useState<{ pages: PDFPageProxy[]; numbers: number[] } | null>(null);
+  const [visibility, setVisibility] = useState<{ request: typeof request; numbers: number[] } | null>(null);
   const visiblePagesRef = useRef<Set<number>>(new Set());
   const scrollHandlerRef = useRef<() => void>(() => {});
   const scrollAnchorRef = useRef<{
-    pages: PDFPageProxy[];
+    request: typeof request;
     layout: Map<number, { width: number; height: number }>;
     pageNumber: number;
     fraction: number;
   } | null>(null);
-  const handledDestination = useRef<{ destination: LinkDestination; pages: PDFPageProxy[] } | null>(null);
+  const handledDestination = useRef<{ destination: LinkDestination; request: typeof request } | null>(null);
   const editingTextBoxId = useTextBoxStore((state) => state.editingTextBoxId);
   const editingPageNumber = useAnnotationStore((state) => {
     if (!editingTextBoxId) return undefined;
@@ -102,8 +109,8 @@ export function PDFViewer({
   });
 
   const calculatedScale = useMemo(() => {
-    if (zoomMode === 'manual' || pages.length === 0 || !containerSize) return scale;
-    const visiblePages = viewMode === 'two-page' ? pages : [pages[0]];
+    if (zoomMode === 'manual' || !referencePage || !containerSize) return scale;
+    const visiblePages = viewMode === 'two-page' ? [...pages.values()] : [referencePage];
     const viewports = visiblePages.map(page => page.getViewport({ scale: 1, rotation: getEffectiveRotation(page, rotation) }));
     const availableWidth = containerSize.width - FIT_PADDING * 2 - containerSize.gap * (visiblePages.length - 1);
     const availableHeight = containerSize.height - FIT_PADDING * 2;
@@ -111,23 +118,24 @@ export function PDFViewer({
     const width = viewports.reduce((sum, viewport) => sum + viewport.width, 0);
     const height = Math.max(...viewports.map(viewport => viewport.height));
     return Math.min(availableWidth / width, zoomMode === 'fit-page' ? availableHeight / height : Infinity, 4);
-  }, [zoomMode, pages, containerSize, scale, rotation, viewMode]);
+  }, [zoomMode, pages, referencePage, containerSize, scale, rotation, viewMode]);
 
   // Keep lightweight slots for every page; only nearby pages own canvases/editors.
-  const pageLayouts = useMemo(() => new Map(pages.map((page) => {
-    const viewport = page.getViewport({ scale: calculatedScale, rotation: getEffectiveRotation(page, rotation) });
-    return [page.pageNumber, { width: viewport.width, height: viewport.height }];
-  })), [pages, calculatedScale, rotation]);
+  const pageLayouts = useMemo(() => new Map(pageNumbers.map(pageNumber => {
+    const page = pages.get(pageNumber) ?? referencePage;
+    const viewport = page?.getViewport({ scale: calculatedScale, rotation: getEffectiveRotation(page, rotation) });
+    return [pageNumber, { width: viewport?.width ?? 612 * calculatedScale, height: viewport?.height ?? 792 * calculatedScale }];
+  })), [pages, pageNumbers, referencePage, calculatedScale, rotation]);
   const renderedPages = useMemo(() => {
     const result = new Set<number>();
-    const visible = visibility?.pages === pages ? visibility.numbers : [];
+    const visible = visibility?.request === request ? visibility.numbers : [];
     for (const pageNumber of [...visible, currentPage]) {
       for (let offset = -1; offset <= 1; offset++) result.add(pageNumber + offset);
     }
     // An active TipTap editor must survive scrolling until it commits its edit.
     if (editingPageNumber !== undefined) result.add(editingPageNumber);
     return result;
-  }, [visibility, pages, currentPage, editingPageNumber]);
+  }, [visibility, request, currentPage, editingPageNumber]);
 
   // Pan state
   const [isPanning, setIsPanning] = useState(false);
@@ -138,21 +146,50 @@ export function PDFViewer({
   // in the effect. Late results can never become the visible pages of a new PDF.
   useEffect(() => {
     let cancelled = false;
-    const loadPages = async () => {
-      try {
-        const loadedPages: PDFPageProxy[] = [];
-        for (let pageNumber = request.firstPage; pageNumber <= request.lastPage; pageNumber++) {
-          if (cancelled) return;
-          loadedPages.push(await request.document.getPage(pageNumber));
-        }
-        if (!cancelled) setResult({ request, pages: loadedPages });
-      } catch (error) {
-        if (!cancelled) setResult({ request, pages: EMPTY_PAGES, error: error instanceof Error ? error.message : 'Could not load PDF pages' });
-      }
+    const publish = (loaded: PDFPageProxy[]) => {
+      if (cancelled) return;
+      setResult(previous => {
+        const current = previous?.request === request ? previous : undefined;
+        const pages = new Map(current?.pages);
+        for (const page of loaded) pages.set(page.pageNumber, page);
+        return { request, pages, reference: current?.reference ?? loaded[0], errors: current?.errors ?? new Map() };
+      });
     };
-    void loadPages();
-    return () => { cancelled = true; };
+    const fail = (pageNumber: number, error: unknown) => {
+      if (cancelled) return;
+      setResult(previous => {
+        const current = previous?.request === request ? previous : undefined;
+        const errors = new Map(current?.errors);
+        errors.set(pageNumber, error instanceof Error ? error.message : 'Could not load PDF pages');
+        return { request, pages: current?.pages ?? EMPTY_PAGES, reference: current?.reference, errors };
+      });
+    };
+    const loader = new ProgressivePageLoader(request.document, request.firstPage, request.lastPage, publish, fail);
+    if (request.continuous) {
+      loaderRef.current = { request, loader };
+      void loader.start(initialPage.current);
+    } else {
+      // A spread is fitted from both real page dimensions, never from a partly
+      // loaded pair that would change its zoom when the second page arrives.
+      void (async () => {
+        try {
+          const loaded: PDFPageProxy[] = [];
+          for (let pageNumber = request.firstPage; pageNumber <= request.lastPage; pageNumber++) {
+            if (cancelled) return;
+            loaded.push(await request.document.getPage(pageNumber));
+          }
+          publish(loaded);
+        } catch (error) { fail(request.firstPage, error); }
+      })();
+    }
+    return () => { cancelled = true; loader.stop(); if (loaderRef.current?.loader === loader) loaderRef.current = null; };
   }, [request]);
+
+  useEffect(() => {
+    if (loaderRef.current?.request !== request) return;
+    loaderRef.current.loader.prioritize(hasPages ? renderedPages : [currentPage]);
+    if (highlightDestination) loaderRef.current.loader.prioritize([highlightDestination.pageNumber]);
+  }, [request, renderedPages, currentPage, hasPages, highlightDestination]);
 
   // Fit reacts to the viewer's actual size, including sidebar and panel changes.
   useLayoutEffect(() => {
@@ -175,8 +212,8 @@ export function PDFViewer({
   }, [viewMode]);
 
   useEffect(() => {
-    if (zoomMode !== 'manual' && pages.length && containerSize && calculatedScale !== scale) onCalculatedZoomChange?.(calculatedScale);
-  }, [calculatedScale, scale, zoomMode, pages, containerSize, onCalculatedZoomChange]);
+    if (zoomMode !== 'manual' && hasPages && containerSize && calculatedScale !== scale) onCalculatedZoomChange?.(calculatedScale);
+  }, [calculatedScale, scale, zoomMode, hasPages, containerSize, onCalculatedZoomChange]);
 
   // Scroll to current page in continuous mode
   useEffect(() => {
@@ -194,26 +231,23 @@ export function PDFViewer({
       pageElement.scrollIntoView({ behavior: 'instant', block: 'start' });
       scrollHandlerRef.current();
     }
-  }, [currentPage, viewMode, pages]);
+  }, [currentPage, viewMode, request, hasPages]);
 
   // Scroll to highlight destination (for citation links in continuous mode)
   useEffect(() => {
     if (!highlightDestination || !containerRef.current) return;
-    if (handledDestination.current?.destination === highlightDestination && handledDestination.current.pages === pages) return;
+    if (handledDestination.current?.destination === highlightDestination && handledDestination.current.request === request) return;
 
     const pageElement = pageRefs.current.get(highlightDestination.pageNumber);
     if (!pageElement) return;
 
     const container = containerRef.current;
-    const page = pages.find(p => p.pageNumber === highlightDestination.pageNumber);
+    const page = pages.get(highlightDestination.pageNumber);
+    // The destination is requested with foreground priority. Wait for its real
+    // dimensions instead of repeating a provisional scroll on every page batch.
+    if (!page) return;
 
-    if (!page) {
-      // Fallback: just scroll to the page
-      pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    handledDestination.current = { destination: highlightDestination, pages };
+    handledDestination.current = { destination: highlightDestination, request };
     const viewport = page.getViewport({ scale: calculatedScale, rotation: getEffectiveRotation(page, rotation) });
     let [offsetX, offsetY] = viewport.convertToViewportPoint(
       highlightDestination.left ?? page.view[0],
@@ -228,11 +262,11 @@ export function PDFViewer({
     const pageLeft = pageElement.getBoundingClientRect().left - container.getBoundingClientRect().left + container.scrollLeft;
     container.scrollTo({ top: Math.max(0, pageTop + offsetY - PDF_LINK_SCROLL_INSET.top),
       ...(highlightDestination.view ? { left: Math.max(0, pageLeft + offsetX - PDF_LINK_SCROLL_INSET.left) } : {}), behavior: 'smooth' });
-  }, [highlightDestination, pages, calculatedScale, rotation, viewMode]);
+  }, [highlightDestination, pages, request, calculatedScale, rotation, viewMode]);
 
   // Inspect only pages reported by the browser, rather than measuring the whole PDF on every scroll.
   const handleScroll = useCallback((reportPage = true) => {
-    if (viewMode !== 'continuous' || !containerRef.current || pages.length === 0) return;
+    if (viewMode !== 'continuous' || !containerRef.current || !hasPages) return;
     const container = containerRef.current;
     const containerRect = container.getBoundingClientRect();
     const containerCenter = containerRect.top + container.clientHeight / 2;
@@ -255,7 +289,7 @@ export function PDFViewer({
     const layout = pageLayouts.get(closestPage);
     if (element && layout && layout.height > 0) {
       scrollAnchorRef.current = {
-        pages, layout: pageLayouts, pageNumber: closestPage,
+        request, layout: pageLayouts, pageNumber: closestPage,
         fraction: (containerCenter - element.getBoundingClientRect().top) / layout.height,
       };
     }
@@ -263,14 +297,14 @@ export function PDFViewer({
       scrollReportedPage.current = closestPage;
       onPageChange(closestPage);
     }
-  }, [viewMode, currentPage, onPageChange, pageLayouts, pages]);
+  }, [viewMode, currentPage, onPageChange, pageLayouts, request, hasPages]);
 
   // Preserve the page and relative position at the viewport center across geometry changes.
   // Slots retain their sizes when canvases are unmounted, so virtualization itself never moves content.
   useLayoutEffect(() => {
     const container = containerRef.current;
     const anchor = scrollAnchorRef.current;
-    if (container && viewMode === 'continuous' && anchor?.pages === pages && anchor.layout !== pageLayouts) {
+    if (container && viewMode === 'continuous' && anchor?.request === request && anchor.layout !== pageLayouts) {
       const element = pageRefs.current.get(anchor.pageNumber);
       const layout = pageLayouts.get(anchor.pageNumber);
       if (element && layout) {
@@ -280,11 +314,11 @@ export function PDFViewer({
     }
     scrollHandlerRef.current = handleScroll;
     handleScroll(false);
-  }, [handleScroll, pageLayouts, pages, viewMode]);
+  }, [handleScroll, pageLayouts, request, hasPages, viewMode]);
 
   useEffect(() => {
     visiblePagesRef.current = new Set();
-    if (viewMode !== 'continuous' || !containerRef.current || pages.length === 0) return;
+    if (viewMode !== 'continuous' || !containerRef.current || !hasPages) return;
     let cancelled = false;
     const visible = new Set<number>();
     const observer = new IntersectionObserver((entries) => {
@@ -296,8 +330,8 @@ export function PDFViewer({
       }
       visiblePagesRef.current = new Set(visible);
       const next = [...visible].sort((a, b) => a - b);
-      setVisibility((previous) => previous?.pages === pages && previous.numbers.length === next.length &&
-        previous.numbers.every((page, index) => page === next[index]) ? previous : { pages, numbers: next });
+      setVisibility((previous) => previous?.request === request && previous.numbers.length === next.length &&
+        previous.numbers.every((page, index) => page === next[index]) ? previous : { request, numbers: next });
       scrollHandlerRef.current();
     }, { root: containerRef.current, threshold: 0 });
     pageRefs.current.forEach((element) => observer.observe(element));
@@ -305,7 +339,7 @@ export function PDFViewer({
       cancelled = true;
       observer.disconnect();
     };
-  }, [pages, viewMode]);
+  }, [request, hasPages, viewMode]);
 
   // Throttled scroll handler
   useEffect(() => {
@@ -408,28 +442,30 @@ export function PDFViewer({
       onMouseUp={handlePanEnd}
       onMouseLeave={handlePanEnd}
     >
-      {loading && pages.length === 0 && (
+      {!hasPages && !loadErrors?.size && (
         <div className="pdf-viewer-loading">
           <div className="loading-spinner" />
           <span>{t("m.loading.document.951b0d")}</span>
         </div>
       )}
-      {loadError && <div className="pdf-viewer-loading" role="alert"><ErrorMessage error={loadError} /></div>}
+      {!hasPages && loadErrors?.size ? <div className="pdf-viewer-loading" role="alert"><ErrorMessage error={loadErrors.values().next().value} /></div> : null}
       <div className="pdf-pages-wrapper">
-        {pages.map((page) => (
+        {hasPages && pageNumbers.map(pageNumber => {
+          const page = pages.get(pageNumber);
+          return (
           <div
-            key={`v${documentVersion}-page-${page.pageNumber}`}
+            key={`v${documentVersion}-page-${pageNumber}`}
             ref={(el) => {
-              if (el) pageRefs.current.set(page.pageNumber, el);
-              else pageRefs.current.delete(page.pageNumber);
+              if (el) pageRefs.current.set(pageNumber, el);
+              else pageRefs.current.delete(pageNumber);
             }}
             className="page-wrapper"
-            data-page={page.pageNumber}
+            data-page={pageNumber}
           >
-            <div className="page-viewport" style={pageLayouts.get(page.pageNumber)}>
-              {(viewMode !== 'continuous' || renderedPages.has(page.pageNumber)) && <PageCanvas
+            <div className="page-viewport" style={pageLayouts.get(pageNumber)}>
+              {page && (viewMode !== 'continuous' || renderedPages.has(pageNumber)) && <PageCanvas
                 page={page}
-                pageNumber={page.pageNumber}
+                pageNumber={pageNumber}
                 scale={calculatedScale}
                 rotation={rotation}
                 searchQuery={searchQuery}
@@ -437,7 +473,7 @@ export function PDFViewer({
                 activeMatchIndex={activeMatchIndex}
                 onLinkClick={onLinkClick}
                 highlightDestination={
-                  highlightDestination?.pageNumber === page.pageNumber
+                  highlightDestination?.pageNumber === pageNumber
                     ? highlightDestination
                     : undefined
                 }
@@ -445,12 +481,15 @@ export function PDFViewer({
                 onImagePlaced={onImagePlaced}
                 onTextLayout={onTextLayout}
               />}
+              {!page && renderedPages.has(pageNumber) && <div className="pdf-viewer-loading" role={loadErrors?.has(pageNumber) ? 'alert' : 'status'}>
+                {loadErrors?.has(pageNumber) ? <ErrorMessage error={loadErrors.get(pageNumber)} /> : t("m.loading.document.951b0d")}
+              </div>}
             </div>
             {viewMode === 'continuous' && (
-              <div className="page-number-label">{t("m.page.fb0627")}{' '}{page.pageNumber}</div>
+              <div className="page-number-label">{t("m.page.fb0627")}{' '}{pageNumber}</div>
             )}
           </div>
-        ))}
+        ); })}
       </div>
     </div>
   );

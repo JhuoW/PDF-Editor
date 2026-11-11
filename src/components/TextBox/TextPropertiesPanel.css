@@ -290,3 +290,6 @@
   background: #4f46e5;
   border-radius: 50%;
 }
+
+.text-properties-panel :is(button, input, select):focus-visible { outline: 2px solid var(--color-primary, #356ae6); outline-offset: 2px; }
+.text-properties-panel input[aria-invalid="true"] { border-color: var(--color-danger, #b42318); }

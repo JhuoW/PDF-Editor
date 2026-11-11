@@ -18,8 +18,23 @@ async function dialog(page: Page) {
 }
 async function exported(page: Page) { const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export', exact: true }).click(); return readFile((await (await pending).path())!); }
 function images(data: Uint8Array) {
-  const pdf = new mupdf.PDFDocument(data), page = pdf.loadPage(0), text = page.toStructuredText('preserve-images'), result: number[][] = [];
-  try { text.walk({ onImageBlock(rect) { result.push([...rect]); } }); return result; } finally { text.destroy(); page.destroy(); pdf.destroy(); }
+  const pdf = new mupdf.PDFDocument(data), page = pdf.loadPage(0), display = page.toDisplayList(true), text = display.toStructuredText('preserve-images'), result: number[][] = [];
+  try { text.walk({ onImageBlock(rect) { result.push([...rect]); } }); return result; } finally { text.destroy(); display.destroy(); page.destroy(); pdf.destroy(); }
+}
+function expectTransparentSignature(data: Uint8Array, area: number[]) {
+  const pdf = new mupdf.PDFDocument(data), page = pdf.loadPage(0), pixels = page.toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true);
+  try {
+    const annotations = page.getAnnotations();
+    try { expect(annotations.map(annotation => annotation.getType())).toEqual(['Stamp']); }
+    finally { annotations.forEach(annotation => annotation.destroy()); }
+    const bytes = pixels.getPixels(); let ink = 0, background = 0, total = 0;
+    for (let y = Math.ceil(area[1]); y < Math.floor(area[3]); y++) for (let x = Math.ceil(area[0]); x < Math.floor(area[2]); x++) {
+      const offset = (y * pixels.getWidth() + x) * 3, red = bytes[offset], green = bytes[offset + 1], blue = bytes[offset + 2]; total++;
+      if (red < 55 && green < 110 && blue > 135 && blue < 195) ink++;
+      if (red > 210 && red < 225 && green > 250 && blue > 210 && blue < 225) background++;
+    }
+    expect(ink).toBeGreaterThan(50); expect(background).toBeGreaterThan(total / 2);
+  } finally { pixels.destroy(); page.destroy(); pdf.destroy(); }
 }
 function sample(data: Uint8Array, x: number, y: number) {
   const pdf = new mupdf.PDFDocument(data), page = pdf.loadPage(0), pixels = page.toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true);
@@ -39,6 +54,7 @@ test('draws a transparent signature and preserves movement, resizing, deletion, 
   await page.screenshot({ path: test.info().outputPath('signature-desktop.png') });
   await panel.getByRole('button', { name: 'Place signature', exact: true }).click(); await expect(panel).toHaveCount(0); await place(page);
   const initialData = await exported(page), initial = images(initialData); expect(initial).toHaveLength(1);
+  expectTransparentSignature(initialData, initial[0]);
   expect((await PDFDocument.load(initialData)).getForm().getTextField('Contact').getText()).toBe('签名后的表单');
   expect(sample(initialData, initial[0][0] + 1, initial[0][1] + 1)).toEqual(sample(background, initial[0][0] + 1, initial[0][1] + 1));
   await revealPDFRegion(page, 360, 425);

@@ -184,7 +184,8 @@ describe('file actions', () => {
   it('uses natural Chinese Save and Export labels without translating the PDF filename', () => {
     render({ onSave: vi.fn(), onSaveAs: vi.fn(), fileNameOverride: 'English PDF.pdf' });
     act(() => useLocaleStore.getState().setLocale('zh-CN'));
-    expect(container.querySelector('.toolbar-btn-primary')!.textContent).toBe('导出');
+    expect(container.querySelector('[aria-label="导出"]')!.textContent).toBe('导出');
+    expect(container.querySelector('.toolbar-btn-primary')!.textContent).toBe('保存');
     expect(container.querySelector('.toolbar-save-button')!.textContent).toBe('保存');
     expect(container.querySelector('.document-title')!.textContent).toBe('English PDF.pdf');
   });

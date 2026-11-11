@@ -3,6 +3,7 @@ import { PDFDocument, PDFName, PDFNumber, degrees, rgb } from 'pdf-lib';
 import * as mupdf from 'mupdf';
 import { applyImageEdits } from '../../src/editing/ImageEditApplier';
 import type { PDFImage, ImageEditOperation } from '../../src/editing/types';
+import { changeImageAppearance, imageAppearance } from '../../src/editing/imageAppearance';
 import { matrixBounds, multiplyMatrix, type ImageMatrix } from '../../src/editing/imageMatrix';
 
 function png(color: [number, number, number]) {
@@ -51,7 +52,99 @@ function inspect(data: Uint8Array | ArrayBuffer, pageNumber = 1) {
 function pixel(result: ReturnType<typeof inspect>, x: number, y: number) { return Array.from(result.pixels.slice((y * result.width + x) * 3, (y * result.width + x) * 3 + 3)); }
 const operation = (type: ImageEditOperation['type'], overrides: Partial<ImageEditOperation> = {}): ImageEditOperation => ({ imageId: 'image-1-0', type, timestamp: 1, ...overrides });
 
+
+async function formStateFixture(options: { opacity?: number; overlap?: boolean; nested?: boolean; clip?: boolean; outsidePaint?: boolean; blend?: boolean; formMatrix?: ImageMatrix } = {}) {
+  const document = new mupdf.PDFDocument(), bitmap = new mupdf.Image(red), font = new mupdf.Font('Helvetica');
+  const imageObject = document.addImage(bitmap), fontObject = document.addSimpleFont(font);
+  const state = { Type: 'ExtGState', ca: options.opacity ?? 1, ...(options.blend ? { BM: 'Multiply' } : {}) };
+  const content = 'BT /F1 8 Tf 2 80 Td (BEFORE_IMAGE) Tj ET\n' +
+    `q ${options.clip ? '10 10 20 30 re W n' : ''} /G1 gs 30 0 0 30 10 10 cm /Im Do Q\n` +
+    (options.overlap ? '0 1 0 rg 15 15 20 20 re f\n' : '') +
+    (options.outsidePaint ? '0 1 0 rg 110 10 40 30 re f\n' : '') +
+    'BT /F1 8 Tf 2 65 Td (AFTER_IMAGE) Tj ET\n';
+  const inner = document.addStream(content, { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 100, 100],
+    Resources: { XObject: { Im: imageObject }, Font: { F1: fontObject }, ExtGState: { G1: state } }, ...(options.formMatrix ? { Matrix: options.formMatrix } : {}) });
+  const form = options.nested ? document.addStream('q 1 0 0 1 5 5 cm /Inner Do Q\n', {
+    Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 100, 100], Resources: { XObject: { Inner: inner } },
+  }) : inner;
+  const page = document.addPage([0, 0, 400, 600], 0, { XObject: { Form: form } },
+    (options.blend ? '0 1 1 rg 0 0 400 600 re f\n' : '') + 'q 1 0 0 1 20 400 cm /Form Do Q\nq 1 0 0 1 200 400 cm /Form Do Q');
+  document.insertPage(-1, page);
+  const buffer = document.saveToBuffer('garbage=1');
+  const data = new Uint8Array(buffer.asUint8Array()).buffer;
+  buffer.destroy(); page.destroy(); if (form !== inner) form.destroy(); inner.destroy(); imageObject.destroy(); fontObject.destroy(); bitmap.destroy(); font.destroy(); document.destroy();
+  const delta = options.nested ? 5 : 0;
+  const selected = image(multiplyMatrix([1, 0, 0, 1, 20 + delta, 400 + delta], multiplyMatrix(options.formMatrix ?? [1, 0, 0, 1, 0, 0], [30, 0, 0, 30, 10, 10])), 0, 1, undefined, true);
+  return { data, selected, images: new Map([[1, [selected]]]) };
+}
+
 describe('applyImageEdits', () => {
+
+  it.each([
+    [1, .2, .3, 1, 0, 0], [0, 1, -1, 0, 100, 0], [1.3, 0, 0, .7, 0, 0],
+  ] as ImageMatrix[])('preserves nested Form Matrix %j and image opacity beyond its bounds', async (...formMatrix) => {
+    const { data, selected, images } = await formStateFixture({ opacity: .25, nested: true, formMatrix: formMatrix as ImageMatrix });
+    const output = inspect(await applyImageEdits(data, images, [operation('move', { newRect: { ...selected.rect, x: selected.rect.x + 130 } })]));
+    const x = Math.round(selected.rect.x + selected.rect.width / 2), y = Math.round(selected.rect.y + selected.rect.height / 2);
+    expect(pixel(output, x + 130, y)).toEqual([255, 192, 192]);
+    expect(pixel(output, x + 180, y)).toEqual(pixel(inspect(data), x + 180, y));
+    expect(output.text.match(/BEFORE_IMAGE/g)).toHaveLength(2);
+  });
+  it('retains a Form image crop and opacity when the cropped image leaves the original Form bounds', async () => {
+    const { data, selected, images } = await formStateFixture({ opacity: .25, overlap: true });
+    const crop = changeImageAppearance(selected, imageAppearance(selected, []), { crop: { x: .5, y: 0, width: .5, height: 1 } });
+    const cropped = inspect(await applyImageEdits(data, images, [crop]));
+    expect(pixel(cropped, 40, 188)).toEqual([255, 255, 255]);
+    expect(pixel(cropped, 50, 188)).toEqual([255, 192, 192]);
+    const moved = inspect(await applyImageEdits(data, images, [crop, operation('move', { newRect: { ...crop.newRect!, x: 145 } })]));
+    expect(pixel(moved, 150, 188)).toEqual([255, 192, 192]);
+    expect(pixel(moved, 135, 188)).toEqual([255, 255, 255]);
+    expect(pixel(moved, 45, 170)).toEqual([0, 255, 0]);
+  });
+
+  it.each([false, true])('preserves Form opacity, stacking, text and shared uses (nested=%s)', async nested => {
+    for (const overlap of [false, true]) {
+      const { data, selected, images } = await formStateFixture({ opacity: .25, overlap, nested });
+      const output = await applyImageEdits(data, images, [operation('move', { newRect: { ...selected.rect, x: selected.rect.x + 10 } })]);
+      const before = inspect(data), after = inspect(output), delta = nested ? 5 : 0;
+      expect(pixel(after, 45 + delta, 170 - delta)).toEqual(overlap ? [0, 255, 0] : [255, 192, 192]);
+      expect(pixel(after, 220 + delta, 170 - delta)).toEqual(pixel(before, 220 + delta, 170 - delta));
+      expect(after.count).toBe(before.count);
+      expect(after.text.match(/BEFORE_IMAGE/g)).toHaveLength(2);
+      expect(after.text.match(/AFTER_IMAGE/g)).toHaveLength(2);
+    }
+  });
+  it.each([false, true])('expands only the moved image clipping box and leaves other artwork clipped (nested=%s)', async nested => {
+    const { data, selected, images } = await formStateFixture({ opacity: .25, outsidePaint: true, nested });
+    const output = await applyImageEdits(data, images, [operation('move', { newRect: { ...selected.rect, x: 130 } })]);
+    const result = inspect(output), delta = nested ? 5 : 0;
+    // This region used to be outside both Form bounding boxes. The invisible
+    // green path must stay clipped when the image is moved into that region.
+    expect(pixel(result, 140, 170 - delta)).toEqual([255, 192, 192]);
+    expect(pixel(result, 165, 170 - delta)).toEqual([255, 255, 255]);
+    expect(result.text.match(/BEFORE_IMAGE/g)).toHaveLength(2);
+    expect(result.text.match(/AFTER_IMAGE/g)).toHaveLength(2);
+  });
+  it('preserves Form blend modes and explicit clipping paths while resizing an image', async () => {
+    const { data, selected, images } = await formStateFixture({ blend: true, clip: true });
+    const output = await applyImageEdits(data, images, [operation('resize', { newRect: { ...selected.rect, width: 60 } })]);
+    const result = inspect(output);
+    expect(pixel(result, 40, 170)).toEqual([0, 0, 0]); // red multiplied by cyan
+    expect(pixel(result, 55, 170)).toEqual([0, 255, 255]); // explicit 20pt clip remains
+    expect(pixel(result, 225, 170)).toEqual(pixel(inspect(data), 225, 170));
+  });
+  it('keeps Form opacity and order through rotation, replacement, and deletion', async () => {
+    const { data, images } = await formStateFixture({ opacity: .25, overlap: true, nested: true });
+    const transformed = await applyImageEdits(data, images, [operation('replace', { newImageData: blue.buffer }), operation('rotate', { rotation: 180, flipX: true })]);
+    const result = inspect(transformed);
+    expect(pixel(result, 37, 180)).toEqual([192, 192, 255]);
+    expect(pixel(result, 50, 165)).toEqual([0, 255, 0]);
+    expect(result.text.match(/AFTER_IMAGE/g)).toHaveLength(2);
+    const deleted = inspect(await applyImageEdits(data, images, [operation('delete')]));
+    expect(pixel(deleted, 37, 180)).toEqual([255, 255, 255]);
+    expect(pixel(deleted, 50, 165)).toEqual([0, 255, 0]);
+  });
+
   it('deletes exactly one shared image draw while preserving background, text, and other pages', async () => {
     const { data, images } = await fixture();
     const output = await applyImageEdits(data, images, [operation('delete')]);
