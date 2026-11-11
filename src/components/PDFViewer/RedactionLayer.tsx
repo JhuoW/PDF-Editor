@@ -4,7 +4,7 @@ import { useLocale, t } from "../../i18n";
  * Shows pending redactions as outlined boxes, applied as solid black
  */
 
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { mapViewportPoint, mapViewportRect } from '../../utils/viewportMapping';
@@ -57,45 +57,60 @@ export function RedactionLayer({
     return mapViewportPoint(x, y, display, unrotated);
   }, [page, rotation, scale]);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (mode !== 'redact') return;
+  // Pointer events cover mouse, pen and touch. A second finger turns the
+  // gesture into a pinch/scroll, so the unfinished rectangle is dropped.
+  const activePointer = useRef<number | null>(null);
+  const localPoint = (e: React.PointerEvent) => {
+    const rect = layerRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+  const cancelDrawing = useCallback(() => {
+    activePointer.current = null;
+    setIsDrawing(false);
+    setDrawStart(null);
+    setDrawEnd(null);
+  }, []);
 
-      // Ignore if clicking on an existing redaction
-      if ((e.target as HTMLElement).classList.contains('redaction-box')) return;
+  // Escape abandons the rectangle being drawn (focus usually stays elsewhere).
+  useEffect(() => {
+    if (!isDrawing) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); cancelDrawing(); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [isDrawing, cancelDrawing]);
 
-      const rect = layerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (mode !== 'redact' || !layerRef.current) return;
+      if (activePointer.current !== null) { cancelDrawing(); return; }
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      // Existing boxes and their controls handle their own clicks.
+      if ((e.target as HTMLElement).closest('.redaction-box')) return;
+      const point = localPoint(e);
+      activePointer.current = e.pointerId;
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      e.preventDefault();
       setIsDrawing(true);
-      setDrawStart({ x, y });
-      setDrawEnd({ x, y });
+      setDrawStart(point);
+      setDrawEnd(point);
       selectRedaction(null);
     },
-    [mode, selectRedaction]
+    [mode, selectRedaction, cancelDrawing]
   );
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isDrawing || !drawStart) return;
-
-      const rect = layerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      setDrawEnd({ x, y });
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDrawing || !drawStart || e.pointerId !== activePointer.current || !layerRef.current) return;
+      setDrawEnd(localPoint(e));
     },
     [isDrawing, drawStart]
   );
 
-  const handleMouseUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (e.pointerId !== activePointer.current) return;
+    activePointer.current = null;
     if (!isDrawing || !drawStart || !drawEnd) {
-      setIsDrawing(false);
+      cancelDrawing();
       return;
     }
 
@@ -125,10 +140,8 @@ export function RedactionLayer({
       });
     }
 
-    setIsDrawing(false);
-    setDrawStart(null);
-    setDrawEnd(null);
-  }, [isDrawing, drawStart, drawEnd, pageNumber, addRedaction, inverseTransformPoint]);
+    cancelDrawing();
+  }, [isDrawing, drawStart, drawEnd, pageNumber, addRedaction, inverseTransformPoint, cancelDrawing]);
 
   const handleRedactionClick = useCallback(
     (redaction: RedactionArea, e: React.MouseEvent) => {
@@ -171,10 +184,11 @@ export function RedactionLayer({
     <div
       ref={layerRef}
       className="redaction-layer"
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={cancelDrawing}
+      onLostPointerCapture={event => { if (event.pointerId === activePointer.current) cancelDrawing(); }}
     >
       {/* Existing redactions */}
       {pageRedactions.map((redaction) => {
@@ -190,6 +204,17 @@ export function RedactionLayer({
               backgroundColor: redaction.applied ? redaction.overlayColor : 'transparent',
             }}
             onClick={(e) => handleRedactionClick(redaction, e)}
+            {...(!redaction.applied ? {
+              role: 'button',
+              tabIndex: 0,
+              'aria-label': t("m.redact.910892"),
+              'aria-pressed': isSelected,
+              onFocus: () => selectRedaction(redaction.id),
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); removeRedaction(redaction.id); }
+              },
+            } : {})}
           >
             {!redaction.applied && (
               <>
@@ -205,6 +230,8 @@ export function RedactionLayer({
                       className="redaction-overlay-input"
                     />
                     <button
+                      type="button"
+                      aria-label={t("m.remove.redaction.5b83df")}
                       className="redaction-delete-btn"
                       onClick={(e) => handleDelete(redaction.id, e)}
                       title={t("m.remove.redaction.5b83df")}

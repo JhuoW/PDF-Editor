@@ -44,6 +44,16 @@ describe('PageDecorationsDialog', () => {
     expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/[A-Za-z]/);
   });
 
+  it('asks before Escape or the close button discards unapplied decorations, but the explicit discard button closes at once', async () => {
+    await render(); await escape(); expect(props.onClose).toHaveBeenCalledTimes(1);
+    props.onClose = vi.fn(); await render({ documentKey: 'second' }); await click('Add watermark'); await fill('Watermark text', 'Pending');
+    await escape(); expect(host.textContent).toContain('Discard unapplied changes?'); expect(props.onClose).not.toHaveBeenCalled();
+    await click('Keep editing'); expect(host.querySelector('.confirmation-dialog')).toBeNull(); expect((input('Watermark text') as HTMLInputElement).value).toBe('Pending');
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close page decorations"]')!.click()); expect(host.querySelector('.confirmation-dialog')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('.confirmation-dialog .confirm')!.click()); expect(props.onClose).toHaveBeenCalledTimes(1); expect(props.onApply).not.toHaveBeenCalled();
+    props.onClose = vi.fn(); await render({ documentKey: 'third' }); await click('Add watermark');
+    await act(async () => button('Discard changes').click()); expect(host.querySelector('.confirmation-dialog')).toBeNull(); expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
   it('previews the actual output locally and applies one operation batch only when requested', async () => {
     await render(); await preview(); expect(host.querySelector('dialog')?.open).toBe(true); expect(host.querySelector('[data-preview]')?.textContent).toBe('1');
     await click('Add watermark'); await fill('Watermark text', 'CONFIDENTIAL 中文'); await preview();

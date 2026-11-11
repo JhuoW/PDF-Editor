@@ -2,7 +2,7 @@
   position: relative;
   display: inline-block;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  background: white;
+  background: light-dark(white, #18191c);
 }
 
 .page-canvas {
@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.8);
+  background: light-dark(rgba(255, 255, 255, 0.8), #18191ccc);
 }
 
 .page-loading-spinner {

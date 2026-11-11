@@ -1,4 +1,5 @@
 import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useDiscardConfirmation } from './useDiscardConfirmation';
 import { useLocaleStore } from '../../i18n';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateMessage, translateError } from "../../i18n";
@@ -83,6 +84,7 @@ function BookmarksSession({ currentPage, readPDF, onApply, onClose, onCommitStat
     const next = structuredClone(bookmarks), found = findBookmark(next, selected.id)!; found.siblings.splice(found.index, 1); setBookmarks(next); setSelectedId(null); setDeleting(null); setDirtyNumbers(new Set()); setSaveError(null);
   };
   const close = () => { if (committing.current) return; reading.current?.abort(); previewRequest.current?.abort(); applying.current?.abort(); onClose(); };
+  const { requestClose, handleCancel, confirmation } = useDiscardConfirmation(!saving && (changed || dirtyNumbers.size > 0), close);
   const apply = async () => {
     if (!canApply || applying.current || latestKey.current !== requestKey) return;
     const request = new AbortController(); applying.current = request; setSaving(true); setSaveError(null);
@@ -94,8 +96,8 @@ function BookmarksSession({ currentPage, readPDF, onApply, onClose, onCommitStat
   };
   useLayoutEffect(() => { saveLatest.current = apply; });
   const failure = loadError?.key === loadKey ? loadError.message : null;
-  return <dialog ref={dialog} className="pdf-bookmarks-dialog" aria-labelledby="pdf-bookmarks-title" onCancel={event => { event.preventDefault(); close(); }} onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const input = document.activeElement; if (input instanceof HTMLInputElement && input.type === 'number') flushSync(() => input.blur()); void saveLatest.current(); } }}>
-    <header><div><h2 id="pdf-bookmarks-title">{t("m.bookmarks.ca3cdd")}</h2><p>{t("m.organize.document.navigation.and.apply.the.compl.ee667d")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.bookmarks.51f2a0")} disabled={committed} onClick={close}>×</button></header>
+  return <dialog ref={dialog} className="pdf-bookmarks-dialog" aria-labelledby="pdf-bookmarks-title" onCancel={handleCancel} onKeyDown={event => { event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const input = document.activeElement; if (input instanceof HTMLInputElement && input.type === 'number') flushSync(() => input.blur()); void saveLatest.current(); } }}>
+    <header><div><h2 id="pdf-bookmarks-title">{t("m.bookmarks.ca3cdd")}</h2><p>{t("m.organize.document.navigation.and.apply.the.compl.ee667d")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.bookmarks.51f2a0")} disabled={committed} onClick={requestClose}>×</button></header>
     {!current && !failure && <p className="bookmark-loading" role="status">{t("m.inspecting.pdf.bookmarks.1c725b")}</p>}
     {failure && <div className="bookmark-loading"><p className="bookmark-error" role="alert"><ErrorMessage error={failure} /></p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <div className="bookmark-body"><section className="bookmark-preview-column" aria-label={t("m.bookmark.page.preview.9a23ba")}>
@@ -115,8 +117,9 @@ function BookmarksSession({ currentPage, readPDF, onApply, onClose, onCommitStat
     </aside></div>}
     <footer>{current && <p className="bookmark-help" role="status">{saving ? committed ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.bookmarks.08e69f") : dirtyNumbers.size ? t("m.finish.numeric.input.to.update.the.preview.4415fd") : ready ? t("m.preview.ready.fa3fd8", { v0: changed ? ' · Unsaved changes' : '' }) : t("m.updating.pdf.preview.262ba0")}</p>}
       {previewError?.key === requestKey && <p className="bookmark-error" role="alert"><ErrorMessage error={previewError.message} /></p>}{renderError?.key === displayKey && <p className="bookmark-error" role="alert"><ErrorMessage error={renderError.message} /></p>}{saveError && <p className="bookmark-error" role="alert"><ErrorMessage error={saveError} /></p>}
-      <div><button type="button" disabled={committed} onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="bookmark-primary" disabled={!canApply} onClick={() => void apply()}>{t("m.apply.bookmarks.fe464b")}</button></div>
+      <div><button type="button" disabled={committed} onClick={close}>{changed ? t("m.discard.changes.fa8fc0") : t("m.cancel.77dfd2")}</button><button type="button" className="bookmark-primary" disabled={!canApply} onClick={() => void apply()}>{t("m.apply.bookmarks.fe464b")}</button></div>
     </footer>
+    {confirmation}
   </dialog>;
 }
 export default PDFBookmarksDialog;

@@ -65,7 +65,7 @@ export function PageDecorationSettings({ value, totalPages, disabled, otherImage
     <label>{t("m.name.709a23")}<input value={value.name} onChange={event => onChange({ ...value, name: event.target.value })} /></label>
     <label>{t("m.pages.600584")}<input value={range} placeholder="1, 3-5" onChange={event => setPages(event.target.value, parity)} /></label>
     <label>{t("m.page.filter.9271a8")}<select value={parity} onChange={event => setPages(range, event.target.value as typeof parity)}><option value="all">{t("m.all.selected.pages.10d0bf")}</option><option value="odd">{t("m.odd.pages.only.a777be")}</option><option value="even">{t("m.even.pages.only.dc6bcb")}</option></select></label>
-    <p className="decoration-help">{value.pages.length}{' '}{t("m.selected.835f3b")}{' '}{value.pages.length === 1 ? t("m.page.767013") : t("m.pages.eec654")}{t("m.positions.and.sizes.use.pdf.points.on.the.displa.af1c74")}</p>
+    <p className="decoration-help">{t('decorations.selected.pages', { v0: value.pages.length, v1: value.pages.length === 1 ? '' : 's' })}</p>
     <NumberInput label={t("m.opacity.28dd90")} value={Math.round(value.opacity * 100)} min={0} max={100} onChange={opacity => onChange({ ...value, opacity: opacity / 100 })} />
     {value.kind !== 'background' && <label>{t("m.layer.434363")}<select value={value.layer} onChange={event => onChange({ ...value, layer: event.target.value as 'foreground' | 'background' })}><option value="foreground">{t("m.in.front.of.page.content.f75888")}</option><option value="background">{t("m.behind.page.content.634aa0")}</option></select></label>}
     {value.kind === 'watermark' && (() => {

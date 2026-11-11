@@ -19,10 +19,10 @@
   height: 24px;
   background: linear-gradient(
     90deg,
-    rgba(255, 180, 0, 0.8) 0%,
-    rgba(255, 180, 0, 0.6) 30%,
-    rgba(255, 180, 0, 0.3) 70%,
-    rgba(255, 180, 0, 0) 100%
+    light-dark(rgba(255, 180, 0, 0.8), #543900cc) 0%,
+    light-dark(rgba(255, 180, 0, 0.6), #54390099) 30%,
+    light-dark(rgba(255, 180, 0, 0.3), #5439004c) 70%,
+    light-dark(rgba(255, 180, 0, 0), #54390000) 100%
   );
   border-radius: 4px;
   animation: highlight-slide-in 0.4s ease-out;
@@ -35,7 +35,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: rgba(255, 180, 0, 0.6);
+  background: light-dark(rgba(255, 180, 0, 0.6), #54390099);
   animation: highlight-pulse 1.5s ease-out infinite;
 }
 

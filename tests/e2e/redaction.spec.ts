@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test, expect, type Page } from '@playwright/test';
 import { PDFDocument, PDFName, PDFNumber, degrees } from 'pdf-lib';
 import * as mupdf from 'mupdf';
+import { acceptAppDialog } from './appDialog';
 
 const secret = 'PRIVATE_PDF_SECRET_91827';
 const publicText = 'PUBLIC_PDF_CONTENT_REMAINS';
@@ -66,13 +67,10 @@ async function markRegion(page: Page, source: Awaited<ReturnType<typeof fixture>
 
 async function removeContent(page: Page) {
   await page.getByRole('button', { name: 'All tools' }).click();
-  const confirmation = page.waitForEvent('dialog');
-  const click = page.getByRole('button', { name: 'Remove Selected Page Content', exact: true }).click();
-  const dialog = await confirmation;
-  expect(dialog.message()).toContain('Metadata and attachments are not cleaned');
-  expect(dialog.message()).toContain('Local undo history retains the original');
-  await dialog.accept();
-  await click;
+  await page.getByRole('button', { name: 'Remove Selected Page Content', exact: true }).click();
+  const message = await acceptAppDialog(page);
+  expect(message).toContain('Metadata and attachments are not cleaned');
+  expect(message).toContain('Local undo history retains the original');
   await expect(page.getByTitle('Undo Remove selected page content (Ctrl+Z)', { exact: true })).toBeEnabled({ timeout: 30000 });
   await expect(page.locator('.error-state')).toHaveCount(0);
   await expect(page.locator('canvas.page-canvas')).toBeVisible();

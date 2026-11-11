@@ -114,7 +114,7 @@ test('text box drafts save while focused, undo as one edit, and export immediate
   expect(await exportedText(page)).toContain(immediate);
 });
 
-test('Escape cancels original text drafts without losing redo; focused drafts survive refresh as one edit', async ({ page }) => {
+test('Escape finishes original text drafts and one Undo reverts them; focused drafts survive refresh as one edit', async ({ page }) => {
   await openSource(page);
   let editor = await startOriginalTextEdit(page, original);
   const previous = 'Previous committed edit';
@@ -126,21 +126,21 @@ test('Escape cancels original text drafts without losing redo; focused drafts su
 
   editor = await startOriginalTextEdit(page, original);
   await editor.fill('');
-  await editor.pressSequentially('Canceled draft');
+  await editor.pressSequentially('Escaped draft');
   await expect(undo(page)).toBeEnabled();
   await expect(redo(page)).toBeDisabled();
+  // Escape leaves the editor like Done: typed text is never discarded silently.
   await editor.press('Escape');
   await expect(editor).toHaveCount(0);
+  await expect(page.locator('.text-block').filter({ hasText: 'Escaped draft' })).toHaveCount(1);
+  expect(await exportedText(page)).toContain('Escaped draft');
+  // The whole typing session is one history step.
+  await historyStep(page, 'Undo', 'Edit original text');
   await expect(page.locator('.text-block').filter({ hasText: original })).toHaveCount(1);
   await expect(undo(page)).toBeDisabled();
-  await expect(redo(page)).toHaveAccessibleName('Redo Edit original text');
-  await expect(redo(page)).toBeEnabled();
-  const canceledOutput = await exportedText(page);
-  expect(canceledOutput).toContain(original);
-  expect(canceledOutput).not.toContain('Canceled draft');
-  await historyStep(page, 'Redo', 'Edit original text');
-  expect(await exportedText(page)).toContain(previous);
-  await historyStep(page, 'Undo', 'Edit original text');
+  const revertedOutput = await exportedText(page);
+  expect(revertedOutput).toContain(original);
+  expect(revertedOutput).not.toContain('Escaped draft');
 
   editor = await startOriginalTextEdit(page, original);
   await editor.fill('');

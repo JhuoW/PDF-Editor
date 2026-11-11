@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { expect, test } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import { extractFormFields } from '../../src/forms/FormFieldExtractor';
+import { acceptAppDialog } from './appDialog';
 
 test('page deletion, undo, reorder and export keep the filled form and its annotation together', async ({ page }) => {
   page.on('dialog', dialog => dialog.accept());
@@ -34,6 +35,7 @@ test('page deletion, undo, reorder and export keep the filled form and its annot
   await pageNumber.press('Enter');
   await page.getByRole('tab', { name: 'Organize', exact: true }).click();
   await page.locator('.workspace-ribbon [data-command="delete-pages"]').click();
+  expect(await acceptAppDialog(page)).toMatch(/^Delete page \d+\?$/);
   await expect(page.locator('.page-total')).toHaveText('2');
   await expect(page.getByRole('textbox', { name: 'Client', exact: true })).toHaveValue('Edited client');
   await expect(page.locator('.session-save-status')).toHaveClass(/status-saved/);

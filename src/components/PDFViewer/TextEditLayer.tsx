@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { useEditingStore } from '../../store/editingStore';
 import { useHistoryStore } from '../../store/historyStore';
-import { cancelWorkspaceGroup, registerPendingEditor } from '../../store/workspaceHistory';
+import { registerPendingEditor } from '../../store/workspaceHistory';
 import { detectTextBlocks } from '../../editing/TextBlockDetector';
 import { originalParagraphText } from '../../editing/ParagraphText';
 import type { TextBlock, TextLayoutOptions, TextRect } from '../../editing/types';
@@ -183,11 +183,9 @@ export function TextEditLayer({ page, pageNumber, scale, rotation, onTextLayout 
     pendingPoint.current = null;
     if (!['ArrowUp', 'ArrowDown', 'Shift', 'Control', 'Meta', 'Alt'].includes(event.key)) preferredColumn.current = null;
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
-    if (event.key === 'Escape') {
-      event.preventDefault(); const key = group.current; group.current = null;
-      if (key) cancelWorkspaceGroup(key);
-      finish();
-    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    // Escape leaves the editor like Done and keeps the typed text; a single Undo
+    // reverts the whole typing session, so no draft is ever discarded silently.
+    if (event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey))) {
       event.preventDefault(); finish();
     } else if (prepared && input.current && ['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
       // Native navigation follows input newlines, not the PDF's wrapped rows.

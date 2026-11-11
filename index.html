@@ -2,11 +2,52 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PDF Editor</title>
+    <meta name="description" content="Free, open-source PDF editor that runs in your browser: edit text and images, annotate, sign, fill forms and organize pages without uploading your files. 免费开源的浏览器端 PDF 编辑器：无需上传即可编辑、批注、签名、填写表单和整理页面。" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#18191c" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Link previews. Social sites require an absolute image URL, so it points at the official deployment. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PDF Editor" />
+    <meta property="og:title" content="PDF Editor — edit, annotate and organize PDFs in your browser" />
+    <meta property="og:description" content="Free and open source. Your files stay on your device. 免费开源，文件不上传。" />
+    <meta property="og:image" content="https://wei2hu0.github.io/PDF-Editor/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="PDF Editor workspace with page thumbnails, editing tools and an open document" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      Apply saved preferences before the first paint, so a forced theme never
+      flashes the other one and assistive technology gets the right language.
+      Keep the keys and colors in sync with src/store/themeStore.ts and src/i18n/locale.ts.
+    -->
+    <script>
+      (function () {
+        var root = document.documentElement, locale = null;
+        try {
+          var theme = localStorage.getItem('pdf-editor.theme');
+          if (theme === 'light' || theme === 'dark') {
+            root.setAttribute('data-theme', theme);
+            var metas = document.querySelectorAll('meta[name="theme-color"]');
+            for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', theme === 'dark' ? '#18191c' : '#ffffff');
+          }
+          locale = localStorage.getItem('pdf-editor.locale');
+        } catch (error) { /* Storage can be unavailable; defaults still work. */ }
+        if (locale !== 'en' && locale !== 'zh-CN') locale = /^zh/i.test(navigator.language || '') ? 'zh-CN' : 'en';
+        root.lang = locale;
+        if (locale === 'zh-CN') document.title = 'PDF 编辑器';
+      })();
+    </script>
   </head>
   <body>
+    <noscript>PDF Editor needs JavaScript. PDF 编辑器需要启用 JavaScript。</noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

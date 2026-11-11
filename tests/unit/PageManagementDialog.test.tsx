@@ -91,7 +91,7 @@ describe('PageManagementDialog', () => {
     await act(async () => { useLocaleStore.getState().setLocale('zh-CN'); });
     expect(host.querySelector('h2')!.textContent).toBe('提取页面');
     expect(host.querySelector<HTMLInputElement>('input[aria-label="页面范围"]')!.value).toBe('4');
-    expect(host.querySelector('[role="alert"]')!.textContent).toContain('1和3');
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('1 和 3');
     await input('页面范围', '３，１'); await submit();
     expect(onRun).toHaveBeenCalledWith({ action: 'extract', pages: [3, 1] }, expect.any(AbortSignal), expect.any(Function));
   });

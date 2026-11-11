@@ -34,7 +34,7 @@
 
 /* Search highlight - inactive matches (yellow) */
 .text-layer-container .textLayer .search-highlight {
-  background-color: rgba(255, 230, 0, 0.7);
+  background-color: light-dark(rgba(255, 230, 0, 0.7), #393301b2);
   color: transparent;
   border-radius: 2px;
   padding: 1px 0;

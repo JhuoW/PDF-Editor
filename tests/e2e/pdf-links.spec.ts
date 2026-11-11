@@ -111,6 +111,6 @@ test('draws, moves and resizes link areas on narrow screens, rejects unsafe URLs
   await expect.poll(async () => Number(await panel.getByRole('spinbutton', { name: 'Width', exact: true }).inputValue())).toBeGreaterThan(width); await ready(panel);
   await page.setViewportSize({ width: 390, height: 844 }); expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(panel.getByRole('button', { name: 'Apply links', exact: true })).toBeInViewport(); await page.screenshot({ path: test.info().outputPath('links-narrow.png') });
-  await panel.getByRole('button', { name: 'Cancel', exact: true }).click(); expect(await nativeLinks(await exported(page))).toEqual(before);
+  await panel.getByRole('button', { name: 'Discard changes', exact: true }).click(); expect(await nativeLinks(await exported(page))).toEqual(before);
   await expect(page.getByRole('button', { name: /Undo Edit links/ })).toHaveCount(0);
 });

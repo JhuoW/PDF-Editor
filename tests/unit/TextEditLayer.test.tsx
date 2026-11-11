@@ -207,7 +207,7 @@ describe('text editing interaction', () => {
     expect(useEditingStore.getState().textEdits).toHaveLength(1);
   });
 
-  it('cancels only the current typing session with Escape and preserves an earlier saved edit', async () => {
+  it('finishes the typing session with Escape, keeps the text and records one undo step per session', async () => {
     useEditingStore.getState().setTextBlocks(1, [block]);
     await render(page());
     const type = (value: string) => {
@@ -222,11 +222,14 @@ describe('text editing interaction', () => {
     const first = type('Saved edit');
     act(() => first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true })));
     act(() => container.querySelector<HTMLElement>('.text-block')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
-    const second = type('Discard this session');
+    type('Kept after');
+    const second = type('Kept after Escape');
     act(() => second.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(container.querySelector('textarea')).toBeNull();
-    expect(useEditingStore.getState().getBlock(block.id)?.text).toBe('Saved edit');
-    expect(useEditingStore.getState().textEdits.at(-1)?.newText).toBe('Saved edit');
+    expect(useEditingStore.getState().getBlock(block.id)?.text).toBe('Kept after Escape');
+    expect(useEditingStore.getState().textEdits.at(-1)?.newText).toBe('Kept after Escape');
+    // Both keystroke updates of the second session coalesce into one undo step.
+    expect(useHistoryStore.getState().undoStack).toHaveLength(2);
   });
 
   it('edits short glyph regions without expanding their original bounds or displaying a text box', async () => {

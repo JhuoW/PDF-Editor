@@ -12,6 +12,7 @@ import { importEditableAnnotations } from '../annotations/AnnotationImporter';
 import { decryptPDF } from '../core/PDFEncryption';
 import { captureDocumentFileSaveState, initializeDocumentSaveState } from '../store/documentSaveStore';
 import { forgetTabDocumentSession, reloadOwnedDocumentSession, rememberTabDocumentSession } from '../utils/documentRecovery';
+import { MAX_ZOOM, MIN_ZOOM } from '../components/PDFViewer/zoomGesture';
 
 export interface PDFPasswordRequest {
   id: string;
@@ -364,12 +365,12 @@ export function usePDFDocument() {
   }, [navigation.currentPage, setCurrentPage]);
 
   const zoomIn = useCallback(() => {
-    const newZoom = Math.min(navigation.zoom * 1.25, 4);
+    const newZoom = Math.min(navigation.zoom * 1.25, MAX_ZOOM);
     setZoom(newZoom, 'manual');
   }, [navigation.zoom, setZoom]);
 
   const zoomOut = useCallback(() => {
-    const newZoom = Math.max(navigation.zoom / 1.25, 0.25);
+    const newZoom = Math.max(navigation.zoom / 1.25, MIN_ZOOM);
     setZoom(newZoom, 'manual');
   }, [navigation.zoom, setZoom]);
 

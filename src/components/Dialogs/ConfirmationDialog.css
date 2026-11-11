@@ -132,3 +132,21 @@
   outline: 2px solid var(--accent-8);
   outline-offset: 2px;
 }
+
+/* Multi-paragraph messages use blank lines. */
+.confirmation-dialog-message { white-space: pre-line; overflow-wrap: anywhere; }
+.confirmation-dialog-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-7, light-dark(#c8ced8, #3f434b));
+  border-radius: 6px;
+  background: light-dark(#fff, #18191c);
+  color: var(--gray-12, light-dark(#101828, #e1e6f0));
+  font: inherit;
+  font-size: 14px;
+}
+.confirmation-dialog-input:focus { outline: 2px solid #2e90fa; outline-offset: 1px; }
+.confirmation-dialog-error { margin: 8px 0 0; color: light-dark(#b42318, #fc8d7d); font-size: 13px; }

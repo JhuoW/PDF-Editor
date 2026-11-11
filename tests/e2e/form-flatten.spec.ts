@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { expect, test, type Page } from '@playwright/test';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 import * as mupdf from 'mupdf';
+import { acceptAppDialog } from './appDialog';
 
 const linkURL = 'https://example.org/retained-form-link';
 const englishValue = 'Updated customer';
@@ -60,6 +61,7 @@ async function openAndFill(page: Page, contentImage = false) {
 async function flatten(page: Page) {
   await page.getByRole('button', { name: 'All tools' }).click();
   await page.getByRole('button', { name: 'Flatten Form (Make Static)', exact: true }).click();
+  expect(await acceptAppDialog(page)).toContain('Convert all form fields to static page content');
   await expect(page.locator('.form-field')).toHaveCount(0);
   // Design Form remains available on a static PDF after the filling controls disappear.
   await expect(page.getByRole('button', { name: 'All tools' })).toBeVisible();

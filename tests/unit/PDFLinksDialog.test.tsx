@@ -38,6 +38,7 @@ async function number(name: string, value: number) { await fill(name, String(val
 async function select(id = 'first') { await fill('Links', id); }
 function preview(): ComponentProps<typeof PDFLinksPreview> { return api.render.mock.calls.at(-1)![0]; }
 async function cancel() { await act(async () => host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))); }
+async function confirmDiscard() { await act(async () => host.querySelector<HTMLButtonElement>('.confirmation-dialog .confirm')!.click()); }
 function updateDefinition() { const op = currentOperations().find(op => op.type === 'update'); if (op?.type !== 'update') throw new Error('No update'); return op.definition; }
 
 describe('PDFLinksDialog', () => {
@@ -90,7 +91,7 @@ describe('PDFLinksDialog', () => {
     await render({ documentKey: 'three', readPDF: vi.fn(async () => source) }); await settle(); expect(oldRead.mock.calls[0][0].aborted).toBe(true); await act(async () => finish({ ...source, report: { ...report, links: [] } })); expect(host.textContent).toContain('Website');
   });
   it('cancels draft/preview work and never commits partial changes', async () => {
-    await render(); await settle(); await select(); await fill('URL', 'https://unsaved.example'); await cancel(); expect(props.onApply).not.toHaveBeenCalled(); expect(props.onClose).toHaveBeenCalledTimes(1); expect(report.links[0].definition!.target).toEqual(first.target);
+    await render(); await settle(); await select(); await fill('URL', 'https://unsaved.example'); await cancel(); expect(host.textContent).toContain('Discard unapplied changes?'); expect(props.onClose).not.toHaveBeenCalled(); expect(button('Discard changes')).toBeDefined(); await confirmDiscard(); expect(props.onApply).not.toHaveBeenCalled(); expect(props.onClose).toHaveBeenCalledTimes(1); expect(report.links[0].definition!.target).toEqual(first.target);
   });
   it('guards duplicate apply, aborts precommit work, and ignores completion after cancellation or document revision change', async () => {
     let finish!: () => void; await render({ onApply: vi.fn(() => new Promise<void>(resolve => { finish = resolve; })) }); await settle(); await select(); await fill('URL', 'https://changed.example'); await settle();
@@ -99,14 +100,14 @@ describe('PDFLinksDialog', () => {
   });
   it('prevents closing after the atomic commit boundary and recovers from save failure', async () => {
     let finish!: () => void; await render({ onApply: vi.fn(async (_ops, _signal, commit) => { commit(); await new Promise<void>(resolve => { finish = resolve; }); }) }); await settle(); await select(); await fill('URL', 'https://changed.example'); await settle(); await click('Apply links');
-    expect(button('Cancel').disabled).toBe(true); await cancel(); expect(props.onClose).not.toHaveBeenCalled(); await act(async () => finish()); expect(props.onClose).toHaveBeenCalledTimes(1);
+    expect(button('Discard changes').disabled).toBe(true); await cancel(); expect(props.onClose).not.toHaveBeenCalled(); await act(async () => finish()); expect(props.onClose).toHaveBeenCalledTimes(1);
     await render({ revision: 2, onApply: vi.fn().mockRejectedValueOnce(new Error('Save failed')).mockResolvedValue(undefined) }); await settle(); await select(); await fill('URL', 'https://retry.example'); await settle(); await click('Apply links'); expect(host.textContent).toContain('Save failed'); expect(button('Apply links').disabled).toBe(false); await click('Apply links'); expect(props.onApply).toHaveBeenCalledTimes(2);
   });
   it('survives its own committed revision publication and closes exactly once after apply resolves', async () => {
     let finish!: () => void;
     await render({ onApply: vi.fn(async (_operations, _signal, onCommit) => { onCommit(); await new Promise<void>(resolve => { finish = resolve; }); }) }); await settle(); await select(); await fill('URL', 'https://committed.example'); await settle(); await click('Apply links');
     const signal = vi.mocked(props.onApply).mock.calls[0][1]; const reads = vi.mocked(props.readPDF).mock.calls.length;
-    await render({ revision: 2 }); expect(signal.aborted).toBe(false); expect(props.readPDF).toHaveBeenCalledTimes(reads); expect(button('Cancel').disabled).toBe(true);
+    await render({ revision: 2 }); expect(signal.aborted).toBe(false); expect(props.readPDF).toHaveBeenCalledTimes(reads); expect(button('Discard changes').disabled).toBe(true);
     await act(async () => finish()); expect(props.onClose).toHaveBeenCalledTimes(1); expect(signal.aborted).toBe(false);
   });
   it('does not permit creating, editing, or deleting links from a restricted document', async () => {

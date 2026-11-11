@@ -95,7 +95,11 @@ test('keeps text below fixed artwork in place and shows a real collision during 
   await expect(page.locator('.text-edit-layer')).toHaveAttribute('data-preview-text', longer);
   await expect(page.locator('.text-block.overflow')).toHaveCount(1);
   await expect(page.locator('.text-edit-notice')).toContainText('Paragraph reflow needs more space');
+  // Escape keeps the overflowing draft and its warning; one Undo reverts the typing session.
   await input(page).press('Escape');
+  await expect(input(page)).toHaveCount(0);
+  await expect(page.locator('.text-block.overflow')).toHaveCount(1);
+  await page.locator('.workspace-history > button').first().click();
   await expect(page.locator('.text-block.overflow')).toHaveCount(0);
   const saved = inspect(await save(page));
   expect(saved.text).toContain('Upper row two'); expect(saved.text).not.toContain('Fourth row');

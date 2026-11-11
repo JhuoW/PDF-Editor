@@ -5,9 +5,10 @@ import viteConfig from './vite.config';
 export default mergeConfig(viteConfig, defineConfig({
   test: {
     include: ['tests/unit/**/*.test.{ts,tsx}'],
-    // Font embedding and 300 dpi WASM rendering need more time on hosted runners.
-    // Limit simultaneous engines so these correctness tests do not compete for CPU.
-    testTimeout: process.env.CI ? 30_000 : 5_000,
+    // MuPDF/WASM rendering, font embedding and 300 dpi checks take several seconds
+    // even when run alone, so local runs use the same limit as hosted runners.
+    testTimeout: 30_000,
+    // Limit simultaneous engines on CI so these correctness tests do not compete for CPU.
     maxWorkers: process.env.CI ? 2 : undefined,
   },
 }));

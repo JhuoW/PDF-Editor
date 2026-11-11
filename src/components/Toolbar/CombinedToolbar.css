@@ -83,7 +83,7 @@
 }
 
 .dropdown-trigger.has-changes {
-  color: #f59e0b;
+  color: light-dark(#f59e0b, #f39f1d);
 }
 
 .toolbar-divider {
@@ -167,7 +167,7 @@
 }
 
 .menu-item-danger {
-  color: #ef4444 !important;
+  color: light-dark(#ef4444, #fc8c84) !important;
 }
 
 .menu-item-danger:hover:not(:disabled) {
@@ -176,7 +176,7 @@
 }
 
 .menu-item-warning {
-  color: #d97706 !important;
+  color: light-dark(#d97706, #f9953a) !important;
 }
 
 .menu-item-warning:hover:not(:disabled) {
@@ -213,7 +213,7 @@
 
 /* Text markup icons */
 .highlight-icon {
-  background: rgba(255, 230, 0, 0.5);
+  background: light-dark(rgba(255, 230, 0, 0.5), #39330180);
   padding: 0 2px;
   border-radius: 2px;
 }

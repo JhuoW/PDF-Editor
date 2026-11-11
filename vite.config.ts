@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { pdfjsAssets } from './build/pdfjsAssets'
 import { ocrAssets } from './build/ocrAssets'
+import { lightDarkFallback } from './build/postcssLightDark'
+import tailwindcss from '@tailwindcss/postcss'
+import autoprefixer from 'autoprefixer'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
@@ -12,6 +15,7 @@ const revision = (() => { try { return execFileSync('git', ['rev-parse', '--shor
 export default defineConfig({
   plugins: [react(), pdfjsAssets(), ocrAssets()],
   define: { __APP_VERSION__: JSON.stringify(`${version} (${revision})`) },
+  css: { postcss: { plugins: [tailwindcss(), lightDarkFallback(), autoprefixer()] } },
   worker: { format: 'es' },
   optimizeDeps: {
     include: ['pdfjs-dist'],

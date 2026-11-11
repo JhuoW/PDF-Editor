@@ -286,7 +286,9 @@ kbd {
 .session-save-status.status-error { color: var(--red-11); }
 .session-save-status button { color: inherit; cursor: pointer; }
 
-.image-placement-status { position: fixed; top: 120px; left: 50%; transform: translateX(-50%); z-index: 35; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 10px 14px; border: 1px solid var(--blue-8); border-radius: 8px; background: var(--gray-2); color: var(--gray-12); box-shadow: 0 4px 18px #0004; font-size: 13px; }
+/* In the layout flow below the ribbon, so the ribbon can never cover the hint or its Cancel button. */
+.image-placement-status { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 12px; box-sizing: border-box; padding: 6px 14px; border-bottom: 1px solid light-dark(#c7dbfb, #3d4e68); background: light-dark(#eef5ff, #1d2c42); color: light-dark(#1d3f78, #8ab2f4); font-size: 13px; }
 .image-placement-status span { overflow-wrap: anywhere; min-width: 0; }
-.image-placement-status button { flex-shrink: 0; padding: 6px 8px; color: inherit; background: var(--gray-4); border: 1px solid var(--gray-7); border-radius: 4px; cursor: pointer; }
-@media (max-width: 600px) { .image-placement-status { top: 170px; width: calc(100vw - 24px); font-size: 12px; gap: 6px; } }
+.image-placement-status button { flex-shrink: 0; padding: 4px 10px; color: inherit; background: light-dark(#fff, #18191c); border: 1px solid light-dark(#b4cdf5, #394d6f); border-radius: 5px; cursor: pointer; }
+.image-placement-status button:hover { background: light-dark(#f5f9ff, #1c2a40); }
+@media (max-width: 600px) { .image-placement-status { font-size: 12px; gap: 6px; padding: 6px 10px; } }

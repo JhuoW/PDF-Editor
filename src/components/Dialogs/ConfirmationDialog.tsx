@@ -1,6 +1,6 @@
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, translateMessage } from "../../i18n";
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import './ConfirmationDialog.css';
 
 interface ConfirmationDialogProps {
@@ -8,8 +8,11 @@ interface ConfirmationDialogProps {
   title: string;
   message: string;
   confirmLabel?: string;
-  cancelLabel?: string;
+  /** null shows a single acknowledgement button (alert). */
+  cancelLabel?: string | null;
   confirmVariant?: 'danger' | 'primary';
+  /** Extra content such as a prompt field; its first input receives focus. */
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -23,10 +26,12 @@ export function ConfirmationDialog({
   confirmVariant = 'danger',
   onConfirm,
   onCancel,
+  children,
 }: ConfirmationDialogProps) {
   useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId(), messageId = useId();
 
   // Native modal semantics keep focus and pointer interaction inside the decision.
@@ -35,7 +40,10 @@ export function ConfirmationDialog({
     const dialog = dialogRef.current;
     const opener = document.activeElement;
     if (dialog && !dialog.open) dialog.showModal();
-    cancelButtonRef.current?.focus();
+    // Focus the safe choice; a prompt focuses its field, an alert its only button.
+    const field = dialog?.querySelector<HTMLInputElement>('.confirmation-dialog-body input');
+    if (field) { field.focus(); field.select(); }
+    else (cancelButtonRef.current ?? confirmButtonRef.current)?.focus();
     return () => {
       dialog?.close();
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
@@ -53,23 +61,28 @@ export function ConfirmationDialog({
 
   return (
     <dialog ref={dialogRef} className="confirmation-dialog-overlay" aria-labelledby={titleId} aria-describedby={messageId}
-      onCancel={event => { event.preventDefault(); onCancel(); }} onClick={handleBackdropClick} onKeyDown={event => event.stopPropagation()}>
+      /* Stop propagation: React bubbles cancel/click to an enclosing dialog's handlers. */
+      onCancel={event => { event.preventDefault(); event.stopPropagation(); onCancel(); }} onClick={event => { event.stopPropagation(); handleBackdropClick(event); }} onKeyDown={event => event.stopPropagation()}>
       <div className="confirmation-dialog">
         <div className="confirmation-dialog-header">
           <h2 id={titleId} className="confirmation-dialog-title">{translateMessage(title)}</h2>
         <div className="dialog-language"><LanguageSwitcher /></div></div>
         <div className="confirmation-dialog-body">
           <p id={messageId} className="confirmation-dialog-message">{translateMessage(message)}</p>
+          {children}
         </div>
         <div className="confirmation-dialog-footer">
-          <button
+          {cancelLabel !== null && <button
+            type="button"
             ref={cancelButtonRef}
             className="confirmation-dialog-button cancel"
             onClick={onCancel}
           >
             {translateMessage(cancelLabel)}
-          </button>
+          </button>}
           <button
+            type="button"
+            ref={confirmButtonRef}
             className={`confirmation-dialog-button confirm ${confirmVariant}`}
             onClick={onConfirm}
           >

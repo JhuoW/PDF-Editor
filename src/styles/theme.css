@@ -1,0 +1,248 @@
+/*
+  Design tokens and base typography of the application shell.
+  Values match the Radix Themes light and dark themes (accent blue, slate gray)
+  that the app previously loaded in full (~800 kB of component CSS). Only the
+  tokens the app uses are kept; add a token here before referencing a new one.
+*/
+
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 300;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI Semilight'), local('Segoe UI');
+}
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 300;
+  font-style: italic;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI Semilight Italic'), local('Segoe UI Italic');
+}
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 400;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI');
+}
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 400;
+  font-style: italic;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI Italic');
+}
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 500;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI Semibold'), local('Segoe UI');
+}
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 500;
+  font-style: italic;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI Semibold Italic'), local('Segoe UI Italic');
+}
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 700;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI Bold');
+}
+@font-face {
+  font-family: 'Segoe UI (Custom)';
+  font-weight: 700;
+  font-style: italic;
+  size-adjust: 103%;
+  descent-override: 35%;
+  ascent-override: 105%;
+  src: local('Segoe UI Bold Italic');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 300;
+  descent-override: 35%;
+  src: local('Open Sans Light'), local('Open Sans Regular');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 300;
+  font-style: italic;
+  descent-override: 35%;
+  src: local('Open Sans Light Italic'), local('Open Sans Italic');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 400;
+  descent-override: 35%;
+  src: local('Open Sans Regular');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 400;
+  font-style: italic;
+  descent-override: 35%;
+  src: local('Open Sans Italic');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 500;
+  descent-override: 35%;
+  src: local('Open Sans Medium'), local('Open Sans Regular');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 500;
+  font-style: italic;
+  descent-override: 35%;
+  src: local('Open Sans Medium Italic'), local('Open Sans Italic');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 700;
+  descent-override: 35%;
+  src: local('Open Sans Bold');
+}
+@font-face {
+  font-family: 'Open Sans (Custom)';
+  font-weight: 700;
+  font-style: italic;
+  descent-override: 35%;
+  src: local('Open Sans Bold Italic');
+}
+@font-face {
+  font-family: 'Consolas (Custom)';
+  font-weight: 400;
+  size-adjust: 110%;
+  ascent-override: 85%;
+  descent-override: 22%;
+  src: local('Consolas');
+}
+@font-face {
+  font-family: 'Consolas (Custom)';
+  font-weight: 400;
+  font-style: italic;
+  size-adjust: 110%;
+  ascent-override: 85%;
+  descent-override: 22%;
+  src: local('Consolas Italic');
+}
+@font-face {
+  font-family: 'Consolas (Custom)';
+  font-weight: 700;
+  size-adjust: 110%;
+  ascent-override: 85%;
+  descent-override: 22%;
+  src: local('Consolas Bold');
+}
+@font-face {
+  font-family: 'Consolas (Custom)';
+  font-weight: 700;
+  font-style: italic;
+  size-adjust: 110%;
+  ascent-override: 85%;
+  descent-override: 22%;
+  src: local('Consolas Bold Italic');
+}
+
+/*
+  Color scheme. "Follow system" leaves data-theme unset so the operating system
+  decides; the appearance switch can force light or dark. Colors throughout the
+  app are written as light-dark(light, dark) and resolve from the color-scheme
+  of the element that uses them. The build adds light-only fallbacks for
+  browsers without light-dark() (see build/postcssLightDark.js).
+*/
+:root { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/*
+  PDF pages are paper: everything drawn on or over a page (form fields, text
+  editors, annotation editors) keeps its light appearance in dark mode.
+*/
+.page-wrapper { color-scheme: light; color: #273449; }
+
+:root {
+  --color-background: light-dark(white, #111113);
+  --color-panel-solid: light-dark(white, #18191b);
+  --focus-a5: light-dark(#0093ff3d, #3b9eff47);
+  --accent-3: light-dark(#e6f4fe, #0d2847);
+  --accent-4: light-dark(#d5efff, #003362);
+  --accent-8: light-dark(#5eb1ef, #2870bd);
+  --accent-9: #0090ff;
+  --accent-10: light-dark(#0588f0, #3b9eff);
+  --accent-11: light-dark(#0d74ce, #70b8ff);
+  --accent-12: light-dark(#113264, #c2e6ff);
+  --amber-3: light-dark(#fff7c2, #302008);
+  --amber-11: light-dark(#ab6400, #ffca16);
+  --blue-3: light-dark(#e6f4fe, #0d2847);
+  --blue-4: light-dark(#d5efff, #003362);
+  --blue-5: light-dark(#c2e5ff, #004074);
+  --blue-8: light-dark(#5eb1ef, #2870bd);
+  --blue-9: #0090ff;
+  --blue-10: light-dark(#0588f0, #3b9eff);
+  --blue-11: light-dark(#0d74ce, #70b8ff);
+  --gray-1: light-dark(#fcfcfd, #111113);
+  --gray-2: light-dark(#f9f9fb, #18191b);
+  --gray-3: light-dark(#f0f0f3, #212225);
+  --gray-4: light-dark(#e8e8ec, #272a2d);
+  --gray-5: light-dark(#e0e1e6, #2e3135);
+  --gray-6: light-dark(#d9d9e0, #363a3f);
+  --gray-7: light-dark(#cdced6, #43484e);
+  --gray-8: light-dark(#b9bbc6, #5a6169);
+  --gray-9: light-dark(#8b8d98, #696e77);
+  --gray-10: light-dark(#80838d, #777b84);
+  --gray-11: light-dark(#60646c, #b0b4ba);
+  --gray-12: light-dark(#1c2024, #edeef0);
+  --green-4: light-dark(#d6f1df, #113b29);
+  --green-6: light-dark(#adddc0, #20573e);
+  --green-9: #30a46c;
+  --green-11: light-dark(#218358, #3dd68c);
+  --red-3: light-dark(#feebec, #3b1219);
+  --red-4: light-dark(#ffdbdc, #500f1c);
+  --red-6: light-dark(#fdbdbe, #72232d);
+  --red-7: light-dark(#f4a9aa, #8c333a);
+  --red-8: light-dark(#eb8e90, #b54548);
+  --red-9: #e5484d;
+  --red-10: light-dark(#dc3e42, #ec5d5e);
+  --red-11: light-dark(#ce2c31, #ff9592);
+  --default-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI (Custom)', Roboto, 'Helvetica Neue', 'Open Sans (Custom)', system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+}
+
+/* Root of the application UI (formerly the Radix <Theme> element). */
+.app-theme {
+  position: relative;
+  z-index: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-wrap: break-word;
+  font-family: var(--default-font-family);
+  font-size: 16px;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.5;
+  letter-spacing: 0em;
+  -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
+  text-size-adjust: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--gray-12);
+  background-color: var(--color-background);
+}
+.app-theme ::selection { background-color: var(--focus-a5); }

@@ -73,7 +73,7 @@ export function FormDesignerProperties({ field, widget, pages, disabled, onField
     <fieldset disabled={!editable}>
       <legend>{t("m.field.properties.31c688")}</legend>
       <label>{t("m.field.name.f08ab3")}<input value={field.name} onChange={event => onFieldChange({ name: event.target.value })} /></label>
-      <p className="form-designer-hint">{t("m.type.ee3fb1")}{' '}{translateMessage(field.type)}{t("m.these.properties.apply.to.all.2ec7c6")}{' '}{field.widgets.length} {field.widgets.length === 1 ? t("m.widget.ff700e") : t("m.widgets.2d8ba8")}{' '}{t("m.of.this.field.610476")}</p>
+      <p className="form-designer-hint">{t('formDesigner.properties.scope', { v0: field.type, v1: field.widgets.length, v2: field.widgets.length === 1 ? '' : 's' })}</p>
       <div className="form-designer-checks"><label className="form-designer-check"><input type="checkbox" checked={field.required} onChange={event => onFieldChange({ required: event.target.checked })} />{t("m.required.eed6bf")}</label>
         <label className="form-designer-check"><input type="checkbox" checked={field.readOnly} onChange={event => onFieldChange({ readOnly: event.target.checked })} />{t("m.read.only.601dcc")}</label></div>
       {field.type === 'text' && <>

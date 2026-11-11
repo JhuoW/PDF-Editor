@@ -38,7 +38,8 @@ test('pastes formatted text without executing HTML or loading injected resources
 
   // Exercise the official font-size extension through the existing toolbar.
   await editor.press('ControlOrMeta+a');
-  await page.getByTitle('Font Size', { exact: true }).selectOption('18');
+  await page.getByRole('combobox', { name: 'Preset font sizes', exact: true }).selectOption('18');
+  await expect(page.getByRole('spinbutton', { name: 'Font Size', exact: true })).toHaveValue('18');
   expect(await editor.locator('span').evaluateAll(elements => elements.some(element => (element as HTMLElement).style.fontSize === '18px'))).toBe(true);
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export', exact: true }).click();

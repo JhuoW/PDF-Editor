@@ -1,24 +1,25 @@
-.signature-dialog { width: min(900px, calc(100vw - 24px)); max-height: calc(100vh - 24px); margin: auto; padding: 0; border: 1px solid var(--gray-7, #9ca3af); border-radius: 12px; color: var(--gray-12, #111827); background: var(--gray-2, #fff); box-shadow: 0 16px 60px #0006; box-sizing: border-box; overflow: hidden; }
+.signature-dialog { width: min(900px, calc(100vw - 24px)); max-height: calc(100vh - 24px); margin: auto; padding: 0; border: 1px solid var(--gray-7, light-dark(#9ca3af, #535860)); border-radius: 12px; color: var(--gray-12, light-dark(#111827, #e1e6f0)); background: var(--gray-2, light-dark(#fff, #18191c)); box-shadow: 0 16px 60px #0006; box-sizing: border-box; overflow: hidden; }
 .signature-dialog[open] { display: flex; flex-direction: column; }
 .signature-dialog::backdrop { background: #0009; }
-.signature-dialog header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--gray-6, #e5e7eb); }
+.signature-dialog header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--gray-6, light-dark(#e5e7eb, #36383b)); }
 .signature-dialog h2 { margin: 0; font-size: 21px; }
-.signature-dialog header p { margin: 7px 0 0; font-size: 13px; line-height: 1.5; color: var(--gray-11, #4b5563); }
-.signature-dialog button { border: 1px solid var(--gray-7, #9ca3af); border-radius: 5px; background: var(--gray-3, #f9fafb); color: inherit; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.signature-dialog header p { margin: 7px 0 0; font-size: 13px; line-height: 1.5; color: var(--gray-11, light-dark(#4b5563, #b2b9c1)); }
+.signature-dialog button { border: 1px solid var(--gray-7, light-dark(#9ca3af, #535860)); border-radius: 5px; background: var(--gray-3, light-dark(#f9fafb, #1b1d20)); color: inherit; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; }
 .signature-dialog button:disabled { opacity: .5; cursor: default; }
-.signature-dialog button[aria-pressed=true] { background: var(--blue-3, #eff6ff); border-color: var(--blue-9, #2563eb); }
+.signature-dialog button[aria-pressed=true] { background: var(--blue-3, light-dark(#eff6ff, #1b2c41)); border-color: var(--blue-9, #2563eb); }
 .signature-dialog :focus-visible { outline: 2px solid var(--blue-9, #2563eb); outline-offset: 2px; }
 .signature-body { padding: 18px 20px; overflow: auto; min-height: 0; }
 .signature-modes, .signature-tools { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 14px; }
 .signature-dialog label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
-.signature-dialog select, .signature-upload input { padding: 7px 8px; border: 1px solid var(--gray-7, #9ca3af); border-radius: 5px; color: inherit; background: var(--gray-1, #fff); font-size: 13px; max-width: 100%; box-sizing: border-box; }
-.signature-pad { width: 100%; height: auto; display: block; aspect-ratio: 800 / 260; box-sizing: border-box; border: 1px solid #b6becb; border-radius: 6px; background: #fff; touch-action: none; cursor: crosshair; }
-.signature-help { font-size: 12px; line-height: 1.5; color: var(--gray-11, #4b5563); overflow-wrap: anywhere; }
+.signature-dialog select, .signature-upload input { padding: 7px 8px; border: 1px solid var(--gray-7, light-dark(#9ca3af, #535860)); border-radius: 5px; color: inherit; background: var(--gray-1, light-dark(#fff, #18191c)); font-size: 13px; max-width: 100%; box-sizing: border-box; }
+.signature-pad { width: 100%; height: auto; display: block; aspect-ratio: 800 / 260; box-sizing: border-box; border: 1px solid light-dark(#b6becb, #464b53); border-radius: 6px; background: #fff; touch-action: none; cursor: crosshair; }
+.signature-help { font-size: 12px; line-height: 1.5; color: var(--gray-11, light-dark(#4b5563, #b2b9c1)); overflow-wrap: anywhere; }
 .signature-dialog .signature-check { flex-direction: row; align-items: center; margin: 12px 0; }
-.signature-image-preview { display: flex; align-items: center; justify-content: center; min-height: 180px; border: 1px solid var(--gray-7, #9ca3af); border-radius: 6px; color: #374151; background: repeating-conic-gradient(#f3f4f6 0% 25%, #fff 0% 50%) 0 / 20px 20px; padding: 12px; }
+/* Signatures are drawn and previewed on paper in both themes, so dark ink stays visible. */
+.signature-image-preview { color-scheme: light; display: flex; align-items: center; justify-content: center; min-height: 180px; border: 1px solid var(--gray-7, light-dark(#9ca3af, #535860)); border-radius: 6px; color: light-dark(#374151, #c1c6cf); background: repeating-conic-gradient(light-dark(#f3f4f6, #1f2023) 0% 25%, light-dark(#fff, #18191c) 0% 50%) 0 / 20px 20px; padding: 12px; }
 .signature-image-preview img { display: block; max-width: 100%; max-height: 260px; object-fit: contain; }
-.signature-image-preview p { padding: 8px; background: #ffffffe6; font-size: 13px; }
-.signature-error { padding: 10px; color: var(--red-11, #991b1b); background: var(--red-3, #fef2f2); border-radius: 5px; font-size: 13px; overflow-wrap: anywhere; }
-.signature-dialog footer { flex-shrink: 0; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--gray-6, #e5e7eb); }
+.signature-image-preview p { padding: 8px; background: light-dark(#ffffffe6, #18191ce6); font-size: 13px; }
+.signature-error { padding: 10px; color: var(--red-11, light-dark(#991b1b, #fc8d81)); background: var(--red-3, light-dark(#fef2f2, #3f2223)); border-radius: 5px; font-size: 13px; overflow-wrap: anywhere; }
+.signature-dialog footer { flex-shrink: 0; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--gray-6, light-dark(#e5e7eb, #36383b)); }
 .signature-dialog .signature-primary { background: var(--blue-9, #2563eb); border-color: var(--blue-9, #2563eb); color: white; }
 @media (max-width: 600px) { .signature-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); } .signature-dialog header, .signature-body, .signature-dialog footer { padding: 12px; } .signature-tools { gap: 8px; } }

@@ -18,17 +18,17 @@
 .pdf-text-caret { position: absolute; z-index: 26; background: #1d4ed8; pointer-events: none; animation: pdf-caret-blink 1.1s step-end infinite; }
 .pdf-text-selection { position: absolute; z-index: 26; background: #3b82f64d; pointer-events: none; }
 @keyframes pdf-caret-blink { 50% { opacity: 0; } }
-.text-edit-actions { position: absolute; z-index: 102; display: flex; align-items: center; gap: 4px; padding: 4px; max-width: 100%; border: 1px solid var(--gray-6, #dce0e5); border-radius: 6px; background: var(--gray-1, #fff); box-shadow: 0 2px 8px #0001; cursor: default; }
-.text-edit-actions button { padding: 5px 8px; border: 0; border-radius: 3px; background: var(--gray-3, #f1f5f9); color: var(--gray-12, #111827); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.text-edit-actions { position: absolute; z-index: 102; display: flex; align-items: center; gap: 4px; padding: 4px; max-width: 100%; border: 1px solid var(--gray-6, light-dark(#dce0e5, #383b3f)); border-radius: 6px; background: var(--gray-1, light-dark(#fff, #18191c)); box-shadow: 0 2px 8px #0001; cursor: default; }
+.text-edit-actions button { padding: 5px 8px; border: 0; border-radius: 3px; background: var(--gray-3, light-dark(#f1f5f9, #1f2023)); color: var(--gray-12, light-dark(#111827, #e1e6f0)); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .text-edit-actions button:focus-visible { outline: 2px solid #2563eb; }
-.text-edit-actions span { padding: 0 5px; font-size: 10px; color: var(--gray-11, #536174); white-space: nowrap; }
+.text-edit-actions span { padding: 0 5px; font-size: 10px; color: var(--gray-11, light-dark(#536174, #abb1b9)); white-space: nowrap; }
 .text-edit-actions.in-toolbar { position: static; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .pdf-text-edit-controls { display: none; }
-.pdf-text-edit-controls.active { display: flex; align-items: center; width: 330px; min-height: 28px; font-size: 12px; color: var(--gray-11, #536174); }
+.pdf-text-edit-controls.active { display: flex; align-items: center; width: 330px; min-height: 28px; font-size: 12px; color: var(--gray-11, light-dark(#536174, #abb1b9)); }
 .pdf-text-edit-controls > button { flex-shrink: 0; }
 .pdf-text-edit-controls > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1000px) { .text-edit-actions.in-toolbar span { display: none; } .pdf-text-edit-controls.active { width: 160px; } }
 .text-edit-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 8px 16px; background: #000b; color: white; border-radius: 4px; font-size: 12px; }
-.text-edit-notice, .text-edit-readonly { position: absolute; bottom: 12px; left: 12px; right: 12px; z-index: 101; padding: 9px 12px; background: #fff8df; border: 1px solid #dfc778; border-radius: 5px; color: #513d0a; font-size: 12px; line-height: 1.4; }
+.text-edit-notice, .text-edit-readonly { position: absolute; bottom: 12px; left: 12px; right: 12px; z-index: 101; padding: 9px 12px; background: light-dark(#fff8df, #322a0d); border: 1px solid light-dark(#dfc778, #5c4b0c); border-radius: 5px; color: light-dark(#513d0a, #c5ae7e); font-size: 12px; line-height: 1.4; }
 .text-edit-notice button { margin-left: 8px; padding: 4px 8px; border: 1px solid currentColor; border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; pointer-events: auto; }
-.text-edit-font-notice { position: absolute; bottom: 12px; left: 12px; right: 12px; z-index: 100; padding: 5px 9px; border-radius: 4px; background: var(--gray-2, #f8fafc); color: var(--gray-11, #667085); font-size: 11px; line-height: 1.4; pointer-events: none; }
+.text-edit-font-notice { position: absolute; bottom: 12px; left: 12px; right: 12px; z-index: 100; padding: 5px 9px; border-radius: 4px; background: var(--gray-2, light-dark(#f8fafc, #1b1d20)); color: var(--gray-11, light-dark(#667085, #a1a6af)); font-size: 11px; line-height: 1.4; pointer-events: none; }

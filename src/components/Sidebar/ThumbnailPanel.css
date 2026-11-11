@@ -73,7 +73,7 @@
 }
 
 .thumbnail-canvas {
-  background: white;
+  background: light-dark(white, #18191c);
   border: 2px solid var(--gray-6);
   border-radius: 4px;
   overflow: hidden;

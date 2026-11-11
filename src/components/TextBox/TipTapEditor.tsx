@@ -37,6 +37,8 @@ export interface TipTapEditorProps {
   padding?: number | BoxStyle['padding'];
   onContentChange?: (html: string, text: string) => void;
   onBlur?: () => void;
+  /** Escape or Ctrl/⌘+Enter: leave the editor and keep its content. */
+  onFinish?: () => void;
   autoFocus?: boolean;
 }
 
@@ -58,6 +60,7 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
       padding = 8,
       onContentChange,
       onBlur,
+      onFinish,
       autoFocus = true,
     },
     ref
@@ -66,6 +69,8 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
     const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const currentOnBlur = useRef(onBlur);
     useEffect(() => { currentOnBlur.current = onBlur; }, [onBlur]);
+    const currentOnFinish = useRef(onFinish);
+    useEffect(() => { currentOnFinish.current = onFinish; }, [onFinish]);
     useEffect(() => () => {
       if (blurTimer.current !== null) clearTimeout(blurTimer.current);
     }, []);
@@ -102,6 +107,14 @@ export const TipTapEditor = forwardRef<TipTapEditorRef, TipTapEditorProps>(
         attributes: {
           class: 'tiptap-editor-content',
           style: editorStyle(defaultStyle),
+        },
+        handleKeyDown: (_view, event) => {
+          // IME composition owns Escape/Enter until the candidate is committed.
+          if (event.isComposing || event.keyCode === 229 || !currentOnFinish.current) return false;
+          if (event.key !== 'Escape' && !(event.key === 'Enter' && (event.ctrlKey || event.metaKey))) return false;
+          event.preventDefault(); event.stopPropagation();
+          currentOnFinish.current();
+          return true;
         },
       },
       onCreate: ({ editor }) => {

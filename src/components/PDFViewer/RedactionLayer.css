@@ -10,6 +10,8 @@
   height: 100%;
   z-index: 30;
   cursor: crosshair;
+  /* One finger or a pen draws a redaction; two fingers still pinch-zoom. */
+  touch-action: none;
 }
 
 .redaction-box {
@@ -49,8 +51,8 @@
 .redaction-label {
   font-size: 10px;
   font-weight: 600;
-  color: #dc2626;
-  background: rgba(255, 255, 255, 0.9);
+  color: light-dark(#dc2626, #fc8d80);
+  background: light-dark(rgba(255, 255, 255, 0.9), #18191ce6);
   padding: 2px 6px;
   border-radius: 2px;
   pointer-events: none;
@@ -64,7 +66,7 @@
   display: flex;
   gap: 4px;
   padding: 4px;
-  background: white;
+  background: light-dark(white, #18191c);
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   margin-bottom: 4px;
@@ -75,7 +77,7 @@
   width: 120px;
   padding: 4px 8px;
   font-size: 11px;
-  border: 1px solid #d1d5db;
+  border: 1px solid light-dark(#d1d5db, #3d4045);
   border-radius: 4px;
   outline: none;
 }
@@ -86,7 +88,7 @@
 }
 
 .redaction-overlay-input::placeholder {
-  color: #9ca3af;
+  color: light-dark(#9ca3af, #82878f);
 }
 
 .redaction-delete-btn {
@@ -96,9 +98,9 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  background: #fee2e2;
-  color: #dc2626;
-  border: 1px solid #fecaca;
+  background: light-dark(#fee2e2, #442627);
+  color: light-dark(#dc2626, #fc8d80);
+  border: 1px solid light-dark(#fecaca, #6a4041);
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
@@ -106,7 +108,7 @@
 }
 
 .redaction-delete-btn:hover {
-  background: #fecaca;
+  background: light-dark(#fecaca, #572326);
 }
 
 .redaction-overlay-text {
@@ -119,3 +121,6 @@
   word-break: break-word;
   padding: 4px;
 }
+
+.redaction-box.pending:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.redaction-controls { touch-action: auto; }

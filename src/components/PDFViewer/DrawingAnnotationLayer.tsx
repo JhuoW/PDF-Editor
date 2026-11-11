@@ -1,4 +1,5 @@
 import { useLocale, translateMessage, translateError, t } from "../../i18n";
+import { appAlert, appConfirm } from '../../store/appDialogStore';
 import { useEffect, useRef, useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import type { PDFPageProxy } from 'pdfjs-dist';
@@ -2076,7 +2077,7 @@ export function DrawingAnnotationLayer({
         }
 
         selectAnnotation(annotation.id);
-        // Focus is handled by RichTextEditor's autoFocus
+        // Focus is handled by TipTapEditor autofocus
         if (!useTipTapEditor) {
           setTimeout(() => textareaRef.current?.focus(), 0);
         }
@@ -2875,16 +2876,17 @@ export function DrawingAnnotationLayer({
     if (imagePage.current !== page || !owner.document || owner.isLoading) return;
     const supported = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml'];
     if (!file.type.startsWith('image/')) {
-      alert(translateMessage(`"${file.name}" is not an image file.`)); return;
+      void appAlert(translateMessage(`"${file.name}" is not an image file.`), { title: t("m.insert.image.c8141e") }); return;
     }
     if (!supported.includes(file.type.toLowerCase())) {
-      alert(translateMessage(`Unsupported image format: ${file.type}\n\nSupported formats: JPG, PNG, GIF, WebP, BMP, SVG`)); return;
+      void appAlert(translateMessage(`Unsupported image format: ${file.type}\n\nSupported formats: JPG, PNG, GIF, WebP, BMP, SVG`), { title: t("m.insert.image.c8141e") }); return;
     }
     const fileSizeMB = file.size / (1024 * 1024);
     if (fileSizeMB > 20) {
-      alert(translateMessage(`Image file is too large (${fileSizeMB.toFixed(1)} MB).\n\nMaximum supported size is 20 MB. Please compress the image and try again.`)); return;
+      void appAlert(translateMessage(`Image file is too large (${fileSizeMB.toFixed(1)} MB).\n\nMaximum supported size is 20 MB. Please compress the image and try again.`), { title: t("m.insert.image.c8141e") }); return;
     }
-    if (fileSizeMB > 5 && !confirm(translateMessage(`This image is large (${fileSizeMB.toFixed(1)} MB) and may affect performance.\n\nConsider compressing the image before inserting.\n\nDo you want to continue anyway?`))) return;
+    if (fileSizeMB > 5 && !await appConfirm({ title: t("m.insert.image.c8141e"), message: translateMessage(`This image is large (${fileSizeMB.toFixed(1)} MB) and may affect performance.\n\nConsider compressing the image before inserting.\n\nDo you want to continue anyway?`), confirmLabel: t("m.insert.image.c8141e") })) return;
+    if (imagePage.current !== page) return;
     const job = new AbortController(); imageJobs.current.add(job);
     const isCurrent = () => {
       const state = useDocumentStore.getState();
@@ -2905,7 +2907,7 @@ export function DrawingAnnotationLayer({
         image.originalWidth, image.originalHeight, { originalFilename: image.filename, originalFileSize: image.fileSize, mimeType: image.mimeType });
       addAnnotation(annotation); recordAdd(annotation); selectAnnotation(annotation.id);
     } catch (error) {
-      if (isCurrent()) alert(translateError(error instanceof Error ? error.message : 'Could not prepare the image for PDF export.'));
+      if (isCurrent()) void appAlert(translateError(error instanceof Error ? error.message : 'Could not prepare the image for PDF export.'), { title: t("m.insert.image.c8141e") });
     } finally { imageJobs.current.delete(job); }
   }, [page, pageNumber, dimensions, scale, visibleBounds, addAnnotation, recordAdd, selectAnnotation, screenToPdfCoords]);
 
@@ -3426,6 +3428,7 @@ export function DrawingAnnotationLayer({
               recordUpdate(updated, previous, `textbox:${previous.id}:${editingSession.token}`);
             }}
             onBlur={finishEditing}
+            onFinish={finishEditing}
             autoFocus={true}
           />
           </div>

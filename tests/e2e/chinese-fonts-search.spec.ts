@@ -159,7 +159,7 @@ test('font import errors are localized and do not change the selected font', asy
   await expect(chinese.getByRole('alert')).toContainText('请选择有效的 TTF 或 OTF');
   await page.setViewportSize({ width: 390, height: 650 });
   const bounds = (await chinese.boundingBox())!; expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
-  await expect(chinese.getByRole('button', { name: '关闭 (Esc)' })).toBeInViewport();
+  await expect(chinese.getByRole('button', { name: '关闭（Esc）' })).toBeInViewport();
   await page.screenshot({ path: test.info().outputPath('font-manager-mobile-zh.png') });
 });
 

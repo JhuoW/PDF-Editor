@@ -34,6 +34,7 @@ async function select(id = 'first') { await fill('Bookmarks', id); }
 function preview(): ComponentProps<typeof PDFLinksPreview> { return api.render.mock.calls.at(-1)![0]; }
 function tree() { return vi.mocked(source.preview).mock.calls.at(-1)![0]; }
 async function cancel() { await act(async () => host.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true }))); }
+async function confirmDiscard() { await act(async () => host.querySelector<HTMLButtonElement>('.confirmation-dialog .confirm')!.click()); }
 function checkbox(label: string) { return [...host.querySelectorAll('label')].find(element => element.textContent === label)!.querySelector('input')!; }
 
 describe('PDFBookmarksDialog', () => {
@@ -83,7 +84,10 @@ describe('PDFBookmarksDialog', () => {
     await render(); await settle(); await select(); let finish!: (data: Uint8Array) => void; vi.mocked(source.preview).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     await fill('Title', 'Old'); await settle(); const signal = vi.mocked(source.preview).mock.calls.at(-1)![1]; await fill('Title', 'Latest'); await settle(); expect(signal.aborted).toBe(true);
     await act(async () => finish(new Uint8Array([99]))); expect(preview().data).toEqual(new Uint8Array([9, 3])); expect(tree()[0].definition.title).toBe('Latest');
-    await cancel(); expect(props.onApply).not.toHaveBeenCalled(); expect(props.onClose).toHaveBeenCalledTimes(1);
+    // Escape with unapplied edits asks first; keeping them leaves the draft intact.
+    await cancel(); expect(host.textContent).toContain('Discard unapplied changes?'); expect(props.onClose).not.toHaveBeenCalled();
+    await click('Keep editing'); expect(host.querySelector('.confirmation-dialog')).toBeNull(); expect(tree()[0].definition.title).toBe('Latest');
+    await cancel(); await confirmDiscard(); expect(props.onApply).not.toHaveBeenCalled(); expect(props.onClose).toHaveBeenCalledTimes(1);
   });
   it('retries failed reads and ignores a late read after a document change', async () => {
     await render({ readPDF: vi.fn().mockRejectedValueOnce(new Error('Cannot read')).mockResolvedValue(source) }); expect(host.textContent).toContain('Cannot read'); await click('Retry'); await settle(); expect(host.textContent).toContain('Preview ready');
@@ -96,7 +100,7 @@ describe('PDFBookmarksDialog', () => {
   });
   it('survives its own committed revision, disables cancellation during commit and closes once', async () => {
     let finish!: () => void; await render({ onApply: vi.fn(async (_tree, _signal, commit) => { commit(); await new Promise<void>(resolve => { finish = resolve; }); }) }); await settle(); await select(); await fill('Title', 'Committed'); await settle(); await click('Apply bookmarks');
-    const signal = vi.mocked(props.onApply).mock.calls[0][1], reads = vi.mocked(props.readPDF).mock.calls.length; await render({ revision: 2 }); expect(signal.aborted).toBe(false); expect(props.readPDF).toHaveBeenCalledTimes(reads); expect(button('Cancel').disabled).toBe(true); await cancel(); expect(props.onClose).not.toHaveBeenCalled();
+    const signal = vi.mocked(props.onApply).mock.calls[0][1], reads = vi.mocked(props.readPDF).mock.calls.length; await render({ revision: 2 }); expect(signal.aborted).toBe(false); expect(props.readPDF).toHaveBeenCalledTimes(reads); expect(button('Discard changes').disabled).toBe(true); await cancel(); expect(props.onClose).not.toHaveBeenCalled();
     await act(async () => finish()); expect(props.onClose).toHaveBeenCalledTimes(1);
   });
   it('reports save failures and restricts edits in a readonly document', async () => {

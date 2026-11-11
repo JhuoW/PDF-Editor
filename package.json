@@ -16,7 +16,6 @@
     "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
-    "@radix-ui/themes": "^3.2.1",
     "@tesseract.js-data/chi_sim": "1.0.0",
     "@tesseract.js-data/eng": "1.0.0",
     "@tiptap/core": "3.32.0",

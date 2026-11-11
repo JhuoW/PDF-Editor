@@ -3,12 +3,12 @@
 .page-management-dialog .page-management-margins { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
 .page-management-dialog .page-management-checkbox { flex-direction: row; align-items: center; gap: 8px; }
 .page-management-dialog .page-management-checkbox input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--blue-9, #2563eb); }
-.page-management-source { overflow-wrap: anywhere; color: var(--gray-11, #4b5563); font-size: 12px; }
+.page-management-source { overflow-wrap: anywhere; color: var(--gray-11, light-dark(#4b5563, #b2b9c1)); font-size: 12px; }
 .page-management-file-picker { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-weight: 500; }
 .page-management-file-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .page-management-file-picker input[hidden] { display: none; }
-.page-management-summary { padding: 10px 12px; border-radius: 6px; background: var(--blue-3, #eff6ff); }
-.page-management-dialog footer { position: sticky; bottom: -24px; z-index: 1; padding: 12px 0 8px; border-top: 1px solid var(--gray-6, #d1d5db); background: var(--gray-2, #fff); }
+.page-management-summary { padding: 10px 12px; border-radius: 6px; background: var(--blue-3, light-dark(#eff6ff, #1b2c41)); }
+.page-management-dialog footer { position: sticky; bottom: -24px; z-index: 1; padding: 12px 0 8px; border-top: 1px solid var(--gray-6, light-dark(#d1d5db, #3d4045)); background: var(--gray-2, light-dark(#fff, #18191c)); }
 @media (max-width: 480px) {
   .page-management-dialog { padding: 18px; }
   .page-management-dialog header { display: grid; grid-template-columns: minmax(0, 1fr) auto; }

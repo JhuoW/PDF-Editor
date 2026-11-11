@@ -51,7 +51,7 @@ test('validates addresses, cancels on narrow screens, and can delete the complet
   await expect(panel.getByRole('alert')).toContainText(/http|mailto|URL/); await expect(panel.getByRole('button', { name: 'Apply bookmarks', exact: true })).toBeDisabled();
   await panel.getByRole('textbox', { name: 'URL', exact: true }).fill('mailto:review@example.com'); await ready(panel); await page.setViewportSize({ width: 390, height: 844 });
   expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true); await expect(panel.getByRole('button', { name: 'Apply bookmarks', exact: true })).toBeInViewport(); await page.screenshot({ path: test.info().outputPath('bookmarks-narrow.png') });
-  await panel.getByRole('button', { name: 'Cancel', exact: true }).click(); expect(await nativeBookmarks(await exportFile(page))).toEqual(original);
+  await panel.getByRole('button', { name: 'Discard changes', exact: true }).click(); expect(await nativeBookmarks(await exportFile(page))).toEqual(original);
   await page.setViewportSize({ width: 1280, height: 900 }); panel = await manage(page);
   for (const title of ['Chapter group', 'Introduction']) { await select(panel, title); await panel.getByRole('button', { name: 'Delete bookmark', exact: true }).click(); await panel.getByRole('button', { name: 'Confirm delete', exact: true }).click(); }
   await ready(panel); await panel.getByRole('button', { name: 'Apply bookmarks', exact: true }).click(); await expect(panel).toHaveCount(0); expect(await nativeBookmarks(await exportFile(page))).toEqual([]);

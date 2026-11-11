@@ -1,5 +1,8 @@
 // Interpolation semantics: user data stays unchanged; UI protocols are translated.
 export const templateOptions: Record<string, Record<string, "plural" | "message" | "error" | "number">> = {
+  "cleanup.selection.summary": { "v1": "plural" },
+  "decorations.selected.pages": { "v1": "plural" },
+  "formDesigner.properties.scope": { "v0": "message", "v2": "plural" },
   "m.pages.168784": {
     "v0": "number"
   },

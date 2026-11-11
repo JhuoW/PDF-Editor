@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { expect, test, type Page } from '@playwright/test';
 import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
+import { acceptAppDialog } from './appDialog';
 
 async function openPDF(page: Page) {
   const pdf = await PDFDocument.create(), sheet = pdf.addPage([500, 650]); pdf.addPage([500, 650]);
@@ -70,6 +71,8 @@ test('page decoration validation changes language with an unfinished watermark a
   await expect(alert).toContainText(/[A-Za-z]/);
   await expect(text).toHaveValue('Keep this English watermark');
   await page.keyboard.press('Escape');
+  // Unapplied decorations are protected by an in-app discard confirmation.
+  expect(await acceptAppDialog(page)).toMatch(/not been applied/);
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('.textLayer').first()).toContainText('Original PDF content stays in English.');
 });

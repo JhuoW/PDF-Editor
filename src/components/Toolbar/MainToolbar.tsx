@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FilePenLine } from 'lucide-react';
 import { LanguageSwitcher } from '../Workspace/LanguageSwitcher';
+import { ThemeSwitcher } from '../Workspace/ThemeSwitcher';
 import { useDocumentSessionStore } from '../../store/documentSession';
 import {
   FileUp,
@@ -332,7 +333,7 @@ export function MainToolbar({
       )}
 </div>;
   return <>
-    <header className="main-toolbar" aria-busy={isSaving}>
+    <header className={`main-toolbar${hasDocument ? ' has-document' : ''}`} aria-busy={isSaving}>
       <div className="app-brand"><span className="app-brand-icon"><FilePenLine size={22} /></span><span>{t("m.pdf.editor.3bb8b8")}</span></div>
       {/* Sidebar toggle */}
       {hasDocument && (
@@ -423,6 +424,7 @@ export function MainToolbar({
       <div className="document-title" data-document-content title={fileName ? hasUnsavedChanges ? t('file.unsaved.name', { fileName }) : fileName : undefined}>{fileName ? `${fileName}${hasUnsavedChanges ? ' *' : ''}` : t("m.no.document.open.998af1")}</div>
       <div className="header-actions">
         {hasDocument && <button className="toolbar-btn icon-only" onClick={onToggleSearch} title={t("m.search.ctrl.f.2b439f")} aria-label={t("m.search.document.09bd84")}><Search size={18} /></button>}
+        <ThemeSwitcher />
         <LanguageSwitcher />
       </div>
     </header>

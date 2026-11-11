@@ -10,7 +10,7 @@
 .object-snap-guide { position: absolute; pointer-events: none; z-index: 2; background: #16a34a; }
 .object-snap-guide.x { top: 0; bottom: 0; width: 1px; }
 .object-snap-guide.y { left: 0; right: 0; height: 1px; }
-.object-resize-handle { position: absolute; z-index: 1; width: 10px; height: 10px; min-width: 0; padding: 0; border: 1.5px solid #2563eb; border-radius: 2px; background: #fff; transform: translate(-50%, -50%); touch-action: none; }
+.object-resize-handle { position: absolute; z-index: 1; width: 10px; height: 10px; min-width: 0; padding: 0; border: 1.5px solid #2563eb; border-radius: 2px; background: light-dark(#fff, #18191c); transform: translate(-50%, -50%); touch-action: none; }
 .object-resize-handle.nw { left: 0; top: 0; cursor: nwse-resize; }
 .object-resize-handle.n { left: 50%; top: 0; cursor: ns-resize; }
 .object-resize-handle.ne { left: 100%; top: 0; cursor: nesw-resize; }
@@ -19,8 +19,8 @@
 .object-resize-handle.s { left: 50%; top: 100%; cursor: ns-resize; }
 .object-resize-handle.sw { left: 0; top: 100%; cursor: nesw-resize; }
 .object-resize-handle.w { left: 0; top: 50%; cursor: ew-resize; }
-.object-edit-actions { position: absolute; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 16px); padding: 4px; border: 1px solid #dce0e5; border-radius: 6px; background: #fff; box-shadow: 0 2px 8px #0002; touch-action: auto; }
-.object-edit-actions button { padding: 5px 8px; border: 0; border-radius: 3px; background: #f1f5f9; color: #344054; font: inherit; font-size: 12px; cursor: pointer; }
+.object-edit-actions { position: absolute; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 16px); padding: 4px; border: 1px solid light-dark(#dce0e5, #383b3f); border-radius: 6px; background: light-dark(#fff, #18191c); box-shadow: 0 2px 8px #0002; touch-action: auto; }
+.object-edit-actions button { padding: 5px 8px; border: 0; border-radius: 3px; background: light-dark(#f1f5f9, #1f2023); color: light-dark(#344054, #c2c7d0); font: inherit; font-size: 12px; cursor: pointer; }
 .object-edit-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .object-edit-actions button:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
 .object-edit-actions.in-toolbar { position: static; padding: 0; max-width: 100%; border: 0; box-shadow: none; background: transparent; gap: 2px; flex-wrap: nowrap; overflow-x: auto; }
@@ -28,5 +28,5 @@
 .pdf-text-edit-controls:has(.object-edit-actions.in-toolbar) { flex-wrap: wrap; gap: 3px; }
 .pdf-text-edit-controls:has(.object-edit-actions.in-toolbar) > span { display: none; }
 .object-edit-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 8px 16px; border-radius: 4px; background: #000b; color: #fff; font-size: 12px; }
-.object-edit-notice { position: absolute; bottom: 12px; left: 12px; right: 12px; padding: 9px 12px; border: 1px solid #dfc778; border-radius: 5px; background: #fff8df; color: #513d0a; font-size: 12px; line-height: 1.4; pointer-events: none; }
+.object-edit-notice { position: absolute; bottom: 12px; left: 12px; right: 12px; padding: 9px 12px; border: 1px solid light-dark(#dfc778, #5c4b0c); border-radius: 5px; background: light-dark(#fff8df, #322a0d); color: light-dark(#513d0a, #c5ae7e); font-size: 12px; line-height: 1.4; pointer-events: none; }
 @media (pointer: coarse) { .object-resize-handle { width: 14px; height: 14px; } }

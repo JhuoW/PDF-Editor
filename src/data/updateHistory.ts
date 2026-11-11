@@ -5,6 +5,9 @@ export interface UpdateRecord { id: string; updatedAt: string; changes: readonly
 // For each release, prepend its UTC+08:00 ISO timestamp and message keys, then add
 // both translations in src/i18n. Backfilled timestamps come from Git commits.
 export const updateHistory = [
+  {"id":"2026-11-12-appearance","updatedAt":"2026-11-12T01:20:00+08:00","changes":["updates.appearance.dark","updates.appearance.paper","updates.appearance.icons"]},
+  {"id":"2026-11-11-experience-polish","updatedAt":"2026-11-11T21:40:00+08:00","changes":["updates.polish.dialogs","updates.polish.touch","updates.polish.language","updates.polish.performance"]},
+  {"id":"2026-11-11-editor-experience","updatedAt":"2026-11-11T20:40:00+08:00","changes":["updates.experience.zoom","updates.experience.keys","updates.experience.toolbars","updates.experience.images","updates.experience.language"]},
   {"id":"2026-11-11-editor-reliability","updatedAt":"2026-11-11T14:15:00+08:00","changes":["updates.review.annotations","updates.review.images","updates.review.interaction","updates.review.reading","updates.review.reliability"]},
   {"id":"2026-11-01-extreme-text-roundtrips","updatedAt":"2026-11-01T17:55:00+08:00","changes":["updates.extremes.spacing","updates.extremes.frame","updates.extremes.validation"]},
   {"id":"2026-11-01-text-mode-flow","updatedAt":"2026-11-01T15:49:00+08:00","changes":["updates.modes.layout","updates.modes.history","updates.modes.tests"]},

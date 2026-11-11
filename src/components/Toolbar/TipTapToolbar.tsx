@@ -25,6 +25,11 @@ const COLOR_PRESETS = [
   '#980000', '#FF0000', '#FF9900', '#FFFF00', '#00FF00', '#00FFFF', '#4A86E8', '#0000FF', '#9900FF', '#FF00FF',
 ];
 
+const FONT_SIZE_PRESET_SET = new Set<number>(FONT_SIZE_PRESETS);
+// The preset picker shows a size only when it is one of its options.
+const presetFontSize = (size: number) => FONT_SIZE_PRESET_SET.has(size) ? size : '';
+const sameColor = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
 export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
   useLocale();
   // Force re-render when editor selection changes
@@ -48,31 +53,31 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
 
   const state = getEditorFormattingState(editor);
 
-  const handleFontFamilyChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleFontFamilyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setFontFamily(editor, e.target.value);
-  }, [editor]);
+  };
 
-  const handleFontSizeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleFontSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const size = parseInt(e.target.value, 10);
     if (!isNaN(size)) {
       setFontSize(editor, size);
     }
-  }, [editor]);
+  };
 
-  const handleCustomFontSize = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCustomFontSize = (e: React.ChangeEvent<HTMLInputElement>) => {
     const size = parseInt(e.target.value, 10);
     if (!isNaN(size) && size >= 1 && size <= 200) {
       setFontSize(editor, size);
     }
-  }, [editor]);
+  };
 
-  const handleColorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setColor(editor, e.target.value);
-  }, [editor]);
+  };
 
-  const handleAlignChange = useCallback((align: 'left' | 'center' | 'right' | 'justify') => {
+  const handleAlignChange = (align: 'left' | 'center' | 'right' | 'justify') => {
     setTextAlign(editor, align);
-  }, [editor]);
+  };
 
   // Prevent mousedown from stealing focus
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -98,6 +103,7 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
           value={state.fontFamily}
           onChange={handleFontFamilyChange}
           title={t("m.font.family.694eff")}
+          aria-label={t("m.font.family.694eff")}
         >
           {AVAILABLE_FONTS.map((font) => (
             <option key={font} value={font} style={{ fontFamily: font }}>
@@ -107,20 +113,8 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
         </select>
       </div>
 
-      {/* Font Size */}
-      <div className="toolbar-group">
-        <select
-          className="font-size-select"
-          value={state.fontSize}
-          onChange={handleFontSizeChange}
-          title={t("m.font.size.b456f4")}
-        >
-          {FONT_SIZE_PRESETS.map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
-          ))}
-        </select>
+      {/* Font Size: one field; the arrow opens the preset sizes. */}
+      <div className="toolbar-group font-size-combo">
         <input
           type="number"
           className="font-size-input"
@@ -128,8 +122,23 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
           min={1}
           max={200}
           onChange={handleCustomFontSize}
-          title={t("m.custom.font.size.a8f2e2")}
+          title={t("m.font.size.b456f4")}
+          aria-label={t("m.font.size.b456f4")}
         />
+        <select
+          className="font-size-select"
+          value={presetFontSize(state.fontSize)}
+          onChange={handleFontSizeChange}
+          title={t("toolbar.font.size.presets")}
+          aria-label={t("toolbar.font.size.presets")}
+        >
+          <option value="" disabled hidden>{state.fontSize}</option>
+          {FONT_SIZE_PRESETS.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="toolbar-divider" />
@@ -187,7 +196,8 @@ export function TipTapToolbar({ editor, onClose }: TipTapToolbarProps) {
           {COLOR_PRESETS.map((color) => (
             <button
               key={color}
-              className={`color-preset-btn ${color === state.color ? 'active' : ''}`}
+              className={`color-preset-btn ${sameColor(color, state.color) ? 'active' : ''}`}
+              aria-label={color}
               style={{ backgroundColor: color }}
               onClick={() => setColor(editor, color)}
               title={color}

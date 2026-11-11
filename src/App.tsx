@@ -5,8 +5,7 @@ import { WorkspaceErrorPanel } from './components/Feedback/WorkspaceErrorPanel';
 import { isAbortError } from './utils/cancellation';
 import { useLocale, translateMessage, t } from "./i18n";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Theme } from '@radix-ui/themes';
-import '@radix-ui/themes/styles.css';
+import './styles/theme.css';
 import { PDFDocument as PDFLibDocument } from 'pdf-lib';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useSessionPersistence } from './hooks/useSessionPersistence';
@@ -39,6 +38,8 @@ import { GoToPageDialog } from './components/Dialogs/GoToPageDialog';
 import { MergeDialog } from './components/Dialogs/MergeDialog';
 import { SplitDialog } from './components/Dialogs/SplitDialog';
 import { ConfirmationDialog } from './components/Dialogs/ConfirmationDialog';
+import { AppDialogHost, AppNotice } from './components/Dialogs/AppDialogHost';
+import { appAlert, appConfirm, appPrompt, showAppNotice } from './store/appDialogStore';
 import { EncryptDialog } from './components/Dialogs/EncryptDialog';
 import { PasswordDialog } from './components/Dialogs/PasswordDialog';
 import {
@@ -851,7 +852,7 @@ function App() {
         destination = await selectSavePDFHandle(name) ?? undefined;
         if (!destination) return false;
       } else if (saveAs) {
-        const chosen = window.prompt(t('file.saveAs.name'), name);
+        const chosen = await appPrompt({ title: t('file.saveAs'), message: t('file.saveAs.name'), defaultValue: name, confirmLabel: t('file.save') });
         if (chosen === null) return false;
         if (!chosen.trim()) throw new Error(t('file.save.name.required'));
         name = /\.pdf$/i.test(chosen.trim()) ? chosen.trim() : `${chosen.trim()}.pdf`;
@@ -976,17 +977,17 @@ function App() {
         }
         const validated = normalizeImportedFormValues(formFields, fieldValues, extension !== 'json');
         useFormStore.getState().setFieldValues(validated, 'Import form data');
-        alert(translateMessage(`Imported ${validated.size} field values`));
+        showAppNotice(translateMessage(`Imported ${validated.size} field values`));
       } catch (err) {
         console.error('Failed to import form data:', err);
-        alert(translateMessage('Failed to import form data: ' + (err as Error).message));
+        void appAlert(translateMessage('Failed to import form data: ' + (err as Error).message), { title: t('m.import.form.data.8182fa') });
       }
     };
     input.click();
   }, [formFields]);
 
   const handleFlattenForm = useCallback(async () => {
-    if (!confirm(translateMessage('Convert all form fields to static page content? You can undo this operation.'))) return;
+    if (!await appConfirm({ title: t('m.flatten.form.6896aa'), message: translateMessage('Convert all form fields to static page content? You can undo this operation.'), confirmLabel: t('m.flatten.form.6896aa') })) return;
     try {
       await runOperation('Flatten form', ({ data, workspace }) => flattenWorkspaceForm(data, workspace));
     } catch (err) { console.error('Failed to flatten form:', err); }
@@ -999,7 +1000,7 @@ function App() {
   const handleApplyRedactions = useCallback(async () => {
     const pending = redactions.filter(area => !area.applied);
     if (pending.length === 0) return;
-    if (!confirm(translateMessage(`Apply ${pending.length} visual cover(s)? Underlying text and images remain recoverable. This does not remove sensitive information.`))) return;
+    if (!await appConfirm({ title: t('m.apply.visual.covers.23b782'), message: translateMessage(`Apply ${pending.length} visual cover(s)? Underlying text and images remain recoverable. This does not remove sensitive information.`), confirmLabel: t('m.apply.cfea41') })) return;
     try {
       await runOperation(`Apply ${pending.length} visual cover(s)`, async ({ data, workspace }) => {
         const result = await applyRedactions(data, pending);
@@ -1014,7 +1015,7 @@ function App() {
   const handleRemoveContent = useCallback(async () => {
     const areas = redactions.filter(area => !area.applied);
     if (!areas.length) return;
-    if (!confirm(translateMessage(`Remove content from ${areas.length} marked area(s)? Forms and annotations become static page content. Selected text, graphics and image pixels are removed from the resulting PDF. Metadata and attachments are not cleaned. Local undo history retains the original.`))) return;
+    if (!await appConfirm({ title: t('m.remove.selected.page.content.5a41ea'), message: translateMessage(`Remove content from ${areas.length} marked area(s)? Forms and annotations become static page content. Selected text, graphics and image pixels are removed from the resulting PDF. Metadata and attachments are not cleaned. Local undo history retains the original.`), confirmLabel: t('m.remove.content.bff132'), danger: true })) return;
     try {
       await runOperation('Remove selected page content', async ({ data, workspace }) => {
         const prepared = await exportWorkspacePDF(data, workspace);
@@ -1385,7 +1386,7 @@ function App() {
     isLoading,
   ]);
 
-  // Mouse wheel: zoom (with Ctrl) or page navigation (single/two-page mode)
+  // Mouse wheel: page navigation in single/two-page mode (PDFViewer handles Ctrl+wheel zoom)
   useEffect(() => {
     let lastWheelTime = 0;
 
@@ -1394,16 +1395,8 @@ function App() {
       const viewer = event.target instanceof Element ? event.target.closest('.pdf-viewer-container') : null;
       if (!viewer || event.deltaY === 0) return;
 
-      // Ctrl + wheel = zoom
-      if (event.ctrlKey) {
-        event.preventDefault();
-        if (event.deltaY < 0) {
-          zoomIn();
-        } else {
-          zoomOut();
-        }
-        return;
-      }
+      // PDFViewer owns Ctrl+wheel and pinch zoom so it can keep the pointer's page point in place.
+      if (event.ctrlKey) return;
 
       // In single or two-page mode, wheel turns pages
       if (navigation.viewMode === 'single' || navigation.viewMode === 'two-page') {
@@ -1432,7 +1425,7 @@ function App() {
         main.removeEventListener('wheel', handleWheel);
       };
     }
-  }, [document, isLoading, zoomIn, zoomOut, navigation.viewMode, nextPage, previousPage]);
+  }, [document, isLoading, navigation.viewMode, nextPage, previousPage]);
 
   const locateTextIssue = (issue: TextCheckIssue, blocks: TextBlock[]) => {
     setTextCheckOpen(false);
@@ -1455,7 +1448,7 @@ function App() {
   };
 
   return (
-    <SearchDocumentContext.Provider value={searchSource}><Theme appearance="light" accentColor="blue" radius="medium">
+    <SearchDocumentContext.Provider value={searchSource}><div className="app-theme">
       <div className="app-container" data-has-document={!!document} data-sidebar-open={!!document && sidebarOpen && !narrowViewport}>
         {/* Main Toolbar */}
         <MainToolbar
@@ -1554,11 +1547,11 @@ function App() {
           </div>
         )}
 
-        </div>
         {document && pendingImages.length > 0 && currentTool === 'image' && <div className="image-placement-status" role="status">
           <span>{t("m.click.a.page.to.place.f79307")}{' '}{pendingImages[0].filename}.{pendingImages.length > 1 ? t("m.images.remaining.a0d632", { v0: pendingImages.length }) : ''}</span>
           <button type="button" onClick={() => { setPendingImages([]); setCurrentTool('select'); }}>{t("m.cancel.placement.739c5b")}</button>
         </div>}
+        </div>
         {/* Main content area */}
         <div className="main-layout" role="region" aria-label={t("m.pdf.document.viewer.dcba98")}>
           {/* Sidebar */}
@@ -1733,6 +1726,7 @@ function App() {
                 onLinkClick={handleLinkClick}
                 onTextLayout={setTextLayoutBlockId}
                 onCalculatedZoomChange={(zoom) => setZoom(zoom, navigation.zoomMode)}
+                onZoomChange={(zoom) => setZoom(zoom, 'manual')}
                 highlightDestination={highlightDest?.document === document && highlightDest.version === documentVersion ? highlightDest.destination : null}
                 currentTool={currentTool}
                 pendingImages={pendingImages}
@@ -1751,6 +1745,7 @@ function App() {
         </div>
         <footer className="document-statusbar">
           {document && fileFeedback && fileFeedback.sessionId === useDocumentSessionStore.getState().active?.sessionId && <span className="file-action-status" role="status">{t(`workspace.file.${fileFeedback.kind}`, { fileName: fileFeedback.fileName })}</span>}
+          {document && <AppNotice />}
           {document && historyLimited && <span className="history-budget-note" title={t('history.budget.help')}>{t('history.budget.limited')}</span>}
         {document && (
           <div className={`session-save-status status-${persistence.status}`} role="status" aria-live="polite">
@@ -1803,8 +1798,9 @@ function App() {
         )}
         <FontManagerHost />
         {exportProgress && <PDFExportProgressDialog progress={exportProgress} onCancel={cancelExport} />}
+        <AppDialogHost />
       </div>
-    </Theme></SearchDocumentContext.Provider>
+    </div></SearchDocumentContext.Provider>
   );
 }
 

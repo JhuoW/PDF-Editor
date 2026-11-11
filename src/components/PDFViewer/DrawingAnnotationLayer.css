@@ -99,7 +99,7 @@
   align-items: center;
   gap: 12px;
   padding: 24px 32px;
-  background: rgba(255, 255, 255, 0.95);
+  background: light-dark(rgba(255, 255, 255, 0.95), #18191cf2);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
@@ -111,7 +111,7 @@
 .drop-zone-content .drop-text {
   font-size: 16px;
   font-weight: 500;
-  color: #333;
+  color: light-dark(#333, #cfd0d3);
 }
 
 /* Properties panel overlay */
@@ -121,7 +121,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 2000;
-  background: white;
+  background: light-dark(white, #18191c);
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   pointer-events: auto;
@@ -133,4 +133,4 @@
 .annotation-hit-regions [pointer-events="stroke"] { touch-action: none; }
 .drawing-annotation-layer .freetext-editor-container { touch-action: manipulation; }
 
-.freetext-preview-notice { position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 20; padding: 7px 10px; background: #fff8e6; color: #704500; border: 1px solid #d8b45a; border-radius: 5px; font-size: 12px; pointer-events: auto; }
+.freetext-preview-notice { position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 20; padding: 7px 10px; background: light-dark(#fff8e6, #33290d); color: light-dark(#704500, #d8a76e); border: 1px solid #d8b45a; border-radius: 5px; font-size: 12px; pointer-events: auto; }

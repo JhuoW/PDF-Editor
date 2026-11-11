@@ -1,4 +1,5 @@
 import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useDiscardConfirmation } from './useDiscardConfirmation';
 import { translateMessage } from '../../i18n';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateError } from "../../i18n";
@@ -91,6 +92,7 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
     if (operation.current) { closeAfterCancel.current = true; operation.current.abort(); setCanceling(true); }
     else onClose();
   };
+  const { requestClose, handleCancel, confirmation } = useDiscardConfirmation(!busy && operations.length > 0, close);
   const select = (next: FormDesignSelection | null) => {
     setSelection(next);
     if (next) { const widget = fields.find(field => field.id === next.fieldId)?.widgets.find(item => item.id === next.widgetId); if (widget && current?.design.pages.some(page => page.pageNumber === widget.pageNumber)) setPageNumber(widget.pageNumber); }
@@ -164,7 +166,7 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
   };
   useLayoutEffect(() => { saveLatest.current = save; });
 
-  return <dialog ref={dialog} className="form-designer-dialog" aria-labelledby="form-designer-title" onCancel={event => { event.preventDefault(); close(); }}
+  return <dialog ref={dialog} className="form-designer-dialog" aria-labelledby="form-designer-title" onCancel={handleCancel}
     onKeyDown={event => {
       event.stopPropagation();
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -176,7 +178,7 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
         void saveLatest.current();
       }
     }}>
-    <header><div><h2 id="form-designer-title">{t("m.design.form.a66596")}</h2><p>{t("m.create.and.arrange.fillable.pdf.fields.changes.a.8bf2ac")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.form.designer.4ff8fe")} disabled={saving || canceling} onClick={close}>×</button></header>
+    <header><div><h2 id="form-designer-title">{t("m.design.form.a66596")}</h2><p>{t("m.create.and.arrange.fillable.pdf.fields.changes.a.8bf2ac")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.form.designer.4ff8fe")} disabled={saving || canceling} onClick={requestClose}>×</button></header>
     {!current && !failure && <p role="status" className="form-designer-loading">{t("m.preparing.the.page.preview.and.form.fields.e4e417")}</p>}
     {failure && <div className="form-designer-loading"><p role="alert"><ErrorMessage error={failure} /></p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <>
@@ -203,6 +205,7 @@ function FormDesignerSession({ revision, currentPage, readPDF, onSave, onClose }
     </>}
     <footer>{error && <p role="alert" className="form-designer-error"><ErrorMessage error={error} /></p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.form.5373a8") : t("m.saving.form.design.63b104")}</p>}
       <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? t("m.discard.changes.fa8fc0") : t("m.close.bbfa77")}</button><button type="button" className="form-designer-primary" disabled={disabled || !operations.length} onClick={() => void save()}>{t("m.save.form.design.10acc1")}</button></div></footer>
+    {confirmation}
   </dialog>;
 }
 

@@ -1,5 +1,5 @@
 .text-properties-panel {
-  background: white;
+  background: light-dark(white, #18191c);
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   width: 280px;
@@ -12,28 +12,28 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid light-dark(#e0e0e0, #393b3e);
 }
 
 .panel-header h3 {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: light-dark(#333, #cfd0d3);
 }
 
 .panel-header .close-btn {
   background: none;
   border: none;
   font-size: 20px;
-  color: #666;
+  color: light-dark(#666, #abacaf);
   cursor: pointer;
   padding: 0;
   line-height: 1;
 }
 
 .panel-header .close-btn:hover {
-  color: #333;
+  color: light-dark(#333, #cfd0d3);
 }
 
 .panel-content {
@@ -54,7 +54,7 @@
   display: block;
   font-size: 11px;
   font-weight: 500;
-  color: #666;
+  color: light-dark(#666, #abacaf);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 6px;
@@ -63,10 +63,10 @@
 .property-group select {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 4px;
   font-size: 13px;
-  background: white;
+  background: light-dark(white, #18191c);
   cursor: pointer;
 }
 
@@ -90,7 +90,7 @@
 .size-input-group .size-input {
   width: 60px;
   padding: 6px 8px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 4px;
   font-size: 13px;
   text-align: right;
@@ -102,7 +102,7 @@
 }
 
 .size-input-group .unit {
-  color: #999;
+  color: light-dark(#999, #8b8c8f);
   font-size: 12px;
 }
 
@@ -115,9 +115,9 @@
 .style-btn {
   width: 32px;
   height: 32px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 4px;
-  background: white;
+  background: light-dark(white, #18191c);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -126,13 +126,13 @@
 }
 
 .style-btn:hover {
-  background: #f5f5f5;
+  background: light-dark(#f5f5f5, #1e2023);
 }
 
 .style-btn.active {
-  background: #e6f0ff;
+  background: light-dark(#e6f0ff, #1f2e44);
   border-color: #0066FF;
-  color: #0066FF;
+  color: light-dark(#0066FF, #86b1fc);
 }
 
 /* Color Picker */
@@ -147,7 +147,7 @@
   width: 36px;
   height: 36px;
   padding: 2px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -155,7 +155,7 @@
 .color-text {
   flex: 1;
   padding: 6px 8px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 4px;
   font-size: 13px;
   font-family: monospace;
@@ -175,7 +175,7 @@
 .color-preset {
   width: 20px;
   height: 20px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 2px;
   cursor: pointer;
   padding: 0;
@@ -199,9 +199,9 @@
 .align-btn {
   width: 36px;
   height: 32px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 4px;
-  background: white;
+  background: light-dark(white, #18191c);
   cursor: pointer;
   font-size: 14px;
   display: flex;
@@ -210,13 +210,13 @@
 }
 
 .align-btn:hover {
-  background: #f5f5f5;
+  background: light-dark(#f5f5f5, #1e2023);
 }
 
 .align-btn.active {
-  background: #e6f0ff;
+  background: light-dark(#e6f0ff, #1f2e44);
   border-color: #0066FF;
-  color: #0066FF;
+  color: light-dark(#0066FF, #86b1fc);
 }
 
 /* Slider Group */
@@ -230,7 +230,7 @@
   flex: 1;
   height: 4px;
   -webkit-appearance: none;
-  background: #ddd;
+  background: light-dark(#ddd, #2e3033);
   border-radius: 2px;
   outline: none;
 }
@@ -256,7 +256,7 @@
 .slider-value {
   width: 50px;
   padding: 4px 6px;
-  border: 1px solid #ddd;
+  border: 1px solid light-dark(#ddd, #3b3c3f);
   border-radius: 4px;
   font-size: 12px;
   text-align: right;
@@ -268,14 +268,14 @@
 }
 
 .slider-group .unit {
-  color: #999;
+  color: light-dark(#999, #8b8c8f);
   font-size: 11px;
   min-width: 20px;
 }
 
 .style-btn.partial {
-  background: #f0f0f0;
-  border-color: #ccc;
+  background: light-dark(#f0f0f0, #212326);
+  border-color: light-dark(#ccc, #424447);
   position: relative;
 }
 

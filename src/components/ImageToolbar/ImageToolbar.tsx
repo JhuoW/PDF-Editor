@@ -1,5 +1,6 @@
 import { useLocale, t } from "../../i18n";
-import { useCallback, useState } from 'react';
+import { useCallback, useRef } from 'react';
+import { FlipHorizontal2, FlipVertical2, RotateCcw, RotateCw, RotateCcwSquare, Crop, Undo2, BringToFront, SendToBack, ChevronUp, ChevronDown, Blend, Trash2, type LucideIcon } from 'lucide-react';
 import type { ImageAnnotation } from '../../annotations/types';
 import { useAnnotationStore } from '../../store/annotationStore';
 import { useAnnotationHistoryStore } from '../../store/annotationHistoryStore';
@@ -14,7 +15,8 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
   useLocale();
   const { updateAnnotation, deleteAnnotation, getAnnotationsForPage, enterCropMode } = useAnnotationStore();
   const { recordUpdate, recordDelete } = useAnnotationHistoryStore();
-  const [showOpacitySlider, setShowOpacitySlider] = useState(false);
+  // Opacity is previewed live while dragging and recorded once on release.
+  const opacityStart = useRef<ImageAnnotation | null>(null);
 
   // Enter crop mode
   const handleCrop = useCallback(() => {
@@ -109,13 +111,17 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
   // Update opacity
   const handleOpacityChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newOpacity = parseFloat(e.target.value);
+    if (!Number.isFinite(newOpacity)) return;
+    opacityStart.current ??= { ...annotation };
     updateAnnotation(annotation.id, { opacity: newOpacity });
-  }, [annotation.id, updateAnnotation]);
+  }, [annotation, updateAnnotation]);
 
-  // Record opacity change when slider is released
+  // One undo step per slider gesture (pointer release, key release or blur).
   const handleOpacityChangeEnd = useCallback(() => {
-    // Record update is handled on blur/release
-  }, []);
+    const previousState = opacityStart.current;
+    opacityStart.current = null;
+    if (previousState && previousState.opacity !== annotation.opacity) recordUpdate({ ...annotation }, previousState);
+  }, [annotation, recordUpdate]);
 
   // Delete image
   const handleDelete = useCallback(() => {
@@ -124,137 +130,63 @@ export function ImageToolbar({ annotation, onDelete }: ImageToolbarProps) {
     onDelete?.();
   }, [annotation, deleteAnnotation, recordDelete, onDelete]);
 
+  const button = (Icon: LucideIcon, label: string, onClick: () => void, extra = '') => (
+    <button type="button" className={`image-toolbar-button ${extra}`} onClick={onClick} title={label} aria-label={label}>
+      <Icon size={16} aria-hidden="true" />
+    </button>
+  );
+  const cropped = !!annotation.cropBounds && (annotation.cropBounds.top > 0 || annotation.cropBounds.right > 0 || annotation.cropBounds.bottom > 0 || annotation.cropBounds.left > 0);
+
   return (
-    <div className="image-toolbar">
+    <div className="image-toolbar" role="toolbar" aria-label={t("m.image.50e19f")}>
       {/* Transform Section */}
       <div className="image-toolbar-section">
-        <button
-          className="image-toolbar-button"
-          onClick={handleFlipHorizontal}
-          title={t("m.flip.horizontal.33045f")}
-        >
-          <span className="icon">↔</span>
-        </button>
-        <button
-          className="image-toolbar-button"
-          onClick={handleFlipVertical}
-          title={t("m.flip.vertical.2871c0")}
-        >
-          <span className="icon">↕</span>
-        </button>
+        {button(FlipHorizontal2, t("m.flip.horizontal.33045f"), handleFlipHorizontal)}
+        {button(FlipVertical2, t("m.flip.vertical.2871c0"), handleFlipVertical)}
         <div className="toolbar-divider" />
-        <button
-          className="image-toolbar-button"
-          onClick={handleRotateLeft}
-          title={t("m.rotate.left.90.d02095")}
-        >
-          <span className="icon">↺</span>
-        </button>
-        <button
-          className="image-toolbar-button"
-          onClick={handleRotateRight}
-          title={t("m.rotate.right.90.d5176e")}
-        >
-          <span className="icon">↻</span>
-        </button>
-        {annotation.rotation !== 0 && (
-          <button
-            className="image-toolbar-button small"
-            onClick={handleResetRotation}
-            title={t("m.reset.rotation.76139f")}
-          >
-            <span className="icon">⟲</span>
-          </button>
-        )}
+        {button(RotateCcw, t("m.rotate.left.90.d02095"), handleRotateLeft)}
+        {button(RotateCw, t("m.rotate.right.90.d5176e"), handleRotateRight)}
+        {!!annotation.rotation && button(RotateCcwSquare, t("m.reset.rotation.76139f"), handleResetRotation, 'small')}
       </div>
 
       {/* Crop Section */}
       <div className="image-toolbar-section">
-        <button
-          className="image-toolbar-button"
-          onClick={handleCrop}
-          title={t("m.crop.image.eb485a")}
-        >
-          <span className="icon">⛶</span>
-        </button>
-        {annotation.cropBounds && (annotation.cropBounds.top > 0 || annotation.cropBounds.right > 0 || annotation.cropBounds.bottom > 0 || annotation.cropBounds.left > 0) && (
-          <button
-            className="image-toolbar-button small"
-            onClick={handleResetCrop}
-            title={t("m.reset.crop.ecee53")}
-          >
-            <span className="icon">⟲</span>
-          </button>
-        )}
+        {button(Crop, t("m.crop.image.eb485a"), handleCrop)}
+        {cropped && button(Undo2, t("m.reset.crop.ecee53"), handleResetCrop, 'small')}
       </div>
 
       {/* Layer Ordering Section */}
       <div className="image-toolbar-section">
-        <button
-          className="image-toolbar-button"
-          onClick={handleBringToFront}
-          title={t("m.bring.to.front.8a0950")}
-        >
-          <span className="icon">⬆</span>
-        </button>
-        <button
-          className="image-toolbar-button"
-          onClick={handleSendToBack}
-          title={t("m.send.to.back.887995")}
-        >
-          <span className="icon">⬇</span>
-        </button>
-        <button
-          className="image-toolbar-button small"
-          onClick={handleBringForward}
-          title={t("m.bring.forward.3a5a62")}
-        >
-          <span className="icon">↑</span>
-        </button>
-        <button
-          className="image-toolbar-button small"
-          onClick={handleSendBackward}
-          title={t("m.send.backward.70dd87")}
-        >
-          <span className="icon">↓</span>
-        </button>
+        {button(BringToFront, t("m.bring.to.front.8a0950"), handleBringToFront)}
+        {button(SendToBack, t("m.send.to.back.887995"), handleSendToBack)}
+        {button(ChevronUp, t("m.bring.forward.3a5a62"), handleBringForward, 'small')}
+        {button(ChevronDown, t("m.send.backward.70dd87"), handleSendBackward, 'small')}
       </div>
 
       {/* Opacity Section */}
       <div className="image-toolbar-section">
-        <button
-          className={`image-toolbar-button ${showOpacitySlider ? 'active' : ''}`}
-          onClick={() => setShowOpacitySlider(!showOpacitySlider)}
-          title={t("m.opacity.f0fa69")}
-        >
-          <span className="icon">◐</span>
+        <label className="image-opacity" title={t("m.opacity.f0fa69")}>
+          <Blend size={16} aria-hidden="true" />
+          <input
+            type="range"
+            min="0.05"
+            max="1"
+            step="0.05"
+            value={annotation.opacity}
+            onChange={handleOpacityChange}
+            onPointerUp={handleOpacityChangeEnd}
+            onKeyUp={handleOpacityChangeEnd}
+            onBlur={handleOpacityChangeEnd}
+            className="opacity-slider"
+            aria-label={t("m.opacity.f0fa69")}
+          />
           <span className="value">{Math.round(annotation.opacity * 100)}%</span>
-        </button>
-        {showOpacitySlider && (
-          <div className="opacity-slider-container">
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={annotation.opacity}
-              onChange={handleOpacityChange}
-              onMouseUp={handleOpacityChangeEnd}
-              className="opacity-slider"
-            />
-          </div>
-        )}
+        </label>
       </div>
 
       {/* Delete Section */}
       <div className="image-toolbar-section">
-        <button
-          className="image-toolbar-button danger"
-          onClick={handleDelete}
-          title={t("m.delete.image.d86725")}
-        >
-          <span className="icon">🗑</span>
-        </button>
+        {button(Trash2, t("m.delete.image.d86725"), handleDelete, 'danger')}
       </div>
     </div>
   );

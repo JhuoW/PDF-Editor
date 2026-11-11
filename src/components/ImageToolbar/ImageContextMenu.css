@@ -2,7 +2,7 @@
   position: fixed;
   min-width: 200px;
   background: var(--color-panel-solid, #2a2a2a);
-  border: 1px solid var(--color-border, #444);
+  border: 1px solid var(--color-border, light-dark(#444, #84868a));
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   padding: 4px 0;
@@ -72,10 +72,10 @@
 
 .context-menu-item .shortcut {
   font-size: 11px;
-  color: var(--color-text-secondary, #888);
+  color: var(--color-text-secondary, light-dark(#888, #959699));
   margin-left: auto;
 }
 
 .context-menu-item:hover .shortcut {
-  color: var(--color-text, #bbb);
+  color: var(--color-text, light-dark(#bbb, #858689));
 }

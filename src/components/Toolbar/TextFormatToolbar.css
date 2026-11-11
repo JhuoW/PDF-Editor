@@ -362,3 +362,77 @@
 .spacing-number-input::-webkit-outer-spin-button {
   opacity: 1;
 }
+
+/* Text box format toolbar (TipTapToolbar) */
+.tiptap-toolbar { flex-wrap: wrap; justify-content: center; row-gap: 4px; }
+.tiptap-toolbar .toolbar-group { display: flex; align-items: center; gap: 2px; }
+.tiptap-toolbar .font-family-select,
+.tiptap-toolbar .font-size-combo {
+  height: 28px;
+  border: 1px solid light-dark(#d0d5dd, #3c4047);
+  border-radius: 6px;
+  background: light-dark(#fff, #18191c);
+  color: light-dark(#101828, #e1e6f0);
+  font-size: 13px;
+}
+.tiptap-toolbar .font-family-select { width: 140px; padding: 0 6px; cursor: pointer; }
+.tiptap-toolbar .font-size-combo { gap: 0; overflow: hidden; }
+.tiptap-toolbar .font-size-input {
+  width: 42px;
+  height: 100%;
+  border: 0;
+  padding: 0 2px 0 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.tiptap-toolbar .font-size-input::-webkit-inner-spin-button,
+.tiptap-toolbar .font-size-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* Arrow-only preset picker; the size itself shows in the field beside it. */
+.tiptap-toolbar .font-size-select {
+  width: 22px;
+  height: 100%;
+  border: 0;
+  border-left: 1px solid light-dark(#eaecf0, #343639);
+  appearance: none;
+  -webkit-appearance: none;
+  color: transparent;
+  cursor: pointer;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23475467' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / 10px no-repeat;
+}
+.tiptap-toolbar .font-size-select option { color: light-dark(#101828, #e1e6f0); }
+.tiptap-toolbar .font-family-select:focus-visible,
+.tiptap-toolbar .font-size-combo:focus-within { outline: 2px solid #2e90fa; outline-offset: 1px; }
+.tiptap-toolbar .color-picker-wrapper { display: flex; }
+.tiptap-toolbar .color-picker {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid light-dark(#d0d5dd, #3c4047);
+  border-radius: 6px;
+  background: light-dark(#fff, #18191c);
+  cursor: pointer;
+}
+.tiptap-toolbar .color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+.tiptap-toolbar .color-picker::-webkit-color-swatch { border: 0; border-radius: 3px; }
+.tiptap-toolbar .color-picker::-moz-color-swatch { border: 0; border-radius: 3px; }
+.tiptap-toolbar .color-indicator { display: none; }
+.tiptap-toolbar .color-presets-dropdown {
+  display: grid;
+  grid-template-columns: repeat(10, 12px);
+  gap: 2px;
+  margin-left: 4px;
+}
+.tiptap-toolbar .color-preset-btn {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid light-dark(rgba(16, 24, 40, 0.18), #8186902e);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.tiptap-toolbar .color-preset-btn:hover { transform: scale(1.25); }
+.tiptap-toolbar .color-preset-btn.active { outline: 2px solid #2e90fa; outline-offset: 1px; }
+.tiptap-toolbar .color-preset-btn:focus-visible { outline: 2px solid #2e90fa; outline-offset: 1px; }

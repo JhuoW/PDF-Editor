@@ -1,4 +1,5 @@
 import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useDiscardConfirmation } from './useDiscardConfirmation';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -87,6 +88,7 @@ function PDFLinksSession({ currentPage, readPDF, onApply, onClose, onCommitState
     setLinks(previous => previous.filter(item => item.id !== id)); if (selectedId === id) { setSelectedId(null); setDirtyNumbers(new Set()); } setSaveError(null);
   };
   const close = () => { if (committing.current) return; reading.current?.abort(); previewRequest.current?.abort(); applying.current?.abort(); onClose(); };
+  const { requestClose, handleCancel, confirmation } = useDiscardConfirmation(!saving && (operations.length > 0 || dirtyNumbers.size > 0), close);
   const apply = async () => {
     if (!canApply || applying.current || latestKey.current !== requestKey) return;
     const request = new AbortController(); applying.current = request; setSaving(true); setSaveError(null);
@@ -98,10 +100,14 @@ function PDFLinksSession({ currentPage, readPDF, onApply, onClose, onCommitState
   };
   useLayoutEffect(() => { saveLatest.current = apply; });
   const failure = loadError?.key === loadKey ? loadError.message : null;
-  return <dialog ref={dialog} className="pdf-links-dialog" aria-labelledby="pdf-links-title" onCancel={event => { event.preventDefault(); close(); }} onKeyDown={event => {
+  return <dialog ref={dialog} className="pdf-links-dialog" aria-labelledby="pdf-links-title" onCancel={event => {
+    // Escape first leaves link placement; it closes the dialog only when nothing is being drawn.
+    if (placing && event.cancelable) { event.preventDefault(); setPlacing(false); return; }
+    handleCancel(event);
+  }} onKeyDown={event => {
     event.stopPropagation(); if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); const input = document.activeElement; if (input instanceof HTMLInputElement && input.type === 'number') flushSync(() => input.blur()); void saveLatest.current(); }
   }}>
-    <header><div><h2 id="pdf-links-title">{t("m.links.014bcd")}</h2><p>{t("m.create.and.edit.native.pdf.links.apply.all.chang.0185ca")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.links.b1bec1")} disabled={committed} onClick={close}>×</button></header>
+    <header><div><h2 id="pdf-links-title">{t("m.links.014bcd")}</h2><p>{t("m.create.and.edit.native.pdf.links.apply.all.chang.0185ca")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.links.b1bec1")} disabled={committed} onClick={requestClose}>×</button></header>
     {!current && !failure && <p className="pdf-links-loading" role="status">{t("m.inspecting.pdf.links.ffe301")}</p>}
     {failure && <div className="pdf-links-loading"><p className="pdf-links-error" role="alert"><ErrorMessage error={failure} /></p><button type="button" onClick={() => setRetry(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <div className="pdf-links-body"><section className="pdf-links-preview-column" aria-label={t("m.pdf.link.preview.fef8ec")}>
@@ -128,8 +134,9 @@ function PDFLinksSession({ currentPage, readPDF, onApply, onClose, onCommitState
     <footer>
       {current && <p className="pdf-links-help" role="status">{saving ? committed ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.links.000a6b") : dirtyNumbers.size ? t("m.finish.numeric.input.to.update.the.preview.4415fd") : dragging ? t("m.release.the.area.to.update.the.pdf.preview.ae0d84") : ready ? t("m.preview.ready.fa3fd8", { v0: operations.length ? ` · ${operations.length} pending change${operations.length === 1 ? '' : 's'}` : '' }) : t("m.updating.pdf.preview.262ba0")}</p>}
       {previewError?.key === requestKey && <p className="pdf-links-error" role="alert"><ErrorMessage error={previewError.message} /></p>}{renderError?.key === displayKey && <p className="pdf-links-error" role="alert"><ErrorMessage error={renderError.message} /></p>}{saveError && <p className="pdf-links-error" role="alert"><ErrorMessage error={saveError} /></p>}
-      <div><button type="button" disabled={committed} onClick={close}>{t("m.cancel.77dfd2")}</button><button type="button" className="pdf-links-primary" disabled={!canApply} onClick={() => void apply()}>{t("m.apply.links.eec2cf")}</button></div>
+      <div><button type="button" disabled={committed} onClick={close}>{operations.length > 0 ? t("m.discard.changes.fa8fc0") : t("m.cancel.77dfd2")}</button><button type="button" className="pdf-links-primary" disabled={!canApply} onClick={() => void apply()}>{t("m.apply.links.eec2cf")}</button></div>
     </footer>
+    {confirmation}
   </dialog>;
 }
 export default PDFLinksDialog;

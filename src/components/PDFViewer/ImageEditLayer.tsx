@@ -8,7 +8,17 @@ import { detectImages } from '../../editing/ImageDetector';
 import type { PDFImage } from '../../editing/types';
 import { getEffectiveRotation } from '../../core/PDFRenderer';
 import { mapViewportRect } from '../../utils/viewportMapping';
+import { readInsertImage } from '../../utils/readInsertImage';
+import { isAbortError } from '../../utils/cancellation';
+import { SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations/types';
 import './ImageEditLayer.css';
+
+function dataUrlBytes(dataUrl: string): ArrayBuffer {
+  const binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes.buffer;
+}
 
 interface ImageEditLayerProps { page: PDFPageProxy; pageNumber: number; scale: number; rotation: number }
 
@@ -17,6 +27,7 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
   const { mode, images, setImages, selectedImageId, selectImage, imageEdits, addImageEdit, resetImageEdits } = useEditingStore();
   const [error, setError] = useState<{ page: PDFPageProxy; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replacement = useRef<AbortController | null>(null);
   const pageImages = images.get(pageNumber) ?? [];
   const hasImages = images.has(pageNumber);
   const selected = pageImages.find(image => image.id === selectedImageId);
@@ -44,14 +55,21 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
     const image = state.images.get(pageNumber)?.find(candidate => candidate.id === state.selectedImageId);
     event.target.value = '';
     if (!file || !image?.source || image.unsupportedReason) return;
+    replacement.current?.abort();
+    const controller = new AbortController(); replacement.current = controller;
     try {
-      const data = await file.arrayBuffer();
+      // Share the inserted-image pipeline: WebP/GIF/BMP/SVG and rotated JPEGs become
+      // PNG pixels the PDF writer can embed, and oversized images are rejected early.
+      const prepared = await readInsertImage(file, controller.signal);
       // A file dialog/read can finish after a new document or page is loaded.
-      if (!useEditingStore.getState().images.get(pageNumber)?.some(candidate => candidate.id === image.id)) return;
-      addImageEdit({ imageId: image.id, type: 'replace', newImageData: data, timestamp: Date.now() });
+      if (controller.signal.aborted || !useEditingStore.getState().images.get(pageNumber)?.some(candidate => candidate.id === image.id)) return;
+      addImageEdit({ imageId: image.id, type: 'replace', newImageData: dataUrlBytes(prepared.imageData), timestamp: Date.now() });
       setError(null);
-    } catch (err) { setError({ page, message: err instanceof Error ? err.message : 'Could not read replacement image' }); }
+    } catch (err) {
+      if (!isAbortError(err)) setError({ page, message: err instanceof Error ? err.message : 'Could not read replacement image' });
+    } finally { if (replacement.current === controller) replacement.current = null; }
   }, [page, pageNumber, addImageEdit]);
+  useEffect(() => () => replacement.current?.abort(), []);
 
   const handleDelete = useCallback(() => {
     const state = useEditingStore.getState();
@@ -69,7 +87,7 @@ export function ImageEditLayer({ page, pageNumber, scale, rotation }: ImageEditL
       {!hasImages && error?.page !== page && <div className="image-edit-loading">{t("m.detecting.images.1965f5")}</div>}
       {error?.page === page && <div className="image-edit-loading" role="alert"><ErrorMessage error={error.message} /></div>}
       {hasImages && pageImages.length === 0 && <div className="image-edit-loading">{t("m.no.supported.image.xobjects.found.on.this.page.5abfa8")}</div>}
-      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg" aria-label={t("m.replacement.image.c25591")} hidden onChange={handleFileChange} />
+      <input ref={fileInputRef} type="file" accept={SUPPORTED_IMAGE_EXTENSIONS} aria-label={t("m.replacement.image.c25591")} hidden onChange={handleFileChange} />
       {pageImages.map(image => {
         const rect = mapViewportRect(effectiveRect(image), baseViewport, displayViewport);
         const pending = editsFor(image).length > 0;

@@ -3,6 +3,8 @@ import { useAnnotationStore } from '../../store/annotationStore';
 import { useFormStore } from '../../store/formStore';
 import { useEditingStore } from '../../store/editingStore';
 import { commitPendingEditors } from '../../store/workspaceHistory';
+import { useTiptapEditor } from '../../store/textBoxStore';
+import { appAlert, appConfirm } from '../../store/appDialogStore';
 import type { AnnotationTool } from '../../annotations/types';
 import { PREDEFINED_STAMPS, SUPPORTED_IMAGE_EXTENSIONS } from '../../annotations/types';
 import type { EditingMode } from '../../editing/types';
@@ -171,6 +173,9 @@ export function CombinedToolbar({
     customStamps,
     addCustomStamp,
   } = useAnnotationStore();
+  // While a text box is being edited its own format toolbar owns color and
+  // size; a second "Color" row for new boxes only competes with it.
+  const editingTextBox = useTiptapEditor() !== null;
 
   const pagesToOperate = selectedPages.length > 0 ? selectedPages : [currentPage];
 
@@ -180,16 +185,17 @@ export function CombinedToolbar({
   const handleRotateCCW = () => onRotatePages(pagesToOperate, -90);
   const handleRotate180 = () => onRotatePages(pagesToOperate, 180);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (totalPages <= pagesToOperate.length) {
-      alert(translateMessage('Cannot delete all pages'));
+      await appAlert(translateMessage('Cannot delete all pages'), { title: t('m.delete.pages.33fdff') });
       return;
     }
+    const targets = pagesToOperate;
     const confirmMsg = selectedPages.length > 1
       ? `Delete ${selectedPages.length} selected pages?`
       : `Delete page ${currentPage}?`;
-    if (confirm(translateMessage(confirmMsg))) {
-      onDeletePages(pagesToOperate);
+    if (await appConfirm({ title: t('m.delete.pages.33fdff'), message: translateMessage(confirmMsg), confirmLabel: t('m.delete.f6fdbe'), danger: true })) {
+      onDeletePages(targets);
     }
   };
 
@@ -468,7 +474,7 @@ export function CombinedToolbar({
     {hasDocument && <div className="quick-tools" role="toolbar" aria-label={t("m.quick.annotation.tools.b6b90d")}>{annotationCommands.map(item => <ToolButton key={item.id} command={item} compact />)}<button type="button" className={`workspace-tool compact ${currentTool === 'stamp' ? 'active' : ''}`} title={t("m.stamp.973fc7")} aria-label={t("m.stamp.973fc7")} disabled={isBusy} onClick={() => toggleMenu('stamp')} data-toolbar-menu-trigger="stamp" aria-expanded={activeMenu === 'stamp'} aria-controls="toolbar-stamp-menu"><Stamp size={18} /></button></div>}
     {showDocumentMenu && <div className="toolbar-menu workspace-all-tools" id="toolbar-document-menu" data-toolbar-menu="document" role="group" aria-label={t("m.all.tools.b390ab")}>{['Edit', 'Organize', 'Convert', 'Forms & Sign', 'Protect', 'Document'].map(section => <div className="all-tools-section" key={section}><h3>{translateMessage(section)}</h3>{commands.filter(item => item.group === section).map(item => <button key={item.id} type="button" disabled={item.disabled} data-command={item.id} onClick={event => { closeMenus(); item.run(event); }}><item.icon size={16} /><span>{item.label}</span></button>)}</div>)}</div>}
     {activeMenu === 'stamp' && <div className="toolbar-menu stamp-menu" id="toolbar-stamp-menu" data-toolbar-menu="stamp" role="group" aria-label={t("m.stamp.menu.2171e3")}><span className="menu-section-label">{t("m.predefined.bc3e74")}</span>{PREDEFINED_STAMPS.map(stamp => <button key={stamp} aria-pressed={selectedStamp.type === 'predefined' && selectedStamp.name === stamp} onClick={() => chooseStamp({ type: 'predefined', name: stamp })}>{translateMessage(stamp)}</button>)}{customStamps.length > 0 && <span className="menu-section-label">{t("m.custom.081ae3")}</span>}{customStamps.map((stamp, index) => <button key={`${stamp.name}-${index}`} aria-pressed={selectedStamp.type === 'custom' && selectedStamp.name === stamp.name} onClick={() => chooseCustomStamp(stamp)}>{stamp.name}</button>)}<button onClick={() => stampInputRef.current?.click()}>{t("m.add.custom.63c20a")}</button></div>}
-    {hasDocument && currentTool !== 'select' && currentTool !== 'pan' && <div className="workspace-tool-options" role="group" aria-label={t("m.tool.properties.ae93ea")}>
+    {hasDocument && currentTool !== 'select' && currentTool !== 'pan' && currentTool !== 'image' && !editingTextBox && <div className="workspace-tool-options" role="group" aria-label={t("m.tool.properties.ae93ea")}>
       {currentTool === 'stamp' ? <span role="status">{t("m.stamp.5c5029")}{' '}{selectedStamp.type === 'predefined' ? translateMessage(selectedStamp.name) : selectedStamp.name}{' '}{t("m.click.the.page.to.place.1a34c4")}</span> : <label>{t("m.color.1d0c83")}<input type="color" aria-label={t("m.annotation.color.c86abe")} className="color-input" value={toolSettings.color} onChange={handleColorChange} /></label>}
       {['highlight', 'rectangle', 'ellipse'].includes(currentTool) && <label>{t("m.opacity.f0fa69")}<input type="range" aria-label={t("m.annotation.opacity.7ca132")} min="0.1" max="1" step="0.1" value={toolSettings.opacity} onChange={handleOpacityChange} /></label>}
       {['ink', 'line', 'arrow', 'rectangle', 'ellipse'].includes(currentTool) && <label>{t("m.stroke.width.07d2ad")}<input type="range" aria-label={t("m.stroke.width.71c051")} min="1" max="10" step="1" value={toolSettings.strokeWidth} onChange={handleStrokeWidthChange} /></label>}

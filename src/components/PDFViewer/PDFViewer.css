@@ -1,6 +1,8 @@
 .pdf-viewer-container {
   flex: 1;
   overflow: auto;
+  /* Native one-finger scrolling stays; two-finger pinches zoom the pages, not the UI. */
+  touch-action: pan-x pan-y;
   background-color: var(--gray-4);
   display: flex;
   /* Use flex-start to prevent content from being pushed outside scrollable area */
@@ -75,5 +77,5 @@
 .page-viewport {
   position: relative;
   flex: none;
-  background: white;
+  background: light-dark(white, #18191c);
 }

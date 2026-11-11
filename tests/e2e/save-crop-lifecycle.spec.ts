@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 import { PDFDocument, PDFName, PDFNumber, degrees } from 'pdf-lib';
+import { acceptAppDialog } from './appDialog';
 
 async function fixture(rotation = 0) {
   const pdf = await PDFDocument.create(), sheet = pdf.addPage([400, 600]);
@@ -172,8 +173,8 @@ test('edits made while a file is being written remain unsaved', async ({ page })
 
 test('download fallback Save As uses the chosen filename for subsequent saves and exports', async ({ page }) => {
   await open(page); await page.getByRole('textbox', { name: 'Contact', exact: true }).fill('Renamed copy');
-  page.once('dialog', dialog => dialog.accept('renamed'));
   const pending = page.waitForEvent('download'); await page.keyboard.press('Control+Shift+s');
+  await acceptAppDialog(page, 'renamed');
   expect((await pending).suggestedFilename()).toBe('renamed.pdf');
   await expect(page.locator('.document-title')).toHaveText('renamed.pdf');
   const exported = page.waitForEvent('download'); await page.locator('.main-toolbar .toolbar-btn-primary').click();

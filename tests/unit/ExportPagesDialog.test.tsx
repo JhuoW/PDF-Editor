@@ -77,7 +77,7 @@ describe('ExportPagesDialog', () => {
     expect(readPDF).not.toHaveBeenCalled(); expect(exportPagesInWorker).not.toHaveBeenCalled();
     await act(async () => { useLocaleStore.getState().setLocale('zh-CN'); });
     expect(host.querySelector('h2')!.textContent).toBe('PDF 转图片');
-    expect(host.querySelector('[role="alert"]')!.textContent).toContain('1和8');
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain('1 和 8');
     expect(host.querySelector<HTMLInputElement>('input[aria-describedby]')!.value).toBe('9');
     await enterRange('３，１–２，３');
     expect(host.querySelector('[role="alert"]')).toBeNull();

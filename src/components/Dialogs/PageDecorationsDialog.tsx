@@ -1,4 +1,5 @@
 import { ErrorMessage } from '../Feedback/ErrorMessage';
+import { useDiscardConfirmation } from './useDiscardConfirmation';
 import { LanguageSwitcher } from "../Workspace/LanguageSwitcher";
 import { useLocale, t, translateMessage, translateError } from "../../i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -91,6 +92,7 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
     if (operation.current) { closeAfterCancel.current = true; operation.current.abort(); setCanceling(true); }
     else onClose();
   };
+  const { requestClose, handleCancel, confirmation } = useDiscardConfirmation(!busy && operations.length > 0, close);
   const select = (id: string) => { setSelectedId(id); setValidation(null); setError(null); };
   const add = (kind: PageDecorationDefinition['kind']) => {
     if (disabled || !current) return;
@@ -119,7 +121,7 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
     }
   };
   useLayoutEffect(() => { saveLatest.current = save; });
-  return <dialog ref={dialog} className="page-decorations-dialog" aria-labelledby="page-decorations-title" onCancel={event => { event.preventDefault(); close(); }}
+  return <dialog ref={dialog} className="page-decorations-dialog" aria-labelledby="page-decorations-title" onCancel={handleCancel}
     onKeyDown={event => {
       event.stopPropagation();
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -128,7 +130,7 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
         void saveLatest.current();
       }
     }}>
-    <header><div><h2 id="page-decorations-title">{t("m.watermarks.headers.backgrounds.3697c3")}</h2><p>{t("m.preview.the.pdf.before.applying.all.changes.toge.e054f6")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.page.decorations.21b509")} disabled={saving || canceling} onClick={close}>×</button></header>
+    <header><div><h2 id="page-decorations-title">{t("m.watermarks.headers.backgrounds.3697c3")}</h2><p>{t("m.preview.the.pdf.before.applying.all.changes.toge.e054f6")}</p></div><div className="dialog-language"><LanguageSwitcher /></div><button type="button" aria-label={t("m.close.page.decorations.21b509")} disabled={saving || canceling} onClick={requestClose}>×</button></header>
     {!current && loadError?.key !== loadKey && <p role="status" className="decoration-loading">{t("m.loading.page.decorations.53b350")}</p>}
     {loadError?.key === loadKey && <div className="decoration-loading"><p role="alert" className="decoration-error"><ErrorMessage error={loadError.message} /></p><button type="button" onClick={() => setReload(value => value + 1)}>{t("m.retry.9f5cd8")}</button></div>}
     {current && <div className="decoration-body">
@@ -157,6 +159,7 @@ function PageDecorationsSession({ revision, currentPage, readPDF, onApply, onClo
     <footer>{(validation || error) && <p role="alert" className="decoration-error"><ErrorMessage error={validation || error} /></p>}{busy && <p role="status">{canceling ? t("m.canceling.9dd59f") : saving ? t("m.opening.the.updated.pdf.31b55e") : t("m.applying.page.decorations.10bc34")}</p>}{imageBusy && <p role="status">{t("m.reading.image.8ae8b8")}</p>}
       <div><button type="button" disabled={saving || canceling} onClick={close}>{operations.length ? t("m.discard.changes.fa8fc0") : t("m.close.bbfa77")}</button><button type="button" className="decoration-primary" disabled={disabled || !operations.length || !!validation || !!currentPreview?.error} onClick={() => void save()}>{t("m.apply.decorations.7a178f")}</button></div>
     </footer>
+    {confirmation}
   </dialog>;
 }
 export default PageDecorationsDialog;
